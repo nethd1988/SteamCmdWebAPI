@@ -15,7 +15,6 @@ namespace SteamCmdWebAPI.Services
 {
     /// <summary>
     /// Dịch vụ TCP Client tối ưu hóa cho việc giao tiếp với server SteamCMD.
-    /// Sử dụng connection pooling, caching và xử lý hiệu suất cao.
     /// </summary>
     public class TcpClientService : IDisposable
     {
@@ -63,6 +62,13 @@ namespace SteamCmdWebAPI.Services
         /// </summary>
         public async Task<bool> TestConnectionAsync(string serverAddress, int port = 61188, int timeout = 5000)
         {
+            // Kiểm tra đầu vào
+            if (string.IsNullOrEmpty(serverAddress))
+            {
+                _logger.LogError("Server address cannot be null or empty");
+                return false;
+            }
+
             PooledTcpClient pooledClient = null;
             try
             {
@@ -101,6 +107,13 @@ namespace SteamCmdWebAPI.Services
         /// </summary>
         public async Task<List<string>> GetProfileNamesAsync(string serverAddress, int port = 61188)
         {
+            // Kiểm tra đầu vào
+            if (string.IsNullOrEmpty(serverAddress))
+            {
+                _logger.LogError("Server address cannot be null or empty");
+                return new List<string>();
+            }
+
             string cacheKey = $"{serverAddress}:{port}:profiles";
 
             // Kiểm tra cache trước
@@ -182,9 +195,17 @@ namespace SteamCmdWebAPI.Services
         /// </summary>
         public async Task<SteamCmdProfile> GetProfileDetailsByNameAsync(string serverAddress, string profileName, int port = 61188)
         {
+            // Kiểm tra tên profile
             if (string.IsNullOrEmpty(profileName))
             {
                 _logger.LogWarning("Profile name cannot be empty");
+                return null;
+            }
+
+            // Kiểm tra địa chỉ server
+            if (string.IsNullOrEmpty(serverAddress))
+            {
+                _logger.LogWarning("Server address cannot be empty");
                 return null;
             }
 
@@ -247,32 +268,6 @@ namespace SteamCmdWebAPI.Services
                         {
                             profile.SteamUsername = clientProfile.SteamUsername;
                             profile.SteamPassword = clientProfile.SteamPassword;
-
-                            if (!string.IsNullOrEmpty(clientProfile.SteamUsername))
-                            {
-                                try
-                                {
-                                    var decryptedUsername = _encryptionService.Decrypt(clientProfile.SteamUsername);
-                                    _logger.LogDebug("Successfully decrypted username");
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogError(ex, "Failed to decrypt username");
-                                }
-                            }
-
-                            if (!string.IsNullOrEmpty(clientProfile.SteamPassword))
-                            {
-                                try
-                                {
-                                    _encryptionService.Decrypt(clientProfile.SteamPassword);
-                                    _logger.LogDebug("Successfully decrypted password");
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogError(ex, "Failed to decrypt password");
-                                }
-                            }
                         }
                         else
                         {
@@ -323,10 +318,129 @@ namespace SteamCmdWebAPI.Services
         }
 
         /// <summary>
+        /// Gửi một profile từ client đến server
+        /// </summary>
+        public async Task<bool> SendProfileToServerAsync(string serverAddress, SteamCmdProfile profile, int port = 61188)
+        {
+            if (profile == null)
+            {
+                _logger.LogError("Profile cannot be null when sending to server");
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(serverAddress))
+            {
+                _logger.LogError("Server address cannot be null or empty");
+                return false;
+            }
+
+            PooledTcpClient pooledClient = null;
+            try
+            {
+                pooledClient = await GetConnectionAsync(serverAddress, port);
+                if (pooledClient == null)
+                {
+                    _logger.LogError("Failed to establish connection to server {ServerAddress}:{Port}", serverAddress, port);
+                    return false;
+                }
+
+                // Chuyển đổi profile thành JSON
+                string profileJson = JsonSerializer.Serialize(profile);
+
+                // Chuẩn bị request
+                string request = $"AUTH:{AUTH_TOKEN} SEND_PROFILE";
+                string response = await SendRequestAsync(pooledClient, request);
+
+                if (response == "AUTH_FAILED")
+                {
+                    _logger.LogWarning("Authentication failed when connecting to server");
+                    return false;
+                }
+                else if (response == "READY_TO_RECEIVE")
+                {
+                    // Server đã sẵn sàng nhận profile, gửi dữ liệu
+                    await SendProfileDataAsync(pooledClient, profileJson);
+                    _logger.LogInformation("Successfully sent profile {ProfileName} to server", profile.Name);
+                    return true;
+                }
+                else
+                {
+                    _logger.LogWarning("Unexpected server response: {Response}", response);
+                    return false;
+                }
+            }
+            catch (SocketException ex)
+            {
+                _logger.LogError(ex, "Socket error when sending profile: {Error}", ex.Message);
+                if (pooledClient != null)
+                {
+                    pooledClient.Invalidate();
+                    _connectionPool.TryRemove($"{serverAddress}:{port}", out _);
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending profile {ProfileName} to server: {Error}",
+                    profile.Name, ex.Message);
+                return false;
+            }
+            finally
+            {
+                if (pooledClient != null)
+                {
+                    pooledClient.UpdateLastUsed();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gửi dữ liệu profile đến server
+        /// </summary>
+        private async Task SendProfileDataAsync(PooledTcpClient client, string profileJson)
+        {
+            if (client == null)
+            {
+                throw new ArgumentNullException(nameof(client), "TCP client cannot be null");
+            }
+
+            NetworkStream stream = null;
+            try
+            {
+                stream = client.GetStream();
+
+                // Gửi dữ liệu profile với tiền tố độ dài
+                byte[] profileBytes = Encoding.UTF8.GetBytes(profileJson);
+                byte[] lengthBytes = BitConverter.GetBytes(profileBytes.Length);
+
+                await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length);
+                await stream.WriteAsync(profileBytes, 0, profileBytes.Length);
+                await stream.FlushAsync();
+
+                // Gửi marker 0 byte để đánh dấu kết thúc truyền
+                byte[] endMarker = BitConverter.GetBytes(0);
+                await stream.WriteAsync(endMarker, 0, endMarker.Length);
+                await stream.FlushAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during profile data transmission");
+                client.Invalidate();
+                throw;
+            }
+        }
+
+        /// <summary>
         /// Đồng bộ hóa profiles từ server
         /// </summary>
         public async Task<int> SyncProfilesFromServerAsync(string serverAddress, ProfileService profileService, int port = 61188)
         {
+            if (string.IsNullOrEmpty(serverAddress))
+            {
+                _logger.LogError("Server address cannot be null or empty");
+                return 0;
+            }
+
             try
             {
                 var profileNames = await GetProfileNamesAsync(serverAddress, port);
@@ -335,9 +449,8 @@ namespace SteamCmdWebAPI.Services
 
                 int syncedCount = 0;
                 var currentProfiles = await profileService.GetAllProfiles();
-                var tasks = new List<Task<SteamCmdProfile>>();
 
-                // Tải các profiles song song với số lượng giới hạn
+                // Xử lý từng profile theo batch để tránh quá tải
                 foreach (var batch in BatchList(profileNames, 3)) // Xử lý 3 profiles cùng lúc
                 {
                     var batchTasks = new List<Task<SteamCmdProfile>>();
@@ -401,6 +514,62 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogError(ex, "Error syncing profiles from server");
                 return 0;
             }
+        }
+
+        /// <summary>
+        /// Đồng bộ một danh sách profiles đến server
+        /// </summary>
+        public async Task<(int Success, int Failed)> SendProfilesListToServerAsync(
+            string serverAddress,
+            List<SteamCmdProfile> profiles,
+            int port = 61188)
+        {
+            if (profiles == null || profiles.Count == 0)
+            {
+                _logger.LogWarning("No profiles to send to server");
+                return (0, 0);
+            }
+
+            if (string.IsNullOrEmpty(serverAddress))
+            {
+                _logger.LogError("Server address cannot be null or empty");
+                return (0, 0);
+            }
+
+            int successCount = 0;
+            int failedCount = 0;
+
+            // Xử lý từng profile riêng biệt để tránh lỗi ảnh hưởng đến toàn bộ quá trình
+            foreach (var profile in profiles)
+            {
+                try
+                {
+                    bool success = await SendProfileToServerAsync(serverAddress, profile, port);
+                    if (success)
+                    {
+                        successCount++;
+                        _logger.LogInformation("Successfully sent profile {ProfileName} to server", profile.Name);
+                    }
+                    else
+                    {
+                        failedCount++;
+                        _logger.LogWarning("Failed to send profile {ProfileName} to server", profile.Name);
+                    }
+
+                    // Tạm dừng ngắn để tránh gây quá tải cho server
+                    await Task.Delay(500);
+                }
+                catch (Exception ex)
+                {
+                    failedCount++;
+                    _logger.LogError(ex, "Error sending profile {ProfileName} to server", profile.Name);
+                }
+            }
+
+            _logger.LogInformation("Sent {SuccessCount} profiles to server, {FailedCount} failed",
+                successCount, failedCount);
+
+            return (successCount, failedCount);
         }
 
         /// <summary>
@@ -776,8 +945,7 @@ namespace SteamCmdWebAPI.Services
                     // Kiểm tra kết nối còn sống không
                     try
                     {
-                        return _client.Connected &&
-                               !(_client.Client.Poll(0, SelectMode.SelectRead) && _client.Client.Available == 0);
+                        return _client.Connected && !(_client.Client.Poll(0, SelectMode.SelectRead) && _client.Client.Available == 0);
                     }
                     catch
                     {
@@ -832,28 +1000,6 @@ namespace SteamCmdWebAPI.Services
                 Item = item;
                 ExpirationTime = DateTime.UtcNow.Add(expiresIn);
             }
-        }
-
-        /// <summary>
-        /// Lớp đại diện cho một profile được trả về từ server
-        /// </summary>
-        private class ClientProfile
-        {
-            public int Id { get; set; }
-            public string Name { get; set; } = string.Empty;
-            public string AppID { get; set; } = string.Empty;
-            public string InstallDirectory { get; set; } = string.Empty;
-            public string SteamUsername { get; set; } = string.Empty;
-            public string SteamPassword { get; set; } = string.Empty;
-            public string Arguments { get; set; } = string.Empty;
-            public bool ValidateFiles { get; set; }
-            public bool AutoRun { get; set; }
-            public bool AnonymousLogin { get; set; }
-            public string Status { get; set; } = "Stopped";
-            public DateTime StartTime { get; set; } = DateTime.Now;
-            public DateTime StopTime { get; set; } = DateTime.Now;
-            public int Pid { get; set; }
-            public DateTime LastRun { get; set; } = DateTime.Now;
         }
     }
 }

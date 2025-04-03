@@ -15,7 +15,7 @@ namespace SteamCmdWebAPI.Services
         public ServerSettingsService(ILogger<ServerSettingsService> logger)
         {
             _logger = logger;
-            
+
             // Lấy thư mục gốc của dự án
             string projectDir = AppContext.BaseDirectory;
             int maxDepth = 10;
@@ -59,7 +59,7 @@ namespace SteamCmdWebAPI.Services
             {
                 _logger.LogError(ex, "Lỗi khi đọc cài đặt server: {Message}", ex.Message);
             }
-            
+
             // Trả về cài đặt mặc định nếu không đọc được
             return new ServerSettings();
         }
