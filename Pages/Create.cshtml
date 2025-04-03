@@ -1,0 +1,245 @@
+@page
+@model CreateModel
+@{
+    ViewData["Title"] = "Tạo cấu hình mới";
+}
+
+<div class="container">
+    <h1>Tạo Profile Game Mới</h1>
+
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
+            @Model.StatusMessage
+        </div>
+    }
+
+    <div class="row">
+        <div class="col-md-8">
+            @if (Model.IsServerConfigured)
+            {
+                <div class="card mb-4">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">Lấy từ Server</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="post" asp-page-handler="LoadServerProfile" id="serverProfileForm">
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <div class="mb-3">
+                                        <label for="SelectedServerProfile" class="form-label">Chọn profile:</label>
+                                        <select id="SelectedServerProfile" name="SelectedServerProfile" asp-for="SelectedServerProfile" asp-items="Model.ServerProfiles" class="form-select"></select>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 d-flex align-items-end">
+                                    <button type="submit" class="btn btn-info">Lấy từ Server</button>
+                                </div>
+                            </div>
+                            <div class="form-text">
+                                Đang kết nối đến: @Model.ServerAddress
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            }
+
+            <div class="card">
+                <div class="card-body">
+                    <form method="post" id="createProfileForm" asp-page-handler="SaveProfile">
+                        @Html.AntiForgeryToken()
+
+                        <div class="mb-3">
+                            <label for="Profile_Name" class="form-label">Tên Profile</label>
+                            <input id="Profile_Name" name="Profile.Name" value="@Model.Profile.Name" class="form-control" required />
+                            <span asp-validation-for="Profile.Name" class="text-danger"></span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="Profile_AppID" class="form-label">App ID</label>
+                            <input id="Profile_AppID" name="Profile.AppID" value="@Model.Profile.AppID" class="form-control" required />
+                            <span asp-validation-for="Profile.AppID" class="text-danger"></span>
+                            <small class="text-muted">Nhập ID của game trên Steam. Ví dụ: 730 cho CS:GO</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="Profile_InstallDirectory" class="form-label">Đường dẫn cài đặt</label>
+                            <input id="Profile_InstallDirectory" name="Profile.InstallDirectory" value="@Model.Profile.InstallDirectory" class="form-control" required />
+                            <span asp-validation-for="Profile.InstallDirectory" class="text-danger"></span>
+                            <small class="text-muted">Nhập đường dẫn đầy đủ nơi game sẽ được cài đặt</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="Profile_Arguments" class="form-label">Tham số bổ sung (tùy chọn)</label>
+                            <input id="Profile_Arguments" name="Profile.Arguments" value="@Model.Profile.Arguments" class="form-control" />
+                            <span asp-validation-for="Profile.Arguments" class="text-danger"></span>
+                            <small class="text-muted">Các tham số dòng lệnh bổ sung cho SteamCMD</small>
+                        </div>
+
+                        <div class="mb-3 form-check">
+                            <input id="Profile_ValidateFiles" name="Profile.ValidateFiles" type="checkbox" class="form-check-input" @(Model.Profile.ValidateFiles ? "checked" : "") />
+                            <label for="Profile_ValidateFiles" class="form-check-label">Kiểm tra và sửa chữa file</label>
+                        </div>
+                        
+                        <div class="mb-3 form-check">
+                            <input id="Profile_AutoRun" name="Profile.AutoRun" type="checkbox" class="form-check-input" @(Model.Profile.AutoRun ? "checked" : "") />
+                            <label for="Profile_AutoRun" class="form-check-label">Tự động chạy khi khởi động</label>
+                        </div>
+
+                        <div class="mb-3 form-check">
+                            <input id="Profile_AnonymousLogin" name="Profile.AnonymousLogin" type="checkbox" class="form-check-input" @(Model.Profile.AnonymousLogin ? "checked" : "") />
+                            <label for="Profile_AnonymousLogin" class="form-check-label">Đăng nhập ẩn danh</label>
+                            <small class="d-block text-muted">Chọn nếu game có thể tải về mà không cần đăng nhập vào tài khoản Steam</small>
+                        </div>
+
+                        <div id="loginSection" class="@(Model.Profile.AnonymousLogin ? "d-none" : "")">
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h5>Thông tin đăng nhập Steam</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="alert alert-warning">
+                                        <i class="bi bi-exclamation-triangle me-2"></i> Lưu ý: Thông tin đăng nhập sẽ được lưu dưới dạng mã hóa trong cơ sở dữ liệu.
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="Username" class="form-label">Tên đăng nhập</label>
+                                        <input id="Username" name="Username" value="@Model.Username" class="form-control" />
+                                        <span id="usernameError" class="text-danger"></span>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="Password" class="form-label">Mật khẩu</label>
+                                        <input id="Password" name="Password" value="@Model.Password" type="password" class="form-control" />
+                                        <span id="passwordError" class="text-danger"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex">
+                            <button type="submit" class="btn btn-primary me-2">Lưu cấu hình</button>
+                            <a asp-page="./Index" class="btn btn-secondary">Quay lại</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Hướng dẫn</h5>
+                </div>
+                <div class="card-body">
+                    <h5>Cách tạo profile mới</h5>
+                    <p>Nhập thông tin cần thiết cho profile game:</p>
+                    
+                    <ul>
+                        <li><strong>Tên Profile:</strong> Tên để nhận diện profile</li>
+                        <li><strong>App ID:</strong> ID của game trên Steam</li>
+                        <li><strong>Đường dẫn cài đặt:</strong> Thư mục cài đặt game</li>
+                        <li><strong>Tham số bổ sung:</strong> Các tham số tùy chọn</li>
+                    </ul>
+                    
+                    <p>Nếu game yêu cầu đăng nhập, hãy bỏ chọn "Đăng nhập ẩn danh" và nhập thông tin tài khoản Steam.</p>
+                    
+                    <p class="text-info">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Bạn cũng có thể sử dụng nút "Lấy từ Server" để nhập nhanh từ cơ sở dữ liệu có sẵn.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            console.log("Initialize form - AnonymousLogin: " + $('#Profile_AnonymousLogin').is(':checked'));
+
+            // Sử dụng các biến DOM để tối ưu hiệu suất
+            var $anonymousLogin = $('#Profile_AnonymousLogin');
+            var $loginSection = $('#loginSection');
+            var $username = $('#Username');
+            var $password = $('#Password');
+            
+            // Hiển thị thông báo loading
+            var showLoading = function() {
+                if ($('#loadingMessage').length === 0) {
+                    $('#serverProfileForm').after('<div id="loadingMessage" class="alert alert-info">Đang tải dữ liệu từ server...</div>');
+                }
+            };
+            
+            // Xử lý hiển thị/ẩn phần đăng nhập dựa vào checkbox
+            function toggleLoginSection() {
+                console.log("Toggle login section - Checked: " + $anonymousLogin.is(':checked'));
+                if ($anonymousLogin.is(':checked')) {
+                    $loginSection.addClass('d-none');
+                    $username.val('');
+                    $password.val('');
+                } else {
+                    $loginSection.removeClass('d-none');
+                }
+            }
+            
+            // Khi checkbox thay đổi trạng thái
+            $anonymousLogin.change(function() {
+                console.log("Anonymous login changed: " + $(this).is(':checked'));
+                toggleLoginSection();
+            });
+            
+            // Đảm bảo đúng trạng thái khi trang tải
+            toggleLoginSection();
+            
+            // Xử lý khi form lấy từ server được submit
+            $('#serverProfileForm').submit(function(e) {
+                console.log("Server profile form submitted");
+                showLoading();
+                return true;
+            });
+            
+            // Xử lý trước khi form chính được submit
+            $('#createProfileForm').submit(function(e) {
+                console.log("Main form submitted - AnonymousLogin: " + $anonymousLogin.is(':checked'));
+                
+                // Xóa thông báo lỗi cũ
+                $('#usernameError').text('');
+                $('#passwordError').text('');
+                
+                // Kiểm tra nếu không phải đăng nhập ẩn danh
+                if (!$anonymousLogin.is(':checked')) {
+                    var hasUsername = $username.val().trim() !== '';
+                    var hasPassword = $password.val().trim() !== '';
+                    
+                    // Nếu có username nhưng không có password hoặc ngược lại
+                    if (hasUsername && !hasPassword) {
+                        $('#passwordError').text('Vui lòng nhập mật khẩu khi đã nhập tên đăng nhập');
+                        e.preventDefault();
+                        return false;
+                    }
+                    
+                    if (!hasUsername && hasPassword) {
+                        $('#usernameError').text('Vui lòng nhập tên đăng nhập khi đã nhập mật khẩu');
+                        e.preventDefault();
+                        return false;
+                    }
+                }
+                
+                return true;
+            });
+            
+            // Nếu đã tải thành công từ server, cuộn đến form chính
+            @if (Model.IsSuccess)
+            {
+                <text>
+                console.log("Success flag is true, scrolling to form");
+                $('html, body').animate({
+                    scrollTop: $("#createProfileForm").offset().top - 100
+                }, 500);
+                </text>
+            }
+        });
+    </script>
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}

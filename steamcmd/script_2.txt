@@ -1,0 +1,4 @@
+login dungtx025289 Nghe@123
+app_update 1172470 
+-norepairfiles -noverifyfiles validate
+quit

@@ -1,0 +1,5 @@
+{
+  "AutoRunEnabled": false,
+  "AutoRunInterval": "daily",
+  "ScheduledHour": 6
+}

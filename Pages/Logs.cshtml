@@ -1,0 +1,53 @@
+@page
+@model LogsModel
+@{
+    ViewData["Title"] = "Logs - SteamAUTO";
+}
+
+<div class="container">
+    <h1>Logs</h1>
+
+    <div class="mb-3">
+        <a asp-page="/Index" class="btn btn-primary">Quay lại trang chính</a>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <h5>Lịch sử Logs</h5>
+            <table class="table table-bordered" style="background-color: #000; color: #fff;">
+                <thead>
+                    <tr>
+                        <th>Thời gian</th>
+                        <th>Profile</th>
+                        <th>Trạng thái</th>
+                        <th>Thông điệp</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var log in Model.Logs.OrderByDescending(l => l.Timestamp))
+                    {
+                        <tr>
+                            <td>@log.Timestamp.ToString("dd/MM/yyyy HH:mm:ss")</td>
+                            <td>@log.ProfileName</td>
+                            <td>
+                                @if (log.Status == "Success")
+                                {
+                                    <span class="badge bg-success">@log.Status</span>
+                                }
+                                else if (log.Status == "Error")
+                                {
+                                    <span class="badge bg-danger">@log.Status</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-info">@log.Status</span>
+                                }
+                            </td>
+                            <td>@log.Message</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

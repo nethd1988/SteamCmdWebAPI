@@ -1,0 +1,768 @@
+"UserLocalConfigStore"
+{
+	"Broadcast"
+	{
+		"Permissions"		"1"
+	}
+	"ParentalSettings"
+	{
+		"Settings"		"09453b06350000000010001a0f416c6c6f7720616c6c2067616d65732a0508da0510012a0608f6d00d10012a0608cab40f10012a0608e6c91010012a0608fe8f1510012a0608eaef1810012a06089aa11910012a06089ba11910012a06089ca11910012a06089da11910012a06089ea11910012a06089fa11910012a0608a0a11910012a0608a1a11910012a0608a2a11910012a0608a3a11910012a060882941b10012a06088afc1b10012a060894fc1b10012a06089efc1b10012a0608a8fc1b10012a0608bcfc1b10012a0608c6fc1b10012a0608d0fc1b10012a0608c0ba1c10012a060892b11e10012a060893b11e10012a060894b11e10012a060895b11e10012a0608a0a42310012a0608c0dc2310012a0608c1dc2310012a0608c2dc2310012a0608c3dc2310012a0608a4e12a10012a0608e6d842100130063a0826212c8f287cf0eb42201fecfb27d06e4e215d32a2db67743cfb95d1a13133e71b8137fa95bda60b5e6d4801509c305a176c6576616e70686f303534313240676d61696c2e636f6d680070007a008201009801079801c4a70f9801c292149801eef01598019aaf169801a8b134980194db3a9801eeb0409801e0ab419801c0f94398019096489801f0fe4b980186f45498018ad7569801ce955b9801e2b8609801beb1639801e89b739801848885019801aeac8f019801e29fab01"
+		"Signature"		"8cfac1d55eacabde4153c3f48699347cbb0233ee9a32fa836f2f83c8d4071a3efec4a22a4aca848ce856d82c318e3c34c2aefa09f944836d75ce137c0ce5902b6239d5e710ef4ba026f291f73f977aef4c4e8d7da2ed5690417e0b6f0b2dd764eef4474dce04f444e888d2a6f04b063d0d012f856e231bc975675b70f681bcf9e41ff11ba7726cd2347f21e6a4b10764aa0875a9f798731927acc4df4ff6973c13263839c068cd8512feb8c47ef21efe17ef8b7a2411f7dbbce4d3c6584bf24c25a5d832badc5c9e5804e60a241117c02e399fe3a6fe00ed6c8713f5ad61f7fec144b02dea65f5920b0068cec44c34c90e5795907e643e82be588b6575799005"
+	}
+	"friends"
+	{
+		"889600837"
+		{
+			"NameHistory"
+			{
+				"0"		"Umbalaxibua"
+			}
+			"avatar"		"148ff422f2245ab66abfeabf3f7506861d6b703b"
+			"name"		"Umbalaxibua"
+		}
+		"PersonaName"		"Umbalaxibua"
+		"communitypreferences"		"18002000280130013800"
+		"contentdescriptorpreferences"		"0a0208010a0208030a020804"
+		"378283973"
+		{
+			"name"		"NomNom"
+			"NameHistory"
+			{
+				"0"		"NomNom"
+			}
+			"avatar"		"fe21be926e1ed6d1d86f8891af4a6f7813267749"
+		}
+		"447877809"
+		{
+			"name"		"Siongaming"
+			"NameHistory"
+			{
+				"0"		"Siongaming"
+			}
+			"avatar"		"2dba40cd992e4545acd4ef9df81d577df899b4bd"
+		}
+		"1064914874"
+		{
+			"name"		"Dịch vụ xe  hòm"
+			"NameHistory"
+			{
+				"0"		"Dịch vụ xe  hòm"
+			}
+			"avatar"		"0000000000000000000000000000000000000000"
+		}
+		"389356231"
+		{
+			"name"		"yakogame"
+			"NameHistory"
+			{
+				"0"		"yakogame"
+			}
+			"avatar"		"a41301d4b9e1d39dda8f88f1c057b74f846482c7"
+		}
+		"980592980"
+		{
+			"name"		"Dr@t"
+			"NameHistory"
+			{
+				"0"		"Dr@t"
+			}
+			"avatar"		"9905e2c04ed0e330c7703ca49914d51708bd867a"
+		}
+		"860437794"
+		{
+			"name"		"Inter Miami"
+			"NameHistory"
+			{
+				"0"		"Inter Miami"
+			}
+			"avatar"		"284d7cbd378f721fad06147d0b2a15f034042388"
+		}
+		"434795976"
+		{
+			"name"		"Gaben Fuck You"
+			"NameHistory"
+			{
+				"0"		"Gaben Fuck You"
+			}
+			"avatar"		"8e0344abe96c981448b8a0613026e48e04b2d006"
+		}
+		"1313493642"
+		{
+			"name"		"Muck"
+			"NameHistory"
+			{
+				"0"		"Muck"
+			}
+			"avatar"		"571b3a246fd7984ad4d793ce3bf95aa163f3f06d"
+		}
+		"1187695983"
+		{
+			"name"		"arsome"
+			"NameHistory"
+			{
+				"0"		"arsome"
+			}
+			"avatar"		"501eb02b30c70ce86da91e7878d0fbb2492916cf"
+		}
+		"1105956236"
+		{
+			"name"		"naniii"
+			"NameHistory"
+			{
+				"0"		"naniii"
+			}
+			"avatar"		"36fdf7b295678f7c5c9f391c4f770cdff385b4f5"
+		}
+		"484350169"
+		{
+			"name"		"Bú Cần Sa"
+			"NameHistory"
+			{
+				"0"		"Bú Cần Sa"
+			}
+			"avatar"		"930b8b4b244d9c8f3b45d9cfdd98a96ae416beb3"
+		}
+		"438321701"
+		{
+			"name"		"quân"
+			"NameHistory"
+			{
+				"0"		"quân"
+			}
+			"avatar"		"43fcbac446dc41817b66ab9bcdbfe452644951d1"
+		}
+		"292476474"
+		{
+			"name"		"Roar"
+			"NameHistory"
+			{
+				"0"		"Roar"
+			}
+			"avatar"		"7d26bbd8cf20553ae21f656e18646250bc46a37c"
+		}
+		"1526318680"
+		{
+			"name"		"Hoàng nè"
+			"NameHistory"
+			{
+				"0"		"Hoàng nè"
+			}
+			"avatar"		"8e08771632a120a42e0b9caff2bd66e98d70170e"
+		}
+		"1158773583"
+		{
+			"name"		"Canaximuoi"
+			"NameHistory"
+			{
+				"0"		"Canaximuoi"
+			}
+			"avatar"		"b93f04b9194fba8980a2dc74947d47d0087ba113"
+		}
+		"1119400508"
+		{
+			"name"		"Tobi"
+			"NameHistory"
+			{
+				"0"		"Tobi"
+			}
+			"avatar"		"e6fd518f874dd79985ac50344f9ec2e461fda5eb"
+		}
+		"1202353040"
+		{
+			"name"		"dr@t"
+			"NameHistory"
+			{
+				"0"		"dr@t"
+			}
+			"avatar"		"fad859c2b648b99667e97926e234b8f9cc8f0b14"
+		}
+		"859252723"
+		{
+			"name"		"Ngầu"
+			"NameHistory"
+			{
+				"0"		"Ngầu"
+			}
+			"avatar"		"10ee3bab73f4810614d2794a8c338ccd1b1840f5"
+		}
+		"462537971"
+		{
+			"name"		"chinghia"
+			"NameHistory"
+			{
+				"0"		"chinghia"
+			}
+			"avatar"		"7dc3e7e12ebea1794e474fafb2e951cc1b34de59"
+		}
+		"1053980810"
+		{
+			"name"		"TNN8-CS.PRO #SkinsMonkey"
+			"NameHistory"
+			{
+				"0"		"TNN8-CS.PRO #SkinsMonkey"
+			}
+			"avatar"		"8208182315c077a1eadd2483b9d8dad74f1723e4"
+		}
+		"911492920"
+		{
+			"name"		"congdang080201"
+			"NameHistory"
+			{
+				"0"		"congdang080201"
+			}
+			"avatar"		"d6ef9d19fea94209f3a103e1cbee4e6f9890cae9"
+		}
+		"300857921"
+		{
+			"name"		"[DLD}BanhBo`"
+			"NameHistory"
+			{
+				"0"		"[DLD}BanhBo`"
+			}
+			"avatar"		"148ff422f2245ab66abfeabf3f7506861d6b703b"
+		}
+		"1003367919"
+		{
+			"name"		"Digi564"
+			"NameHistory"
+			{
+				"0"		"Digi564"
+			}
+			"avatar"		"3f5e9daea59216d7fe13df4e031d3537580e5e21"
+		}
+		"883304476"
+		{
+			"name"		"gilgamet"
+			"NameHistory"
+			{
+				"0"		"gilgamet"
+			}
+			"avatar"		"2203f9ce161bf2717f7746c3a40997d2ab9808b6"
+		}
+		"1034591331"
+		{
+			"name"		"DXD2552 TH"
+			"NameHistory"
+			{
+				"0"		"DXD2552 TH"
+			}
+			"avatar"		"94fbac01d13554ce036869a7cd6f82d91eb7dd91"
+		}
+		"164689088"
+		{
+			"name"		"Mất Nade"
+			"NameHistory"
+			{
+				"0"		"Mất Nade"
+			}
+			"avatar"		"5748ead59e4a95a3dcc85e1ccbd2de6881175831"
+		}
+		"927749628"
+		{
+			"name"		"Eotidi"
+			"NameHistory"
+			{
+				"0"		"Eotidi"
+			}
+			"avatar"		"cf37a7557142bc7f96358ccf32d71a91a11852d6"
+		}
+		"1186353141"
+		{
+			"name"		"Drat"
+			"NameHistory"
+			{
+				"0"		"Drat"
+			}
+			"avatar"		"a7f552f86b6a1a2ded3caafcdaf58e6e077b325c"
+		}
+		"1057420059"
+		{
+			"name"		"howardmcguire644"
+			"NameHistory"
+			{
+				"0"		"howardmcguire644"
+			}
+			"avatar"		"f61a1c2e9ee05236d6cbc89add14976eb05b6cd9"
+		}
+		"349649989"
+		{
+			"name"		"Rô Đĩ mặt quắt tai dơi"
+			"NameHistory"
+			{
+				"0"		"Rô Đĩ mặt quắt tai dơi"
+			}
+			"avatar"		"2b1bdc540b9cb1ed5f7a85e85004c5e2ce66f17e"
+		}
+		"1005041557"
+		{
+			"name"		"Lấy Lại Đi HiHiHiHi"
+			"NameHistory"
+			{
+				"0"		"Lấy Lại Đi HiHiHiHi"
+			}
+			"avatar"		"3a8e47fbeebb29335044e4004eabb40472748392"
+		}
+		"1111028531"
+		{
+			"name"		"༺❤️MC HOÀNG SƠN 49"
+			"NameHistory"
+			{
+				"0"		"༺❤️MC HOÀNG SƠN 49"
+			}
+			"avatar"		"8c820ba993b265a711848dad63187acd2ac41d3f"
+		}
+		"985845691"
+		{
+			"name"		"76561198946111419"
+			"NameHistory"
+			{
+				"0"		"76561198946111419"
+			}
+			"avatar"		"e9285944638c05bbaef62bd2ea7a87c920421836"
+		}
+		"1109989026"
+		{
+			"name"		"Jesus"
+			"NameHistory"
+			{
+				"0"		"Jesus"
+			}
+			"avatar"		"0000000000000000000000000000000000000000"
+		}
+		"886976201"
+		{
+			"name"		"Spartacus Gaming"
+			"NameHistory"
+			{
+				"0"		"Spartacus Gaming"
+			}
+			"avatar"		"997f0b80280f0162c652701816c4b1b8e02a1538"
+		}
+		"1309001928"
+		{
+			"name"		"ssbw1521"
+			"NameHistory"
+			{
+				"0"		"ssbw1521"
+			}
+			"avatar"		"0000000000000000000000000000000000000000"
+		}
+		"399779084"
+		{
+			"name"		"Fantasyy"
+			"NameHistory"
+			{
+				"0"		"Fantasyy"
+			}
+			"avatar"		"212fc6a54613d1d4cb441cc1073318faba6111f2"
+		}
+		"PersonaStateDesired"		"0"
+		"103582791463574238"
+		{
+			"name"		"RustChance"
+			"disabled"		"true"
+			"avatar"		"e7039804c9bb42e4ff83ef4b003263f9d372b414"
+		}
+		"103582791458827446"
+		{
+			"name"		"RustyPot"
+			"disabled"		"true"
+			"avatar"		"ffc7147a70de52c22bb21a1bccf7c799e7c0d855"
+		}
+		"103582791438250696"
+		{
+			"name"		"ARK: Survival Evolved"
+			"avatar"		"fef1799533131c10f538d2dd697bbbd89e663265"
+		}
+		"103582791434898478"
+		{
+			"name"		"Rust"
+			"avatar"		"820be4782639f9c4b64fa3ca7e6c26a95ae4fd1c"
+		}
+		"103582791464561686"
+		{
+			"name"		"WarZone"
+			"avatar"		"3c0b06f2c38e54372bdf48a3403831901b578769"
+		}
+	}
+	"Offline"
+	{
+		"Ticket"		"08c5f698a803158a37ea67"
+		"Signature"		"044ac38da81816f9a357e1870392b737a61459da1448b23a74a46643c70b515656ca2538d7836a550149dd5d7c63b8275060060e986e544fdf20058df1efacd193a6e88a969b185944ff2a4352b5b1cf8be557b707ad4451e6c542470aba7cfd9dd1c9cbab0890a0f1e88eda1b77e95e46a511fa87d07b8535f3cd761c862971b2bb02a39537cc076e899b722e0ee6cb990c8553f00e99706cf11efae8f05a8d8299811a0a6269b59888b77046a9e1638c82d4b456ba44c60c8f0df0a58c04541997f5b994d6ef2114a8b08a47317fcfc86f29f4cab8bfb27fa0bbfa26f7574c0dee6be34221ec4c9bc0604ba7380e5af2b9be2c3d8ecf9db3962fea785855e9"
+		"EncryptedTicket"		"0a20fd999941e6f23cdea4630e5e69b5c94b2cacaebe065093acc9f057a3de98487c128002044ac38da81816f9a357e1870392b737a61459da1448b23a74a46643c70b515656ca2538d7836a550149dd5d7c63b8275060060e986e544fdf20058df1efacd193a6e88a969b185944ff2a4352b5b1cf8be557b707ad4451e6c542470aba7cfd9dd1c9cbab0890a0f1e88eda1b77e95e46a511fa87d07b8535f3cd761c862971b2bb02a39537cc076e899b722e0ee6cb990c8553f00e99706cf11efae8f05a8d8299811a0a6269b59888b77046a9e1638c82d4b456ba44c60c8f0df0a58c04541997f5b994d6ef2114a8b08a47317fcfc86f29f4cab8bfb27fa0bbfa26f7574c0dee6be34221ec4c9bc0604ba7380e5af2b9be2c3d8ecf9db3962fea785855e918062208b8241437f9e47a96280432087dd76461470112ca"
+		"EncryptedSignature"		"044ac38da81816f9a357e1870392b737a61459da1448b23a74a46643c70b515656ca2538d7836a550149dd5d7c63b8275060060e986e544fdf20058df1efacd193a6e88a969b185944ff2a4352b5b1cf8be557b707ad4451e6c542470aba7cfd9dd1c9cbab0890a0f1e88eda1b77e95e46a511fa87d07b8535f3cd761c862971b2bb02a39537cc076e899b722e0ee6cb990c8553f00e99706cf11efae8f05a8d8299811a0a6269b59888b77046a9e1638c82d4b456ba44c60c8f0df0a58c04541997f5b994d6ef2114a8b08a47317fcfc86f29f4cab8bfb27fa0bbfa26f7574c0dee6be34221ec4c9bc0604ba7380e5af2b9be2c3d8ecf9db3962fea785855e9"
+	}
+	"apptickets"
+	{
+		"7"		"3200000004000000453b063501001001070000003fb045766901a8c0000000008a37ea670ae705680100000000000000000056b463b903206431e5258d2252541958073e9e83f2ce4d7a953261641e6da229a7325a1d7ed8f86e4d77a5f7f51586e9663e0c3c31c37fde8580931e727e300c2e673790c08de20fc28f89c551778c075db811a8ca3c46388be891d9bcbee960b9a3c9a6919a3f994340801733751465a6fd196afa8bfb076c0a4114903cc073"
+		"578080"		"3800000004000000453b06350100100120d208003fb045766901a8c000000000ad27ea672dd705680100844002000100da191b0000000000c32f68ee7cd6a1af3148ee95fe57b8a97e15294a73eb08c7c074aab9f7f8a27799ea76214bc8ff52b0d5dc197caad894523de615a5a50884389680d232ea40bafe29da06e9692b0c21e9732959cebb3ccaa1083eae7600012127d814c7afe8abfcb7d6a84e5a6c74f2ea37c991e5ad8182dd1d9c70fd81f8ad3881cf6cf78420"
+	}
+	"AppInfoChangeNumber"		"28222991"
+	"CloudKey"		"01000000f68813449da7f0272b877eaee71d982b43c73bafba4cf44ed3db5284d64e9dc88f13c324"
+	"CloudKeyCRC"		"-910637511"
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"apps"
+				{
+					"7"
+					{
+						"cloud"
+						{
+							"last_sync_state"		"synchronized"
+						}
+					}
+					"578080"
+					{
+						"LastPlayed"		"1741494119"
+						"Playtime"		"42410"
+					}
+					"218"
+					{
+						"LastPlayed"		"1740909474"
+						"Playtime"		"8141"
+					}
+					"480"
+					{
+						"LastPlayed"		"1662634464"
+						"Playtime"		"315"
+					}
+					"730"
+					{
+						"LastPlayed"		"1739708351"
+						"Playtime"		"7626"
+					}
+					"223350"
+					{
+						"LastPlayed"		"1576633736"
+						"Playtime"		"1"
+					}
+					"227940"
+					{
+						"LastPlayed"		"1648330471"
+						"Playtime"		"196"
+					}
+					"236390"
+					{
+						"LastPlayed"		"1648330367"
+						"Playtime"		"222"
+					}
+					"252490"
+					{
+						"LastPlayed"		"1740813376"
+						"Playtime"		"82324"
+					}
+					"271590"
+					{
+						"LastPlayed"		"1742012959"
+						"Playtime"		"1184"
+					}
+					"285920"
+					{
+						"LastPlayed"		"1648891766"
+						"Playtime"		"27"
+					}
+					"291550"
+					{
+						"LastPlayed"		"1644158229"
+						"Playtime"		"72"
+					}
+					"304930"
+					{
+						"LastPlayed"		"1661375808"
+						"Playtime"		"577"
+					}
+					"346110"
+					{
+						"LastPlayed"		"1740114438"
+						"Playtime"		"3618"
+					}
+					"355840"
+					{
+						"LastPlayed"		"1649704399"
+						"Playtime"		"992"
+					}
+					"397900"
+					{
+						"LastPlayed"		"1710146367"
+						"Playtime"		"22"
+					}
+					"407530"
+					{
+						"LastPlayed"		"1743237678"
+						"Playtime2wks"		"5"
+						"Playtime"		"16"
+					}
+					"413850"
+					{
+						"LastPlayed"		"1567837852"
+						"Playtime"		"1"
+					}
+					"444930"
+					{
+						"LastPlayed"		"1583331560"
+						"Playtime"		"499"
+					}
+					"466240"
+					{
+						"LastPlayed"		"1591156723"
+						"Playtime"		"207"
+					}
+					"552990"
+					{
+						"LastPlayed"		"1705406664"
+						"Playtime"		"40"
+					}
+					"585280"
+					{
+						"LastPlayed"		"1567837806"
+						"Playtime"		"1"
+					}
+					"585281"
+					{
+						"LastPlayed"		"1567837850"
+						"Playtime"		"1"
+					}
+					"602770"
+					{
+						"LastPlayed"		"1662497290"
+						"Playtime"		"92"
+					}
+					"705210"
+					{
+						"LastPlayed"		"1664123014"
+						"Playtime"		"1117"
+					}
+					"707010"
+					{
+						"LastPlayed"		"1637773926"
+						"Playtime"		"17"
+					}
+					"813000"
+					{
+						"LastPlayed"		"1609766342"
+						"Playtime"		"8"
+					}
+					"823130"
+					{
+						"LastPlayed"		"1681288451"
+						"Playtime"		"194"
+					}
+					"872200"
+					{
+						"LastPlayed"		"1638962607"
+						"Playtime"		"418"
+					}
+					"897450"
+					{
+						"LastPlayed"		"1683558232"
+						"Playtime"		"778"
+					}
+					"1022450"
+					{
+						"LastPlayed"		"1675539826"
+						"Playtime"		"3405"
+					}
+					"1042420"
+					{
+						"LastPlayed"		"1576633842"
+						"Playtime"		"1"
+					}
+					"1049590"
+					{
+						"LastPlayed"		"1648137830"
+						"Playtime"		"208"
+					}
+					"1092710"
+					{
+						"LastPlayed"		"1593265216"
+						"Playtime"		"5"
+					}
+					"1127400"
+					{
+						"LastPlayed"		"1695934804"
+						"Playtime"		"3603"
+					}
+					"1183940"
+					{
+						"LastPlayed"		"1638115240"
+						"Playtime"		"48"
+					}
+					"1203220"
+					{
+						"LastPlayed"		"1690106155"
+						"Playtime"		"53"
+					}
+					"1260320"
+					{
+						"LastPlayed"		"1742449098"
+						"Playtime2wks"		"21"
+						"Playtime"		"4185"
+					}
+					"1276390"
+					{
+						"LastPlayed"		"1655636837"
+						"Playtime"		"32"
+					}
+					"1375740"
+					{
+						"LastPlayed"		"1664906650"
+						"Playtime"		"11"
+					}
+					"1397920"
+					{
+						"LastPlayed"		"1664966260"
+						"Playtime"		"110"
+					}
+					"1408720"
+					{
+						"LastPlayed"		"1642779283"
+						"Playtime"		"4"
+					}
+					"1412190"
+					{
+						"LastPlayed"		"1661271463"
+						"Playtime"		"144"
+					}
+					"1568590"
+					{
+						"LastPlayed"		"1646789082"
+						"Playtime"		"17"
+					}
+					"1590320"
+					{
+						"LastPlayed"		"1654509628"
+						"Playtime"		"102"
+					}
+					"1619990"
+					{
+						"LastPlayed"		"1648892818"
+						"Playtime"		"1454"
+					}
+					"1623730"
+					{
+						"LastPlayed"		"1741730984"
+						"Playtime"		"10764"
+					}
+					"1625450"
+					{
+						"LastPlayed"		"1679407201"
+						"Playtime"		"600"
+					}
+					"1660520"
+					{
+						"LastPlayed"		"1639705962"
+						"Playtime"		"34"
+					}
+					"1672920"
+					{
+						"LastPlayed"		"1683487582"
+						"Playtime"		"54"
+					}
+					"1694200"
+					{
+						"LastPlayed"		"1658287160"
+						"Playtime"		"87"
+					}
+					"1731270"
+					{
+						"LastPlayed"		"1651334733"
+						"Playtime"		"13"
+					}
+					"1754290"
+					{
+						"LastPlayed"		"1647614907"
+						"Playtime"		"62"
+					}
+					"1782210"
+					{
+						"LastPlayed"		"1654510122"
+						"Playtime"		"164"
+					}
+					"1928420"
+					{
+						"LastPlayed"		"1708166054"
+						"Playtime"		"2153"
+					}
+					"1938090"
+					{
+						"LastPlayed"		"1731829780"
+						"Playtime"		"50"
+					}
+					"1977530"
+					{
+						"LastPlayed"		"1684645871"
+						"Playtime"		"121"
+					}
+					"2073850"
+					{
+						"LastPlayed"		"1704092533"
+						"Playtime"		"11"
+					}
+					"2087030"
+					{
+						"LastPlayed"		"1664910143"
+						"Playtime"		"33"
+					}
+					"2088250"
+					{
+						"LastPlayed"		"1664906484"
+						"Playtime"		"16"
+					}
+					"2098350"
+					{
+						"LastPlayed"		"1664905487"
+						"Playtime"		"11"
+					}
+					"2162070"
+					{
+						"LastPlayed"		"1682803382"
+						"Playtime"		"252"
+					}
+					"2195250"
+					{
+						"LastPlayed"		"1743174744"
+						"Playtime2wks"		"38"
+						"Playtime"		"1399"
+					}
+					"3103840"
+					{
+						"LastPlayed"		"1732295270"
+						"Playtime"		"2"
+					}
+					"224620"
+					{
+						"LastPlayed"		"1736741702"
+						"Playtime"		"1"
+					}
+					"3240220"
+					{
+						"LastPlayed"		"1742254766"
+						"Playtime2wks"		"2"
+						"Playtime"		"4"
+					}
+				}
+				"LastPlayedTimesSyncTime"		"1743237678"
+			}
+		}
+	}
+	"FamilyGroup"
+	{
+		"version"		"1"
+		"groupid"		"10527198"
+		"name"		"lll"
+		"country"		""
+		"role"		"1"
+		"members"
+		{
+			"0"
+			{
+				"accountid"		"889600837"
+				"role"		"1"
+			}
+		}
+	}
+}

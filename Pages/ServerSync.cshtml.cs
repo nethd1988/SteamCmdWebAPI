@@ -1,0 +1,199 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Logging;
+using SteamCmdWebAPI.Services;
+
+namespace SteamCmdWebAPI.Pages
+{
+    public class ServerSyncModel : PageModel
+    {
+        private readonly ILogger<ServerSyncModel> _logger;
+        private readonly ServerSettingsService _serverSettingsService;
+        private readonly TcpClientService _tcpClientService;
+        private readonly ProfileService _profileService;
+
+        [TempData]
+        public string StatusMessage { get; set; }
+
+        [TempData]
+        public bool IsSuccess { get; set; }
+
+        public bool IsServerConfigured { get; set; }
+        public string ServerAddress { get; set; }
+        public int ServerPort { get; set; }
+        public DateTime? LastSyncTime { get; set; }
+        public List<string> AvailableProfiles { get; set; } = new List<string>();
+
+        public ServerSyncModel(
+            ILogger<ServerSyncModel> logger,
+            ServerSettingsService serverSettingsService,
+            TcpClientService tcpClientService,
+            ProfileService profileService)
+        {
+            _logger = logger;
+            _serverSettingsService = serverSettingsService;
+            _tcpClientService = tcpClientService;
+            _profileService = profileService;
+        }
+
+        public async Task<IActionResult> OnGetAsync()
+        {
+            await LoadServerSettingsAsync();
+            
+            if (IsServerConfigured)
+            {
+                await LoadAvailableProfilesAsync();
+            }
+            
+            return Page();
+        }
+
+        private async Task LoadServerSettingsAsync()
+        {
+            var settings = await _serverSettingsService.LoadSettingsAsync();
+            IsServerConfigured = settings.EnableServerSync && !string.IsNullOrEmpty(settings.ServerAddress);
+            ServerAddress = settings.ServerAddress;
+            ServerPort = settings.ServerPort;
+            LastSyncTime = settings.LastSyncTime;
+        }
+
+        private async Task LoadAvailableProfilesAsync()
+        {
+            try
+            {
+                var serverSettings = await _serverSettingsService.LoadSettingsAsync();
+                AvailableProfiles = await _tcpClientService.GetProfileNamesAsync(serverSettings.ServerAddress, serverSettings.ServerPort);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi tải danh sách profile từ server");
+                StatusMessage = $"Lỗi khi tải danh sách profile: {ex.Message}";
+                IsSuccess = false;
+            }
+        }
+
+        public async Task<IActionResult> OnPostSyncAllAsync()
+        {
+            try
+            {
+                var serverSettings = await _serverSettingsService.LoadSettingsAsync();
+                
+                if (!serverSettings.EnableServerSync || string.IsNullOrEmpty(serverSettings.ServerAddress))
+                {
+                    StatusMessage = "Đồng bộ với server chưa được bật. Vui lòng kiểm tra cài đặt server.";
+                    IsSuccess = false;
+                    await LoadServerSettingsAsync();
+                    return Page();
+                }
+                
+                int syncedCount = await _tcpClientService.SyncProfilesFromServerAsync(
+                    serverSettings.ServerAddress, _profileService, serverSettings.ServerPort);
+                
+                // Cập nhật thời gian đồng bộ
+                await _serverSettingsService.UpdateLastSyncTimeAsync();
+                
+                StatusMessage = $"Đã đồng bộ {syncedCount} profile từ server.";
+                IsSuccess = true;
+                
+                await LoadServerSettingsAsync();
+                await LoadAvailableProfilesAsync();
+                return Page();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đồng bộ tất cả profile từ server");
+                StatusMessage = $"Lỗi khi đồng bộ: {ex.Message}";
+                IsSuccess = false;
+                await LoadServerSettingsAsync();
+                return Page();
+            }
+        }
+
+        public async Task<IActionResult> OnPostSyncSingleAsync(string profileName)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(profileName))
+                {
+                    StatusMessage = "Tên profile không được để trống";
+                    IsSuccess = false;
+                    await LoadServerSettingsAsync();
+                    await LoadAvailableProfilesAsync();
+                    return Page();
+                }
+                
+                var serverSettings = await _serverSettingsService.LoadSettingsAsync();
+                
+                if (!serverSettings.EnableServerSync || string.IsNullOrEmpty(serverSettings.ServerAddress))
+                {
+                    StatusMessage = "Đồng bộ với server chưa được bật. Vui lòng kiểm tra cài đặt server.";
+                    IsSuccess = false;
+                    await LoadServerSettingsAsync();
+                    return Page();
+                }
+                
+                var serverProfile = await _tcpClientService.GetProfileDetailsByNameAsync(
+                    serverSettings.ServerAddress, profileName, serverSettings.ServerPort);
+                
+                if (serverProfile == null)
+                {
+                    StatusMessage = $"Không tìm thấy profile '{profileName}' trên server";
+                    IsSuccess = false;
+                    await LoadServerSettingsAsync();
+                    await LoadAvailableProfilesAsync();
+                    return Page();
+                }
+                
+                // Kiểm tra xem profile đã tồn tại chưa
+                var currentProfiles = await _profileService.GetAllProfiles();
+                var existingProfile = currentProfiles.FirstOrDefault(p => p.Name == profileName);
+                
+                if (existingProfile != null)
+                {
+                    // Cập nhật profile hiện có
+                    serverProfile.Id = existingProfile.Id;
+                    serverProfile.Status = existingProfile.Status;
+                    serverProfile.Pid = existingProfile.Pid;
+                    serverProfile.StartTime = existingProfile.StartTime;
+                    serverProfile.StopTime = existingProfile.StopTime;
+                    serverProfile.LastRun = existingProfile.LastRun;
+                    
+                    await _profileService.UpdateProfile(serverProfile);
+                    StatusMessage = $"Đã cập nhật profile '{profileName}' từ server";
+                }
+                else
+                {
+                    // Thêm profile mới
+                    int newId = currentProfiles.Count > 0 ? currentProfiles.Max(p => p.Id) + 1 : 1;
+                    serverProfile.Id = newId;
+                    serverProfile.Status = "Stopped";
+                    
+                    currentProfiles.Add(serverProfile);
+                    await _profileService.SaveProfiles(currentProfiles);
+                    StatusMessage = $"Đã thêm profile '{profileName}' từ server";
+                }
+                
+                IsSuccess = true;
+                
+                // Cập nhật thời gian đồng bộ
+                await _serverSettingsService.UpdateLastSyncTimeAsync();
+                
+                await LoadServerSettingsAsync();
+                await LoadAvailableProfilesAsync();
+                return Page();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Lỗi khi đồng bộ profile '{profileName}' từ server");
+                StatusMessage = $"Lỗi khi đồng bộ profile '{profileName}': {ex.Message}";
+                IsSuccess = false;
+                await LoadServerSettingsAsync();
+                await LoadAvailableProfilesAsync();
+                return Page();
+            }
+        }
+    }
+}

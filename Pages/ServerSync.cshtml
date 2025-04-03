@@ -1,0 +1,99 @@
+@page
+@model SteamCmdWebAPI.Pages.ServerSyncModel
+@{
+    ViewData["Title"] = "Đồng bộ Server";
+}
+
+<div class="container">
+    <h1>Đồng bộ với Server</h1>
+    
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
+            @Model.StatusMessage
+        </div>
+    }
+    
+    @if (!Model.IsServerConfigured)
+    {
+        <div class="alert alert-warning" role="alert">
+            <strong>Chưa cấu hình server!</strong> Vui lòng cấu hình kết nối server để sử dụng tính năng đồng bộ.
+            <a asp-page="/ServerSettings" class="alert-link">Đi đến cài đặt server</a>
+        </div>
+    }
+    else
+    {
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Thông tin kết nối</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Server:</strong> @Model.ServerAddress</p>
+                        @if (Model.LastSyncTime.HasValue)
+                        {
+                            <p><strong>Lần đồng bộ cuối:</strong> @Model.LastSyncTime.Value.ToString("dd/MM/yyyy HH:mm:ss")</p>
+                        }
+                        else
+                        {
+                            <p><strong>Lần đồng bộ cuối:</strong> Chưa đồng bộ</p>
+                        }
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <form method="post" asp-page-handler="SyncAll">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-arrow-repeat"></i> Đồng bộ tất cả
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5>Danh sách profile có sẵn trên server</h5>
+            </div>
+            <div class="card-body">
+                @if (Model.AvailableProfiles.Count == 0)
+                {
+                    <p class="text-muted">Không có profile nào trên server hoặc không thể kết nối.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Tên profile</th>
+                                    <th>Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @for (int i = 0; i < Model.AvailableProfiles.Count; i++)
+                                {
+                                    <tr>
+                                        <td>@(i + 1)</td>
+                                        <td>@Model.AvailableProfiles[i]</td>
+                                        <td>
+                                            <form method="post" asp-page-handler="SyncSingle" class="d-inline">
+                                                <input type="hidden" name="profileName" value="@Model.AvailableProfiles[i]">
+                                                <button type="submit" class="btn btn-sm btn-primary">Đồng bộ</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    
+    <div class="mt-3">
+        <a asp-page="/Index" class="btn btn-secondary">Quay lại trang chủ</a>
+    </div>
+</div>

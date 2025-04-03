@@ -1,0 +1,7 @@
+{
+  "ServerAddress": "localhost",
+  "ServerPort": 61188,
+  "EnableServerSync": true,
+  "LastSyncTime": "2025-04-03T14:15:39.9958329+07:00",
+  "ConnectionStatus": "Connected"
+}

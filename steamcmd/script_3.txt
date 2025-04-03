@@ -1,0 +1,5 @@
+login hoangtran0611 Hoangzst06112003
+force_install_dir "E:\Online Games\FiFa 25"
+app_update 2669320 
+-norepairfiles -noverifyfiles
+quit

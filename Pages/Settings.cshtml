@@ -1,0 +1,92 @@
+@page
+@model SettingsModel
+@{
+    ViewData["Title"] = "Cài đặt - SteamAUTO";
+}
+
+<div class="container">
+    <h1>Cài đặt</h1>
+
+    <div class="mb-3">
+        <a asp-page="/Index" class="btn btn-primary">Quay lại trang chính</a>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5>Cấu hình tự động chạy</h5>
+            <form id="autoRunForm">
+                @Html.AntiForgeryToken()
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="autoRunEnabled" name="autoRunEnabled" @(Model.AutoRunEnabled ? "checked" : "") />
+                    <label class="form-check-label" for="autoRunEnabled">Kích hoạt tự động chạy</label>
+                </div>
+                <div class="form-group">
+                    <label for="autoRunInterval">Tần suất chạy</label>
+                    <select class="form-control" id="autoRunInterval" name="autoRunInterval">
+                        @{
+                            string[] intervals = { "daily", "weekly", "monthly" };
+                            string[] intervalLabels = { "Hàng ngày", "Hàng tuần", "Hàng tháng" };
+                            for (int i = 0; i < intervals.Length; i++)
+                            {
+                                if (Model.AutoRunInterval == intervals[i])
+                                {
+                                    <option value="@intervals[i]" selected>@intervalLabels[i]</option>
+                                }
+                                else
+                                {
+                                    <option value="@intervals[i]">@intervalLabels[i]</option>
+                                }
+                            }
+                        }
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="scheduledHour">Giờ chạy (1-24h)</label>
+                    <select class="form-control" id="scheduledHour" name="scheduledHour">
+                        @for (int hour = 1; hour <= 24; hour++)
+                        {
+                            if (Model.ScheduledHour == hour)
+                            {
+                                <option value="@hour" selected>@hour h</option>
+                            }
+                            else
+                            {
+                                <option value="@hour">@hour h</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Lưu</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function () {
+            // Lấy Anti-Forgery Token từ form
+            var token = $('input[name="__RequestVerificationToken"]').val();
+
+            $("#autoRunForm").submit(function (e) {
+                e.preventDefault();
+                $.ajax({
+                    url: "/Settings?handler=AutoRun",
+                    method: "POST",
+                    data: $(this).serialize(),
+                    headers: {
+                        "RequestVerificationToken": token
+                    },
+                    success: function (response) {
+                        if (response.success) {
+                            alert("Cập nhật cấu hình tự động chạy thành công!");
+                        }
+                    },
+                    error: function (err) {
+                        alert("Lỗi: " + err.responseText);
+                    }
+                });
+            });
+        });
+    </script>
+}
