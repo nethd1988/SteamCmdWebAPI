@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Logging;
+using SteamCmdWebAPI.Models;
 using SteamCmdWebAPI.Services;
 
 namespace SteamCmdWebAPI.Pages
@@ -33,10 +35,10 @@ namespace SteamCmdWebAPI.Pages
             TcpClientService tcpClientService,
             ProfileService profileService)
         {
-            _logger = logger;
-            _serverSettingsService = serverSettingsService;
-            _tcpClientService = tcpClientService;
-            _profileService = profileService;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _serverSettingsService = serverSettingsService ?? throw new ArgumentNullException(nameof(serverSettingsService));
+            _tcpClientService = tcpClientService ?? throw new ArgumentNullException(nameof(tcpClientService));
+            _profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
         }
 
         public async Task<IActionResult> OnGetAsync()
@@ -53,24 +55,52 @@ namespace SteamCmdWebAPI.Pages
 
         private async Task LoadServerSettingsAsync()
         {
-            var settings = await _serverSettingsService.LoadSettingsAsync();
-            IsServerConfigured = settings.EnableServerSync && !string.IsNullOrEmpty(settings.ServerAddress);
-            ServerAddress = settings.ServerAddress;
-            ServerPort = settings.ServerPort;
-            LastSyncTime = settings.LastSyncTime;
+            try
+            {
+                var settings = await _serverSettingsService.LoadSettingsAsync();
+                IsServerConfigured = settings.EnableServerSync && !string.IsNullOrEmpty(settings.ServerAddress);
+                ServerAddress = settings.ServerAddress;
+                ServerPort = settings.ServerPort;
+                LastSyncTime = settings.LastSyncTime;
+                
+                _logger.LogInformation("Loaded server settings: Server={Server}, Port={Port}, Enabled={Enabled}", 
+                    ServerAddress, ServerPort, IsServerConfigured);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading server settings");
+                IsServerConfigured = false;
+                StatusMessage = "Không thể tải cài đặt server: " + ex.Message;
+                IsSuccess = false;
+            }
         }
 
         private async Task LoadAvailableProfilesAsync()
         {
             try
             {
+                AvailableProfiles.Clear();
+                
                 var serverSettings = await _serverSettingsService.LoadSettingsAsync();
-                AvailableProfiles = await _tcpClientService.GetProfileNamesAsync(serverSettings.ServerAddress, serverSettings.ServerPort);
+                if (!serverSettings.EnableServerSync || string.IsNullOrEmpty(serverSettings.ServerAddress))
+                {
+                    _logger.LogWarning("Server sync is not enabled or server address is empty");
+                    return;
+                }
+                
+                _logger.LogInformation("Loading available profiles from server: {Server}:{Port}", 
+                    serverSettings.ServerAddress, serverSettings.ServerPort);
+                
+                var profileNames = await _tcpClientService.GetProfileNamesAsync(
+                    serverSettings.ServerAddress, serverSettings.ServerPort);
+                
+                AvailableProfiles.AddRange(profileNames);
+                _logger.LogInformation("Loaded {Count} profiles from server", AvailableProfiles.Count);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi tải danh sách profile từ server");
-                StatusMessage = $"Lỗi khi tải danh sách profile: {ex.Message}";
+                _logger.LogError(ex, "Error loading available profiles from server");
+                StatusMessage = "Lỗi khi tải danh sách profile từ server: " + ex.Message;
                 IsSuccess = false;
             }
         }
@@ -79,15 +109,17 @@ namespace SteamCmdWebAPI.Pages
         {
             try
             {
-                var serverSettings = await _serverSettingsService.LoadSettingsAsync();
+                _logger.LogInformation("Starting sync of all profiles from server");
                 
-                if (!serverSettings.EnableServerSync || string.IsNullOrEmpty(serverSettings.ServerAddress))
+                await LoadServerSettingsAsync();
+                if (!IsServerConfigured)
                 {
                     StatusMessage = "Đồng bộ với server chưa được bật. Vui lòng kiểm tra cài đặt server.";
                     IsSuccess = false;
-                    await LoadServerSettingsAsync();
                     return Page();
                 }
+                
+                var serverSettings = await _serverSettingsService.LoadSettingsAsync();
                 
                 int syncedCount = await _tcpClientService.SyncProfilesFromServerAsync(
                     serverSettings.ServerAddress, _profileService, serverSettings.ServerPort);
@@ -104,7 +136,7 @@ namespace SteamCmdWebAPI.Pages
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi đồng bộ tất cả profile từ server");
+                _logger.LogError(ex, "Error syncing all profiles from server");
                 StatusMessage = $"Lỗi khi đồng bộ: {ex.Message}";
                 IsSuccess = false;
                 await LoadServerSettingsAsync();
@@ -116,24 +148,26 @@ namespace SteamCmdWebAPI.Pages
         {
             try
             {
+                _logger.LogInformation("Starting sync of profile '{ProfileName}' from server", profileName);
+                
                 if (string.IsNullOrEmpty(profileName))
                 {
-                    StatusMessage = "Tên profile không được để trống";
+                    StatusMessage = "Vui lòng chọn một profile";
                     IsSuccess = false;
                     await LoadServerSettingsAsync();
                     await LoadAvailableProfilesAsync();
                     return Page();
                 }
                 
-                var serverSettings = await _serverSettingsService.LoadSettingsAsync();
-                
-                if (!serverSettings.EnableServerSync || string.IsNullOrEmpty(serverSettings.ServerAddress))
+                await LoadServerSettingsAsync();
+                if (!IsServerConfigured)
                 {
                     StatusMessage = "Đồng bộ với server chưa được bật. Vui lòng kiểm tra cài đặt server.";
                     IsSuccess = false;
-                    await LoadServerSettingsAsync();
                     return Page();
                 }
+                
+                var serverSettings = await _serverSettingsService.LoadSettingsAsync();
                 
                 var serverProfile = await _tcpClientService.GetProfileDetailsByNameAsync(
                     serverSettings.ServerAddress, profileName, serverSettings.ServerPort);
@@ -142,7 +176,6 @@ namespace SteamCmdWebAPI.Pages
                 {
                     StatusMessage = $"Không tìm thấy profile '{profileName}' trên server";
                     IsSuccess = false;
-                    await LoadServerSettingsAsync();
                     await LoadAvailableProfilesAsync();
                     return Page();
                 }
@@ -171,8 +204,7 @@ namespace SteamCmdWebAPI.Pages
                     serverProfile.Id = newId;
                     serverProfile.Status = "Stopped";
                     
-                    currentProfiles.Add(serverProfile);
-                    await _profileService.SaveProfiles(currentProfiles);
+                    await _profileService.AddProfileAsync(serverProfile);
                     StatusMessage = $"Đã thêm profile '{profileName}' từ server";
                 }
                 
@@ -187,7 +219,7 @@ namespace SteamCmdWebAPI.Pages
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Lỗi khi đồng bộ profile '{profileName}' từ server");
+                _logger.LogError(ex, "Error syncing profile '{ProfileName}' from server", profileName);
                 StatusMessage = $"Lỗi khi đồng bộ profile '{profileName}': {ex.Message}";
                 IsSuccess = false;
                 await LoadServerSettingsAsync();

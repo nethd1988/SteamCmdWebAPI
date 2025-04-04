@@ -16,33 +16,6 @@
 
     <div class="row">
         <div class="col-md-8">
-            @if (Model.IsServerConfigured)
-            {
-                <div class="card mb-4">
-                    <div class="card-header bg-info text-white">
-                        <h5 class="mb-0">Lấy từ Server</h5>
-                    </div>
-                    <div class="card-body">
-                        <form method="post" asp-page-handler="LoadServerProfile" id="serverProfileForm">
-                            <div class="row">
-                                <div class="col-md-8">
-                                    <div class="mb-3">
-                                        <label for="SelectedServerProfile" class="form-label">Chọn profile:</label>
-                                        <select id="SelectedServerProfile" name="SelectedServerProfile" asp-for="SelectedServerProfile" asp-items="Model.ServerProfiles" class="form-select"></select>
-                                    </div>
-                                </div>
-                                <div class="col-md-4 d-flex align-items-end">
-                                    <button type="submit" class="btn btn-info">Lấy từ Server</button>
-                                </div>
-                            </div>
-                            <div class="form-text">
-                                Đang kết nối đến: @Model.ServerAddress
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            }
-
             <div class="card">
                 <div class="card-body">
                     <form method="post" id="createProfileForm" asp-page-handler="SaveProfile">
@@ -142,11 +115,6 @@
                     </ul>
                     
                     <p>Nếu game yêu cầu đăng nhập, hãy bỏ chọn "Đăng nhập ẩn danh" và nhập thông tin tài khoản Steam.</p>
-                    
-                    <p class="text-info">
-                        <i class="bi bi-info-circle me-1"></i>
-                        Bạn cũng có thể sử dụng nút "Lấy từ Server" để nhập nhanh từ cơ sở dữ liệu có sẵn.
-                    </p>
                 </div>
             </div>
         </div>
@@ -163,13 +131,6 @@
             var $loginSection = $('#loginSection');
             var $username = $('#Username');
             var $password = $('#Password');
-            
-            // Hiển thị thông báo loading
-            var showLoading = function() {
-                if ($('#loadingMessage').length === 0) {
-                    $('#serverProfileForm').after('<div id="loadingMessage" class="alert alert-info">Đang tải dữ liệu từ server...</div>');
-                }
-            };
             
             // Xử lý hiển thị/ẩn phần đăng nhập dựa vào checkbox
             function toggleLoginSection() {
@@ -191,13 +152,6 @@
             
             // Đảm bảo đúng trạng thái khi trang tải
             toggleLoginSection();
-            
-            // Xử lý khi form lấy từ server được submit
-            $('#serverProfileForm').submit(function(e) {
-                console.log("Server profile form submitted");
-                showLoading();
-                return true;
-            });
             
             // Xử lý trước khi form chính được submit
             $('#createProfileForm').submit(function(e) {

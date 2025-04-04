@@ -7,6 +7,9 @@ using SteamCmdWebAPI.Models;
 
 namespace SteamCmdWebAPI.Services
 {
+    /// <summary>
+    /// Dịch vụ quản lý cài đặt server
+    /// </summary>
     public class ServerSettingsService
     {
         private readonly ILogger<ServerSettingsService> _logger;
@@ -44,6 +47,9 @@ namespace SteamCmdWebAPI.Services
             _logger.LogInformation("ServerSettingsService khởi tạo với _settingsFilePath: {0}", _settingsFilePath);
         }
 
+        /// <summary>
+        /// Tải cài đặt server từ file
+        /// </summary>
         public async Task<ServerSettings> LoadSettingsAsync()
         {
             try
@@ -80,6 +86,9 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        /// <summary>
+        /// Tạo cài đặt mặc định
+        /// </summary>
         private ServerSettings CreateDefaultSettings()
         {
             // Cấu hình mặc định với địa chỉ idckz.ddnsfree.com
@@ -93,6 +102,9 @@ namespace SteamCmdWebAPI.Services
             };
         }
 
+        /// <summary>
+        /// Lưu cài đặt server vào file
+        /// </summary>
         public async Task SaveSettingsAsync(ServerSettings settings)
         {
             try
@@ -115,6 +127,9 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        /// <summary>
+        /// Cập nhật thời gian đồng bộ cuối cùng
+        /// </summary>
         public async Task UpdateLastSyncTimeAsync()
         {
             try
@@ -131,6 +146,9 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        /// <summary>
+        /// Cập nhật trạng thái kết nối
+        /// </summary>
         public async Task UpdateConnectionStatusAsync(string status)
         {
             try

@@ -136,23 +136,6 @@ namespace SteamCmdWebAPI.Pages
             }
         }
 
-        public async Task<IActionResult> OnPostKillSteamCmdAsync()
-        {
-            try
-            {
-                _logger.LogInformation("Nhận yêu cầu POST KillSteamCmd");
-
-                await _steamCmdService.StopAllProfilesAsync();
-                _logger.LogInformation("Kill SteamCMD thành công");
-                return new JsonResult(new { success = true });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi khi kill SteamCMD");
-                return new JsonResult(new { success = false, error = $"Lỗi khi kill SteamCMD: {ex.Message}" }) { StatusCode = 500 };
-            }
-        }
-
         public async Task<IActionResult> OnPostDeleteAsync(int profileId)
         {
             try

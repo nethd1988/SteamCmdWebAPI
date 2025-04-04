@@ -2,6 +2,9 @@ using System;
 
 namespace SteamCmdWebAPI.Models
 {
+    /// <summary>
+    /// Mô hình cài đặt server
+    /// </summary>
     public class ServerSettings
     {
         /// <summary>
