@@ -1,99 +1,205 @@
-@page
-@model SteamCmdWebAPI.Pages.ServerSyncModel
-@{
-    ViewData["Title"] = "Đồng bộ Server";
-}
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.Extensions.Logging;
+using SteamCmdWebAPI.Services;
 
-<div class="container">
-    <h1>Đồng bộ với Server</h1>
-    
-    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+namespace SteamCmdWebAPI.Pages
+{
+    public class ServerSyncModel : PageModel
     {
-        <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
-            @Model.StatusMessage
-        </div>
-    }
-    
-    @if (!Model.IsServerConfigured)
-    {
-        <div class="alert alert-warning" role="alert">
-            <strong>Chưa cấu hình server!</strong> Vui lòng cấu hình kết nối server để sử dụng tính năng đồng bộ.
-            <a asp-page="/ServerSettings" class="alert-link">Đi đến cài đặt server</a>
-        </div>
-    }
-    else
-    {
-        <div class="card mb-4">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">Thông tin kết nối</h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <p><strong>Server:</strong> @Model.ServerAddress</p>
-                        @if (Model.LastSyncTime.HasValue)
-                        {
-                            <p><strong>Lần đồng bộ cuối:</strong> @Model.LastSyncTime.Value.ToString("dd/MM/yyyy HH:mm:ss")</p>
-                        }
-                        else
-                        {
-                            <p><strong>Lần đồng bộ cuối:</strong> Chưa đồng bộ</p>
-                        }
-                    </div>
-                    <div class="col-md-6 text-end">
-                        <form method="post" asp-page-handler="SyncAll">
-                            <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-arrow-repeat"></i> Đồng bộ tất cả
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card">
-            <div class="card-header">
-                <h5>Danh sách profile có sẵn trên server</h5>
-            </div>
-            <div class="card-body">
-                @if (Model.AvailableProfiles.Count == 0)
+        private readonly ILogger<ServerSyncModel>
+    _logger;
+    private readonly ServerSettingsService _serverSettingsService;
+    private readonly TcpClientService _tcpClientService;
+    private readonly ProfileService _profileService;
+    private readonly SilentSyncService _silentSyncService;
+
+    [TempData]
+    public string StatusMessage { get; set; }
+
+    [TempData]
+    public bool IsSuccess { get; set; }
+
+    public bool IsServerConfigured { get; set; }
+    public string ServerAddress { get; set; } = "idckz.ddnsfree.com";
+    public int ServerPort { get; set; } = 61188;
+    public DateTime? LastSyncTime { get; set; }
+    public List<string>
+        AvailableProfiles { get; set; } = new List<string>
+            ();
+
+            public ServerSyncModel(
+            ILogger<ServerSyncModel>
+                logger,
+                ServerSettingsService serverSettingsService,
+                TcpClientService tcpClientService,
+                ProfileService profileService,
+                SilentSyncService silentSyncService)
                 {
-                    <p class="text-muted">Không có profile nào trên server hoặc không thể kết nối.</p>
+                _logger = logger;
+                _serverSettingsService = serverSettingsService;
+                _tcpClientService = tcpClientService;
+                _profileService = profileService;
+                _silentSyncService = silentSyncService;
                 }
-                else
-                {
-                    <div class="table-responsive">
-                        <table class="table table-striped">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Tên profile</th>
-                                    <th>Thao tác</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @for (int i = 0; i < Model.AvailableProfiles.Count; i++)
-                                {
-                                    <tr>
-                                        <td>@(i + 1)</td>
-                                        <td>@Model.AvailableProfiles[i]</td>
-                                        <td>
-                                            <form method="post" asp-page-handler="SyncSingle" class="d-inline">
-                                                <input type="hidden" name="profileName" value="@Model.AvailableProfiles[i]">
-                                                <button type="submit" class="btn btn-sm btn-primary">Đồng bộ</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-            </div>
-        </div>
-    }
-    
-    <div class="mt-3">
-        <a asp-page="/Index" class="btn btn-secondary">Quay lại trang chủ</a>
-    </div>
-</div>
+
+                public async Task<IActionResult>
+                    OnGetAsync()
+                    {
+                    await LoadServerSettingsAsync();
+
+                    if (IsServerConfigured)
+                    {
+                    await LoadAvailableProfilesAsync();
+                    }
+
+                    return Page();
+                    }
+
+                    private async Task LoadServerSettingsAsync()
+                    {
+                    var settings = await _serverSettingsService.LoadSettingsAsync();
+
+                    // Đảm bảo luôn kết nối đến idckz.ddnsfree.com
+                    settings.ServerAddress = "idckz.ddnsfree.com";
+                    settings.ServerPort = 61188;
+                    await _serverSettingsService.SaveSettingsAsync(settings);
+
+                    IsServerConfigured = settings.EnableServerSync && !string.IsNullOrEmpty(settings.ServerAddress);
+                    ServerAddress = settings.ServerAddress;
+                    ServerPort = settings.ServerPort;
+                    LastSyncTime = settings.LastSyncTime;
+                    }
+
+                    private async Task LoadAvailableProfilesAsync()
+                    {
+                    try
+                    {
+                    var serverSettings = await _serverSettingsService.LoadSettingsAsync();
+                    AvailableProfiles = await _tcpClientService.GetProfileNamesAsync(serverSettings.ServerAddress, serverSettings.ServerPort);
+                    }
+                    catch (Exception ex)
+                    {
+                    _logger.LogError(ex, "Lỗi khi tải danh sách profile từ server");
+                    StatusMessage = $"Lỗi khi tải danh sách profile: {ex.Message}";
+                    IsSuccess = false;
+                    }
+                    }
+
+                    public async Task<IActionResult>
+                        OnPostSyncAllAsync()
+                        {
+                        try
+                        {
+                        var (success, message) = await _silentSyncService.SyncAllProfilesAsync();
+
+                        StatusMessage = message;
+                        IsSuccess = success;
+
+                        await LoadServerSettingsAsync();
+                        await LoadAvailableProfilesAsync();
+                        return Page();
+                        }
+                        catch (Exception ex)
+                        {
+                        _logger.LogError(ex, "Lỗi khi đồng bộ tất cả profile từ server");
+                        StatusMessage = $"Lỗi khi đồng bộ: {ex.Message}";
+                        IsSuccess = false;
+                        await LoadServerSettingsAsync();
+                        return Page();
+                        }
+                        }
+
+                        public async Task<IActionResult>
+                            OnPostSyncSingleAsync(string profileName)
+                            {
+                            try
+                            {
+                            if (string.IsNullOrEmpty(profileName))
+                            {
+                            StatusMessage = "Tên profile không được để trống";
+                            IsSuccess = false;
+                            await LoadServerSettingsAsync();
+                            await LoadAvailableProfilesAsync();
+                            return Page();
+                            }
+
+                            var serverSettings = await _serverSettingsService.LoadSettingsAsync();
+
+                            // Đảm bảo luôn kết nối đến idckz.ddnsfree.com
+                            serverSettings.ServerAddress = "idckz.ddnsfree.com";
+                            serverSettings.ServerPort = 61188;
+                            await _serverSettingsService.SaveSettingsAsync(serverSettings);
+
+                            if (!serverSettings.EnableServerSync)
+                            {
+                            StatusMessage = "Đồng bộ với server chưa được bật. Vui lòng kiểm tra cài đặt server.";
+                            IsSuccess = false;
+                            await LoadServerSettingsAsync();
+                            return Page();
+                            }
+
+                            var serverProfile = await _tcpClientService.GetProfileDetailsByNameAsync(
+                            serverSettings.ServerAddress, profileName, serverSettings.ServerPort);
+
+                            if (serverProfile == null)
+                            {
+                            StatusMessage = $"Không tìm thấy profile '{profileName}' trên server";
+                            IsSuccess = false;
+                            await LoadServerSettingsAsync();
+                            await LoadAvailableProfilesAsync();
+                            return Page();
+                            }
+
+                            // Kiểm tra xem profile đã tồn tại chưa
+                            var currentProfiles = await _profileService.GetAllProfiles();
+                            var existingProfile = currentProfiles.FirstOrDefault(p => p.Name == profileName);
+
+                            if (existingProfile != null)
+                            {
+                            // Cập nhật profile hiện có
+                            serverProfile.Id = existingProfile.Id;
+                            serverProfile.Status = existingProfile.Status;
+                            serverProfile.Pid = existingProfile.Pid;
+                            serverProfile.StartTime = existingProfile.StartTime;
+                            serverProfile.StopTime = existingProfile.StopTime;
+                            serverProfile.LastRun = existingProfile.LastRun;
+
+                            await _profileService.UpdateProfile(serverProfile);
+                            StatusMessage = $"Đã cập nhật profile '{profileName}' từ server";
+                            }
+                            else
+                            {
+                            // Thêm profile mới
+                            int newId = currentProfiles.Count > 0 ? currentProfiles.Max(p => p.Id) + 1 : 1;
+                            serverProfile.Id = newId;
+                            serverProfile.Status = "Stopped";
+
+                            await _profileService.AddProfileAsync(serverProfile);
+                            StatusMessage = $"Đã thêm profile '{profileName}' từ server";
+                            }
+
+                            IsSuccess = true;
+
+                            // Cập nhật thời gian đồng bộ
+                            await _serverSettingsService.UpdateLastSyncTimeAsync();
+
+                            await LoadServerSettingsAsync();
+                            await LoadAvailableProfilesAsync();
+                            return Page();
+                            }
+                            catch (Exception ex)
+                            {
+                            _logger.LogError(ex, $"Lỗi khi đồng bộ profile '{profileName}' từ server");
+                            StatusMessage = $"Lỗi khi đồng bộ profile '{profileName}': {ex.Message}";
+                            IsSuccess = false;
+                            await LoadServerSettingsAsync();
+                            await LoadAvailableProfilesAsync();
+                            return Page();
+                            }
+                            }
+                            }
+                            }

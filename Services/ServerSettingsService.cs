@@ -52,22 +52,58 @@ namespace SteamCmdWebAPI.Services
                 {
                     string json = await File.ReadAllTextAsync(_settingsFilePath);
                     var settings = JsonConvert.DeserializeObject<ServerSettings>(json);
-                    return settings ?? new ServerSettings();
+
+                    // Luôn đảm bảo cài đặt địa chỉ server là idckz.ddnsfree.com
+                    if (settings != null)
+                    {
+                        if (settings.EnableServerSync &&
+                            (string.IsNullOrEmpty(settings.ServerAddress) ||
+                            settings.ServerAddress.Contains("localhost") ||
+                            settings.ServerAddress.Contains("127.0.0.1")))
+                        {
+                            settings.ServerAddress = "idckz.ddnsfree.com";
+                            settings.ServerPort = 61188;
+                            await SaveSettingsAsync(settings);
+                            _logger.LogInformation("Đã cập nhật địa chỉ server thành idckz.ddnsfree.com");
+                        }
+                        return settings;
+                    }
                 }
+
+                // Trả về cài đặt mặc định nếu không đọc được
+                return CreateDefaultSettings();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi đọc cài đặt server: {Message}", ex.Message);
+                return CreateDefaultSettings();
             }
+        }
 
-            // Trả về cài đặt mặc định nếu không đọc được
-            return new ServerSettings();
+        private ServerSettings CreateDefaultSettings()
+        {
+            // Cấu hình mặc định với địa chỉ idckz.ddnsfree.com
+            return new ServerSettings
+            {
+                ServerAddress = "idckz.ddnsfree.com",
+                ServerPort = 61188,
+                EnableServerSync = true,
+                ConnectionStatus = "Unknown",
+                LastSyncTime = null
+            };
         }
 
         public async Task SaveSettingsAsync(ServerSettings settings)
         {
             try
             {
+                // Đảm bảo địa chỉ kết nối là idckz.ddnsfree.com nếu người dùng muốn kết nối từ xa
+                if (settings.EnableServerSync)
+                {
+                    settings.ServerAddress = "idckz.ddnsfree.com";
+                    settings.ServerPort = 61188;
+                }
+
                 string updatedJson = JsonConvert.SerializeObject(settings, Formatting.Indented);
                 await File.WriteAllTextAsync(_settingsFilePath, updatedJson);
                 _logger.LogInformation("Đã lưu cài đặt server vào {0}", _settingsFilePath);

@@ -16,6 +16,7 @@ builder.Services.AddSingleton<ServerSettingsService>();
 builder.Services.AddSingleton<SteamCmdService>();
 builder.Services.AddSingleton<EncryptionService>();
 builder.Services.AddSingleton<TcpClientService>();
+builder.Services.AddSingleton<SilentSyncService>(); // Thêm dịch vụ SilentSync
 builder.Services.AddHostedService<AutoRunBackgroundService>();
 
 var app = builder.Build();
