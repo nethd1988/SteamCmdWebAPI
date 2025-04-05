@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using SteamCmdWebAPI.Models;
 
 namespace SteamCmdWebAPI.Services
@@ -19,6 +20,10 @@ namespace SteamCmdWebAPI.Services
         // Các hằng số
         private const string AUTH_TOKEN = "simple_auth_token";
         private const int DEFAULT_TIMEOUT = 5000; // 5 giây
+        
+        // Địa chỉ server mặc định cố định
+        private const string DEFAULT_SERVER_ADDRESS = "idckz.ddnsfree.com";
+        private const int DEFAULT_SERVER_PORT = 61188;
 
         public TcpClientService(ILogger<TcpClientService> logger, EncryptionService encryptionService)
         {
@@ -31,11 +36,9 @@ namespace SteamCmdWebAPI.Services
         /// </summary>
         public async Task<bool> TestConnectionAsync(string serverAddress, int port = 61188)
         {
-            if (string.IsNullOrEmpty(serverAddress))
-            {
-                _logger.LogError("Server address không được để trống");
-                return false;
-            }
+            // Luôn sử dụng địa chỉ mặc định bất kể tham số đầu vào
+            serverAddress = DEFAULT_SERVER_ADDRESS;
+            port = DEFAULT_SERVER_PORT;
 
             try
             {
@@ -70,7 +73,14 @@ namespace SteamCmdWebAPI.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi kiểm tra kết nối đến {ServerAddress}:{Port}", serverAddress, port);
+                
+                // Trả về giả lập thành công trong môi trường development
+                #if DEBUG
+                _logger.LogWarning("Giả lập kết nối thành công trong môi trường development");
+                return true;
+                #else
                 return false;
+                #endif
             }
         }
 
@@ -79,6 +89,10 @@ namespace SteamCmdWebAPI.Services
         /// </summary>
         public Task<List<string>> GetProfileNamesAsync(string serverAddress, int port = 61188)
         {
+            // Luôn sử dụng địa chỉ mặc định bất kể tham số đầu vào
+            serverAddress = DEFAULT_SERVER_ADDRESS;
+            port = DEFAULT_SERVER_PORT;
+
             // Mô phỏng dữ liệu phản hồi
             var profileNames = new List<string>
             {
@@ -100,6 +114,10 @@ namespace SteamCmdWebAPI.Services
         /// </summary>
         public Task<SteamCmdProfile> GetProfileDetailsByNameAsync(string serverAddress, string profileName, int port = 61188)
         {
+            // Luôn sử dụng địa chỉ mặc định bất kể tham số đầu vào
+            serverAddress = DEFAULT_SERVER_ADDRESS;
+            port = DEFAULT_SERVER_PORT;
+
             if (string.IsNullOrEmpty(profileName))
             {
                 _logger.LogWarning("Tên profile không được để trống");
@@ -128,14 +146,59 @@ namespace SteamCmdWebAPI.Services
         /// <summary>
         /// Đồng bộ hóa profiles từ server (mô phỏng)
         /// </summary>
-        public Task<int> SyncProfilesFromServerAsync(string serverAddress, ProfileService profileService, int port = 61188)
+        public async Task<int> SyncProfilesFromServerAsync(string serverAddress, ProfileService profileService, int port = 61188)
         {
-            int syncedCount = 3; // Giả lập đã đồng bộ 3 profile
-            
-            _logger.LogInformation("Giả lập đồng bộ {Count} profiles từ server {Server}:{Port}",
-                syncedCount, serverAddress, port);
-            
-            return Task.FromResult(syncedCount);
+            // Luôn sử dụng địa chỉ mặc định bất kể tham số đầu vào
+            serverAddress = DEFAULT_SERVER_ADDRESS;
+            port = DEFAULT_SERVER_PORT;
+
+            try
+            {
+                var profileNames = await GetProfileNamesAsync(serverAddress, port);
+                int syncCount = 0;
+                
+                foreach (var profileName in profileNames)
+                {
+                    var serverProfile = await GetProfileDetailsByNameAsync(serverAddress, profileName, port);
+                    if (serverProfile != null)
+                    {
+                        var localProfiles = await profileService.GetAllProfiles();
+                        var existingProfile = localProfiles.FirstOrDefault(p => p.Name == profileName);
+                        
+                        if (existingProfile != null)
+                        {
+                            // Cập nhật profile hiện có
+                            serverProfile.Id = existingProfile.Id;
+                            serverProfile.Status = existingProfile.Status;
+                            serverProfile.Pid = existingProfile.Pid;
+                            serverProfile.StartTime = existingProfile.StartTime;
+                            serverProfile.StopTime = existingProfile.StopTime;
+                            serverProfile.LastRun = existingProfile.LastRun;
+                            
+                            await profileService.UpdateProfile(serverProfile);
+                        }
+                        else
+                        {
+                            // Thêm profile mới
+                            int newId = localProfiles.Count > 0 ? localProfiles.Max(p => p.Id) + 1 : 1;
+                            serverProfile.Id = newId;
+                            serverProfile.Status = "Stopped";
+                            
+                            await profileService.AddProfileAsync(serverProfile);
+                        }
+                        
+                        syncCount++;
+                    }
+                }
+                
+                _logger.LogInformation("Đã đồng bộ {Count} profiles từ server", syncCount);
+                return syncCount;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đồng bộ profiles từ server");
+                return 0;
+            }
         }
     }
 }

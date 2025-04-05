@@ -14,17 +14,24 @@ namespace SteamCmdWebAPI.Services
         private readonly ILogger<AutoRunBackgroundService> _logger;
         private readonly SteamCmdService _steamCmdService;
         private readonly SettingsService _settingsService;
+        private readonly ServerSyncService _serverSyncService;
         private Timer _timer;
         private readonly HttpClient _httpClient;
+
+        // Thời gian đồng bộ server (mỗi 30 phút)
+        private readonly TimeSpan _serverSyncInterval = TimeSpan.FromMinutes(30);
+        private DateTime _lastServerSync = DateTime.MinValue;
 
         public AutoRunBackgroundService(
             ILogger<AutoRunBackgroundService> logger,
             SteamCmdService steamCmdService,
-            SettingsService settingsService)
+            SettingsService settingsService,
+            ServerSyncService serverSyncService)
         {
             _logger = logger;
             _steamCmdService = steamCmdService;
             _settingsService = settingsService;
+            _serverSyncService = serverSyncService;
             _httpClient = new HttpClient();
         }
 
@@ -37,6 +44,7 @@ namespace SteamCmdWebAPI.Services
             {
                 try
                 {
+                    // Kiểm tra cài đặt tự động chạy
                     var settings = await _settingsService.LoadSettingsAsync();
                     if (!settings.AutoRunEnabled) return;
 
@@ -51,10 +59,19 @@ namespace SteamCmdWebAPI.Services
                         _logger.LogInformation("Bắt đầu chạy tất cả profile theo lịch hẹn giờ tại {Time}", now);
                         await _steamCmdService.RunAllProfilesAsync();
                     }
+
+                    // Đồng bộ tự động với server theo định kỳ
+                    if ((DateTime.Now - _lastServerSync) > _serverSyncInterval)
+                    {
+                        _logger.LogInformation("Bắt đầu đồng bộ tự động với server");
+                        await _serverSyncService.AutoSyncWithServerAsync();
+                        _lastServerSync = DateTime.Now;
+                        _logger.LogInformation("Hoàn thành đồng bộ tự động với server");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Lỗi khi chạy tự động theo lịch hẹn giờ");
+                    _logger.LogError(ex, "Lỗi khi chạy tự động theo lịch hẹn giờ hoặc đồng bộ server");
                 }
             }, null, TimeSpan.Zero, TimeSpan.FromMinutes(1)); // Kiểm tra mỗi phút
 

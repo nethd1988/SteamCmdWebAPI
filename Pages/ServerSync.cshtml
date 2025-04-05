@@ -1,5 +1,5 @@
 @page
-@model ServerSyncModel
+@model SteamCmdWebAPI.Pages.ServerSyncPageModel
 @{
     ViewData["Title"] = "Đồng bộ Server - SteamAUTO";
 }
@@ -17,13 +17,12 @@
     @if (Model.IsServerConfigured)
     {
         <div class="card mb-4">
-            <div class="card-header bg-success text-white">
-                <h5 class="mb-0">Thông tin máy chủ</h5>
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Thông tin kết nối</h5>
             </div>
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <p><strong>Địa chỉ server:</strong> @Model.ServerAddress:@Model.ServerPort</p>
                         <p><strong>Trạng thái:</strong> 
                             <span id="connectionStatus" class="badge bg-info">Đang kiểm tra...</span>
                         </p>
@@ -32,7 +31,8 @@
                         <p><strong>Lần đồng bộ cuối:</strong> 
                             @(Model.LastSyncTime.HasValue ? Model.LastSyncTime.Value.ToString("dd/MM/yyyy HH:mm:ss") : "Chưa đồng bộ")
                         </p>
-                        <button id="testConnectionBtn" class="btn btn-info">Kiểm tra kết nối</button>
+                        <button id="testConnectionBtn" class="btn btn-info me-2">Kiểm tra kết nối</button>
+                        <button id="forceSyncBtn" class="btn btn-warning">Đồng bộ ngay</button>
                     </div>
                 </div>
             </div>
@@ -41,38 +41,53 @@
         <div class="row mb-4">
             <div class="col-md-6">
                 <div class="card h-100">
-                    <div class="card-header bg-primary text-white">
-                        <h5 class="mb-0">Đồng bộ tất cả profiles</h5>
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">Đồng bộ từ Server về Client</h5>
                     </div>
                     <div class="card-body">
-                        <p>Đồng bộ toàn bộ profiles từ server. Thao tác này sẽ cập nhật các profiles hiện có và thêm mới nếu chưa tồn tại.</p>
-                        <form method="post" asp-page-handler="SyncAll">
-                            @Html.AntiForgeryToken()
-                            <button type="submit" class="btn btn-primary">Đồng bộ tất cả</button>
-                        </form>
+                        <div class="mb-4">
+                            <h6>Đồng bộ tất cả profiles</h6>
+                            <p>Đồng bộ toàn bộ profiles từ server. Thao tác này sẽ cập nhật các profiles hiện có và thêm mới nếu chưa tồn tại.</p>
+                            <form method="post" asp-page-handler="SyncAll">
+                                @Html.AntiForgeryToken()
+                                <button type="submit" class="btn btn-success">Đồng bộ tất cả từ Server</button>
+                            </form>
+                        </div>
+
+                        <div>
+                            <h6>Đồng bộ một profile cụ thể</h6>
+                            <form method="post" asp-page-handler="SyncSingle">
+                                @Html.AntiForgeryToken()
+                                <div class="mb-3">
+                                    <label for="profileName" class="form-label">Chọn profile từ server:</label>
+                                    <select id="profileName" name="profileName" class="form-select">
+                                        <option value="">-- Chọn profile --</option>
+                                        @foreach (var profile in Model.AvailableProfiles)
+                                        {
+                                            <option value="@profile">@profile</option>
+                                        }
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Đồng bộ profile đã chọn</button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <div class="col-md-6">
                 <div class="card h-100">
-                    <div class="card-header bg-info text-white">
-                        <h5 class="mb-0">Đồng bộ một profile cụ thể</h5>
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="mb-0">Đồng bộ từ Client lên Server</h5>
                     </div>
                     <div class="card-body">
-                        <form method="post" asp-page-handler="SyncSingle">
+                        <p>Đồng bộ tất cả profiles của bạn lên server. Thao tác này sẽ gửi toàn bộ cấu hình lên server.</p>
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle"></i> Lưu ý: Thao tác này có thể ghi đè các cấu hình hiện có trên server.
+                        </div>
+                        <form method="post" asp-page-handler="UploadToServer">
                             @Html.AntiForgeryToken()
-                            <div class="mb-3">
-                                <label for="profileName" class="form-label">Chọn profile từ server:</label>
-                                <select id="profileName" name="profileName" class="form-select">
-                                    <option value="">-- Chọn profile --</option>
-                                    @foreach (var profile in Model.AvailableProfiles)
-                                    {
-                                        <option value="@profile">@profile</option>
-                                    }
-                                </select>
-                            </div>
-                            <button type="submit" class="btn btn-info">Đồng bộ profile đã chọn</button>
+                            <button type="submit" class="btn btn-warning">Đồng bộ lên Server</button>
                         </form>
                     </div>
                 </div>
@@ -83,7 +98,7 @@
     {
         <div class="alert alert-warning">
             <h4 class="alert-heading">Chưa cấu hình kết nối server!</h4>
-            <p>Bạn cần cấu hình kết nối với server trước khi có thể đồng bộ.</p>
+            <p>Bạn cần kích hoạt đồng bộ server trước khi có thể đồng bộ.</p>
             <hr>
             <p class="mb-0">Hãy vào <a href="/ServerSettings" class="alert-link">Cài đặt Server</a> để thiết lập kết nối.</p>
         </div>
@@ -104,6 +119,11 @@
             document.getElementById('testConnectionBtn')?.addEventListener('click', function() {
                 checkServerConnection();
             });
+            
+            // Thêm event listener cho nút đồng bộ ngay
+            document.getElementById('forceSyncBtn')?.addEventListener('click', function() {
+                forceSyncWithServer();
+            });
         });
 
         function checkServerConnection() {
@@ -113,15 +133,9 @@
             statusElement.textContent = 'Đang kiểm tra...';
             statusElement.className = 'badge bg-info';
 
-            // Lấy token CSRF từ form
-            const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
-
-            fetch('/ServerSettings?handler=TestConnection', {
-                method: 'POST',
-                headers: {
-                    'RequestVerificationToken': token,
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                }
+            // Sử dụng API controller thay vì handler
+            fetch('/api/Server/test-connection', {
+                method: 'GET'
             })
             .then(response => response.json())
             .then(data => {
@@ -137,6 +151,26 @@
                 console.error('Error testing connection:', error);
                 statusElement.textContent = 'Lỗi kiểm tra';
                 statusElement.className = 'badge bg-danger';
+            });
+        }
+        
+        function forceSyncWithServer() {
+            // Sử dụng API controller để đồng bộ
+            fetch('/api/Server/sync', {
+                method: 'GET'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Đồng bộ với server thành công!');
+                    location.reload(); // Tải lại trang để cập nhật dữ liệu
+                } else {
+                    alert('Đồng bộ không thành công: ' + (data.error || 'Lỗi không xác định'));
+                }
+            })
+            .catch(error => {
+                console.error('Error syncing with server:', error);
+                alert('Lỗi khi đồng bộ với server: ' + error);
             });
         }
     </script>

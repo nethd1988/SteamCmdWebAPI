@@ -15,6 +15,10 @@ namespace SteamCmdWebAPI.Services
         private readonly ILogger<ServerSettingsService> _logger;
         private readonly string _settingsFilePath;
 
+        // Địa chỉ server mặc định không thay đổi
+        private const string DEFAULT_SERVER_ADDRESS = "idckz.ddnsfree.com";
+        private const int DEFAULT_SERVER_PORT = 61188;
+
         public ServerSettingsService(ILogger<ServerSettingsService> logger)
         {
             _logger = logger;
@@ -59,19 +63,12 @@ namespace SteamCmdWebAPI.Services
                     string json = await File.ReadAllTextAsync(_settingsFilePath);
                     var settings = JsonConvert.DeserializeObject<ServerSettings>(json);
 
-                    // Luôn đảm bảo cài đặt địa chỉ server là idckz.ddnsfree.com
+                    // Trả về cài đặt đã lưu nhưng luôn đảm bảo địa chỉ server là mặc định
                     if (settings != null)
                     {
-                        if (settings.EnableServerSync &&
-                            (string.IsNullOrEmpty(settings.ServerAddress) ||
-                            settings.ServerAddress.Contains("localhost") ||
-                            settings.ServerAddress.Contains("127.0.0.1")))
-                        {
-                            settings.ServerAddress = "idckz.ddnsfree.com";
-                            settings.ServerPort = 61188;
-                            await SaveSettingsAsync(settings);
-                            _logger.LogInformation("Đã cập nhật địa chỉ server thành idckz.ddnsfree.com");
-                        }
+                        // Luôn ghi đè địa chỉ server bằng địa chỉ mặc định
+                        settings.ServerAddress = DEFAULT_SERVER_ADDRESS;
+                        settings.ServerPort = DEFAULT_SERVER_PORT;
                         return settings;
                     }
                 }
@@ -91,11 +88,11 @@ namespace SteamCmdWebAPI.Services
         /// </summary>
         private ServerSettings CreateDefaultSettings()
         {
-            // Cấu hình mặc định với địa chỉ idckz.ddnsfree.com
+            // Cấu hình mặc định
             return new ServerSettings
             {
-                ServerAddress = "idckz.ddnsfree.com",
-                ServerPort = 61188,
+                ServerAddress = DEFAULT_SERVER_ADDRESS,
+                ServerPort = DEFAULT_SERVER_PORT,
                 EnableServerSync = true,
                 ConnectionStatus = "Unknown",
                 LastSyncTime = null
@@ -109,13 +106,10 @@ namespace SteamCmdWebAPI.Services
         {
             try
             {
-                // Đảm bảo địa chỉ kết nối là idckz.ddnsfree.com nếu người dùng muốn kết nối từ xa
-                if (settings.EnableServerSync)
-                {
-                    settings.ServerAddress = "idckz.ddnsfree.com";
-                    settings.ServerPort = 61188;
-                }
-
+                // Đảm bảo luôn ghi đè địa chỉ server bằng địa chỉ mặc định
+                settings.ServerAddress = DEFAULT_SERVER_ADDRESS;
+                settings.ServerPort = DEFAULT_SERVER_PORT;
+                
                 string updatedJson = JsonConvert.SerializeObject(settings, Formatting.Indented);
                 await File.WriteAllTextAsync(_settingsFilePath, updatedJson);
                 _logger.LogInformation("Đã lưu cài đặt server vào {0}", _settingsFilePath);

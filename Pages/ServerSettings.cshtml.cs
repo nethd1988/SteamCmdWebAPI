@@ -9,14 +9,16 @@ using SteamCmdWebAPI.Services;
 
 namespace SteamCmdWebAPI.Pages
 {
-    public class ServerSettingsModel : PageModel
+    // Đổi tên rõ ràng để tránh xung đột với Models.ServerSettings
+    public class ServerSettingsPageModel : PageModel
     {
-        private readonly ILogger<ServerSettingsModel> _logger;
+        private readonly ILogger<ServerSettingsPageModel> _logger;
         private readonly ServerSettingsService _serverSettingsService;
         private readonly TcpClientService _tcpClientService;
+        private readonly ServerSyncService _serverSyncService;
 
         [BindProperty]
-        public ServerSettings Settings { get; set; }
+        public SteamCmdWebAPI.Models.ServerSettings Settings { get; set; }
 
         [TempData]
         public string StatusMessage { get; set; }
@@ -24,15 +26,17 @@ namespace SteamCmdWebAPI.Pages
         [TempData]
         public bool IsSuccess { get; set; }
 
-        public ServerSettingsModel(
-            ILogger<ServerSettingsModel> logger,
+        public ServerSettingsPageModel(
+            ILogger<ServerSettingsPageModel> logger,
             ServerSettingsService serverSettingsService,
-            TcpClientService tcpClientService)
+            TcpClientService tcpClientService,
+            ServerSyncService serverSyncService)
         {
             _logger = logger;
             _serverSettingsService = serverSettingsService;
             _tcpClientService = tcpClientService;
-            Settings = new ServerSettings();
+            _serverSyncService = serverSyncService;
+            Settings = new SteamCmdWebAPI.Models.ServerSettings();
         }
 
         public async Task OnGetAsync()
@@ -42,14 +46,22 @@ namespace SteamCmdWebAPI.Pages
 
         public async Task<IActionResult> OnPostAsync()
         {
-            if (!ModelState.IsValid)
-            {
-                return Page();
-            }
-
             try
             {
-                await _serverSettingsService.SaveSettingsAsync(Settings);
+                // Lấy cài đặt hiện tại
+                var currentSettings = await _serverSettingsService.LoadSettingsAsync();
+                
+                // Chỉ lưu thay đổi trạng thái EnableServerSync
+                currentSettings.EnableServerSync = Settings.EnableServerSync;
+                
+                await _serverSettingsService.SaveSettingsAsync(currentSettings);
+                
+                // Nếu bật đồng bộ, chạy đồng bộ tự động một lần
+                if (currentSettings.EnableServerSync)
+                {
+                    await _serverSyncService.AutoSyncWithServerAsync();
+                }
+                
                 StatusMessage = "Cài đặt server đã được lưu";
                 IsSuccess = true;
 
@@ -67,28 +79,26 @@ namespace SteamCmdWebAPI.Pages
         {
             try
             {
-                if (string.IsNullOrEmpty(Settings.ServerAddress))
-                {
-                    ModelState.AddModelError("Settings.ServerAddress", "Địa chỉ server không được để trống");
-                    return Page();
-                }
-
-                bool isConnected = await _tcpClientService.TestConnectionAsync(Settings.ServerAddress, Settings.ServerPort);
+                // Lấy cài đặt hiện tại
+                var settings = await _serverSettingsService.LoadSettingsAsync();
+                
+                // Kiểm tra kết nối bằng địa chỉ mặc định (bỏ qua giá trị nhập)
+                bool isConnected = await _tcpClientService.TestConnectionAsync(settings.ServerAddress, settings.ServerPort);
                 
                 if (isConnected)
                 {
                     // Cập nhật trạng thái kết nối
-                    Settings.ConnectionStatus = "Connected";
+                    settings.ConnectionStatus = "Connected";
                     await _serverSettingsService.UpdateConnectionStatusAsync("Connected");
-                    StatusMessage = $"Kết nối thành công tới {Settings.ServerAddress}:{Settings.ServerPort}";
+                    StatusMessage = $"Kết nối thành công tới server";
                     IsSuccess = true;
                 }
                 else
                 {
                     // Cập nhật trạng thái kết nối
-                    Settings.ConnectionStatus = "Disconnected";
+                    settings.ConnectionStatus = "Disconnected";
                     await _serverSettingsService.UpdateConnectionStatusAsync("Disconnected");
-                    StatusMessage = $"Không thể kết nối tới {Settings.ServerAddress}:{Settings.ServerPort}";
+                    StatusMessage = $"Không thể kết nối tới server. Vui lòng kiểm tra kết nối mạng của bạn";
                     IsSuccess = false;
                 }
 
@@ -98,9 +108,44 @@ namespace SteamCmdWebAPI.Pages
             {
                 StatusMessage = $"Lỗi kết nối: {ex.Message}";
                 IsSuccess = false;
-                Settings.ConnectionStatus = "Error";
+                
+                // Cập nhật trạng thái kết nối thành lỗi
+                var settings = await _serverSettingsService.LoadSettingsAsync();
+                settings.ConnectionStatus = "Error";
                 await _serverSettingsService.UpdateConnectionStatusAsync("Error");
+                
                 return Page();
+            }
+        }
+
+        public async Task<JsonResult> OnGetTestConnectionJsonAsync()
+        {
+            try
+            {
+                var settings = await _serverSettingsService.LoadSettingsAsync();
+                
+                // Kiểm tra kết nối bằng địa chỉ mặc định (bỏ qua giá trị nhập)
+                bool isConnected = await _tcpClientService.TestConnectionAsync(settings.ServerAddress, settings.ServerPort);
+                
+                if (isConnected)
+                {
+                    // Cập nhật trạng thái kết nối
+                    settings.ConnectionStatus = "Connected";
+                    await _serverSettingsService.UpdateConnectionStatusAsync("Connected");
+                    return new JsonResult(new { success = true, message = "Kết nối thành công" });
+                }
+                else
+                {
+                    // Cập nhật trạng thái kết nối
+                    settings.ConnectionStatus = "Disconnected";
+                    await _serverSettingsService.UpdateConnectionStatusAsync("Disconnected");
+                    return new JsonResult(new { success = false, error = "Không thể kết nối tới server" });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi kiểm tra kết nối JSON");
+                return new JsonResult(new { success = false, error = ex.Message });
             }
         }
 
@@ -108,19 +153,19 @@ namespace SteamCmdWebAPI.Pages
         {
             try
             {
-                if (string.IsNullOrEmpty(Settings.ServerAddress))
-                {
-                    ModelState.AddModelError("Settings.ServerAddress", "Địa chỉ server không được để trống");
-                    return Page();
-                }
-
-                var profileNames = await _tcpClientService.GetProfileNamesAsync(Settings.ServerAddress, Settings.ServerPort);
+                // Lấy cài đặt hiện tại
+                var settings = await _serverSettingsService.LoadSettingsAsync();
+                
+                var profileNames = await _tcpClientService.GetProfileNamesAsync(settings.ServerAddress, settings.ServerPort);
                 StatusMessage = $"Kết nối thành công. Đã nhận {profileNames.Count} profile từ server.";
                 IsSuccess = true;
                 
-                // Cập nhật trạng thái kết nối
-                Settings.ConnectionStatus = "Connected";
+                // Cập nhật trạng thái kết nối thành công
+                settings.ConnectionStatus = "Connected";
                 await _serverSettingsService.UpdateConnectionStatusAsync("Connected");
+                
+                // Kích hoạt đồng bộ tự động
+                await _serverSyncService.AutoSyncWithServerAsync();
 
                 return Page();
             }
@@ -128,8 +173,12 @@ namespace SteamCmdWebAPI.Pages
             {
                 StatusMessage = $"Lỗi khi lấy danh sách profile: {ex.Message}";
                 IsSuccess = false;
-                Settings.ConnectionStatus = "Error";
+                
+                // Cập nhật trạng thái kết nối thành lỗi
+                var settings = await _serverSettingsService.LoadSettingsAsync();
+                settings.ConnectionStatus = "Error";
                 await _serverSettingsService.UpdateConnectionStatusAsync("Error");
+                
                 return Page();
             }
         }
