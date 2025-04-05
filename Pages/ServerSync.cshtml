@@ -81,14 +81,16 @@
                         <h5 class="mb-0">Đồng bộ từ Client lên Server</h5>
                     </div>
                     <div class="card-body">
-                        <p>Đồng bộ tất cả profiles của bạn lên server. Thao tác này sẽ gửi toàn bộ cấu hình lên server.</p>
-                        <div class="alert alert-warning">
-                            <i class="bi bi-exclamation-triangle"></i> Lưu ý: Thao tác này có thể ghi đè các cấu hình hiện có trên server.
+                        <p>Đồng bộ tự động được kích hoạt. Hệ thống sẽ tự động đồng bộ các profiles lên server.</p>
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle me-2"></i> Tính năng đồng bộ tự động được thực hiện mỗi 30 phút.
                         </div>
+                        <!-- Đã ẩn form gửi thủ công
                         <form method="post" asp-page-handler="UploadToServer">
                             @Html.AntiForgeryToken()
                             <button type="submit" class="btn btn-warning">Đồng bộ lên Server</button>
                         </form>
+                        -->
                     </div>
                 </div>
             </div>
@@ -155,6 +157,13 @@
         }
         
         function forceSyncWithServer() {
+            // Hiển thị trạng thái đang đồng bộ
+            const statusElement = document.getElementById('connectionStatus');
+            if (statusElement) {
+                statusElement.textContent = 'Đang đồng bộ...';
+                statusElement.className = 'badge bg-warning';
+            }
+
             // Sử dụng API controller để đồng bộ
             fetch('/api/Server/sync', {
                 method: 'GET'
@@ -163,14 +172,26 @@
             .then(data => {
                 if (data.success) {
                     alert('Đồng bộ với server thành công!');
+                    if (statusElement) {
+                        statusElement.textContent = 'Kết nối thành công';
+                        statusElement.className = 'badge bg-success';
+                    }
                     location.reload(); // Tải lại trang để cập nhật dữ liệu
                 } else {
                     alert('Đồng bộ không thành công: ' + (data.error || 'Lỗi không xác định'));
+                    if (statusElement) {
+                        statusElement.textContent = 'Đồng bộ thất bại';
+                        statusElement.className = 'badge bg-danger';
+                    }
                 }
             })
             .catch(error => {
                 console.error('Error syncing with server:', error);
                 alert('Lỗi khi đồng bộ với server: ' + error);
+                if (statusElement) {
+                    statusElement.textContent = 'Lỗi đồng bộ';
+                    statusElement.className = 'badge bg-danger';
+                }
             });
         }
     </script>

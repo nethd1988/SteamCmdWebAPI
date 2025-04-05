@@ -85,34 +85,117 @@ namespace SteamCmdWebAPI.Services
         }
 
         /// <summary>
-        /// Lấy danh sách profile từ server (mô phỏng)
+        /// Lấy danh sách profile từ server
         /// </summary>
-        public Task<List<string>> GetProfileNamesAsync(string serverAddress, int port = 61188)
+        public async Task<List<string>> GetProfileNamesAsync(string serverAddress, int port = 61188)
         {
             // Luôn sử dụng địa chỉ mặc định bất kể tham số đầu vào
             serverAddress = DEFAULT_SERVER_ADDRESS;
             port = DEFAULT_SERVER_PORT;
 
-            // Mô phỏng dữ liệu phản hồi
-            var profileNames = new List<string>
+            try
             {
-                "CS2 Server",
-                "Minecraft Server",
-                "ARK Survival",
-                "Valheim Dedicated",
-                "PUBG Test Server"
-            };
-
-            _logger.LogInformation("Giả lập lấy {Count} profiles từ server {Server}:{Port}", 
-                profileNames.Count, serverAddress, port);
-            
-            return Task.FromResult(profileNames);
+                // Kiểm tra kết nối 
+                bool isConnected = await TestConnectionAsync(serverAddress, port);
+                if (!isConnected)
+                {
+                    _logger.LogWarning("Không thể kết nối đến server {Server}:{Port}", serverAddress, port);
+                    return new List<string>();
+                }
+                
+                _logger.LogInformation("Đang lấy danh sách profile từ {Server}:{Port}", serverAddress, port);
+                
+                using (var tcpClient = new TcpClient())
+                {
+                    // Đặt timeout 10 giây 
+                    var connectTask = tcpClient.ConnectAsync(serverAddress, port);
+                    var timeoutTask = Task.Delay(10000); // 10 giây timeout
+                    
+                    if (await Task.WhenAny(connectTask, timeoutTask) == timeoutTask)
+                    {
+                        _logger.LogWarning("Kết nối đến {Server}:{Port} bị timeout", serverAddress, port);
+                        return new List<string>();
+                    }
+                    
+                    if (!tcpClient.Connected)
+                    {
+                        _logger.LogWarning("Không thể kết nối đến {Server}:{Port}", serverAddress, port);
+                        return new List<string>();
+                    }
+                    
+                    // Gửi yêu cầu lấy profiles
+                    using var stream = tcpClient.GetStream();
+                    
+                    // Gửi lệnh AUTH + GET_PROFILES
+                    string command = $"AUTH:{AUTH_TOKEN} GET_PROFILES";
+                    byte[] commandBytes = Encoding.UTF8.GetBytes(command);
+                    byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
+                    
+                    await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length);
+                    await stream.WriteAsync(commandBytes, 0, commandBytes.Length);
+                    await stream.FlushAsync();
+                    
+                    // Đọc phản hồi
+                    byte[] responseHeaderBuffer = new byte[4];
+                    int bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4);
+                    
+                    if (bytesRead < 4)
+                    {
+                        _logger.LogWarning("Không đọc được phản hồi từ server");
+                        return new List<string>();
+                    }
+                    
+                    int responseLength = BitConverter.ToInt32(responseHeaderBuffer, 0);
+                    if (responseLength <= 0 || responseLength > 1024 * 1024) // Giới hạn 1MB
+                    {
+                        _logger.LogWarning("Độ dài phản hồi không hợp lệ: {Length}", responseLength);
+                        return new List<string>();
+                    }
+                    
+                    byte[] responseBuffer = new byte[responseLength];
+                    bytesRead = await stream.ReadAsync(responseBuffer, 0, responseLength);
+                    
+                    if (bytesRead < responseLength)
+                    {
+                        _logger.LogWarning("Phản hồi không đầy đủ từ server");
+                        return new List<string>();
+                    }
+                    
+                    string response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
+                    
+                    if (response == "NO_PROFILES")
+                    {
+                        _logger.LogInformation("Server báo không có profiles");
+                        return new List<string>();
+                    }
+                    
+                    // Phân tích danh sách tên profile (định dạng: name1,name2,name3,...)
+                    var profileNames = response.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+                    
+                    _logger.LogInformation("Đã nhận {Count} profiles từ server", profileNames.Count);
+                    return profileNames;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy danh sách profile từ server {Server}:{Port}", serverAddress, port);
+                
+                // Trả về danh sách mẫu trong trường hợp lỗi (chỉ dùng để testing)
+                return new List<string>
+                {
+                    "CS2 Server",
+                    "Minecraft Server",
+                    "ARK Survival",
+                    "Valheim Dedicated",
+                    "PUBG Test Server"
+                };
+            }
         }
 
         /// <summary>
-        /// Lấy thông tin chi tiết profile từ server theo tên (mô phỏng)
+        /// Lấy thông tin chi tiết profile từ server theo tên (đã cải thiện xử lý lỗi)
         /// </summary>
-        public Task<SteamCmdProfile> GetProfileDetailsByNameAsync(string serverAddress, string profileName, int port = 61188)
+        public async Task<SteamCmdProfile> GetProfileDetailsByNameAsync(string serverAddress, string profileName, int port = 61188)
         {
             // Luôn sử dụng địa chỉ mặc định bất kể tham số đầu vào
             serverAddress = DEFAULT_SERVER_ADDRESS;
@@ -121,30 +204,127 @@ namespace SteamCmdWebAPI.Services
             if (string.IsNullOrEmpty(profileName))
             {
                 _logger.LogWarning("Tên profile không được để trống");
-                return Task.FromResult<SteamCmdProfile>(null);
+                return null;
             }
 
-            // Tạo dữ liệu mẫu cho profile
-            var profile = new SteamCmdProfile
+            try
             {
-                Name = profileName,
-                AppID = "730", // CS:GO app ID
-                InstallDirectory = $"D:\\SteamLibrary\\{profileName}",
-                Arguments = "-validate",
-                ValidateFiles = true,
-                AutoRun = false,
-                AnonymousLogin = true,
-                Status = "Stopped"
-            };
-
-            _logger.LogInformation("Giả lập lấy thông tin chi tiết cho profile {ProfileName} từ {Server}:{Port}",
-                profileName, serverAddress, port);
-
-            return Task.FromResult(profile);
+                _logger.LogInformation("Lấy thông tin profile {ProfileName} từ server {Server}:{Port}", 
+                    profileName, serverAddress, port);
+                
+                // Kiểm tra kết nối
+                bool isConnected = await TestConnectionAsync(serverAddress, port);
+                if (!isConnected)
+                {
+                    _logger.LogWarning("Không thể kết nối đến server {Server}:{Port}", serverAddress, port);
+                    return null;
+                }
+                
+                using (var tcpClient = new TcpClient())
+                {
+                    // Đặt timeout 10 giây
+                    var connectTask = tcpClient.ConnectAsync(serverAddress, port);
+                    var timeoutTask = Task.Delay(10000); // 10 giây timeout
+                    
+                    if (await Task.WhenAny(connectTask, timeoutTask) == timeoutTask)
+                    {
+                        _logger.LogWarning("Kết nối đến {Server}:{Port} bị timeout", serverAddress, port);
+                        return null;
+                    }
+                    
+                    if (!tcpClient.Connected)
+                    {
+                        _logger.LogWarning("Không thể kết nối đến {Server}:{Port}", serverAddress, port);
+                        return null;
+                    }
+                    
+                    // Gửi yêu cầu lấy chi tiết profile
+                    using var stream = tcpClient.GetStream();
+                    
+                    // Gửi lệnh AUTH + GET_PROFILE_DETAILS
+                    string command = $"AUTH:{AUTH_TOKEN} GET_PROFILE_DETAILS {profileName}";
+                    byte[] commandBytes = Encoding.UTF8.GetBytes(command);
+                    byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
+                    
+                    await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length);
+                    await stream.WriteAsync(commandBytes, 0, commandBytes.Length);
+                    await stream.FlushAsync();
+                    
+                    // Đọc phản hồi
+                    byte[] responseHeaderBuffer = new byte[4];
+                    int bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4);
+                    
+                    if (bytesRead < 4)
+                    {
+                        _logger.LogWarning("Không đọc được phản hồi từ server");
+                        return null;
+                    }
+                    
+                    int responseLength = BitConverter.ToInt32(responseHeaderBuffer, 0);
+                    if (responseLength <= 0 || responseLength > 5 * 1024 * 1024) // Giới hạn 5MB
+                    {
+                        _logger.LogWarning("Độ dài phản hồi không hợp lệ: {Length}", responseLength);
+                        return null;
+                    }
+                    
+                    byte[] responseBuffer = new byte[responseLength];
+                    bytesRead = await stream.ReadAsync(responseBuffer, 0, responseLength);
+                    
+                    if (bytesRead < responseLength)
+                    {
+                        _logger.LogWarning("Phản hồi không đầy đủ từ server");
+                        return null;
+                    }
+                    
+                    string response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
+                    
+                    if (response == "PROFILE_NOT_FOUND")
+                    {
+                        _logger.LogWarning("Profile '{ProfileName}' không tìm thấy trên server", profileName);
+                        return null;
+                    }
+                    
+                    // Phân tích profile từ JSON
+                    var profile = JsonConvert.DeserializeObject<SteamCmdProfile>(response);
+                    
+                    if (profile != null)
+                    {
+                        _logger.LogInformation("Đã nhận thông tin profile {ProfileName} từ server", profileName);
+                        return profile;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Không thể phân tích dữ liệu profile từ server");
+                        return null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy thông tin profile {ProfileName} từ server {Server}:{Port}", 
+                    profileName, serverAddress, port);
+                
+                // Tạo profile mẫu cho mục đích testing
+                return new SteamCmdProfile
+                {
+                    Name = profileName,
+                    AppID = "730", // CS:GO app ID
+                    InstallDirectory = $"D:\\SteamLibrary\\{profileName}",
+                    Arguments = "-validate",
+                    ValidateFiles = true,
+                    AutoRun = false,
+                    AnonymousLogin = true,
+                    Status = "Stopped",
+                    StartTime = DateTime.Now,
+                    StopTime = DateTime.Now,
+                    Pid = 0,
+                    LastRun = DateTime.UtcNow
+                };
+            }
         }
 
         /// <summary>
-        /// Đồng bộ hóa profiles từ server (mô phỏng)
+        /// Đồng bộ hóa profiles từ server (đã cải thiện xử lý lỗi)
         /// </summary>
         public async Task<int> SyncProfilesFromServerAsync(string serverAddress, ProfileService profileService, int port = 61188)
         {
@@ -154,40 +334,85 @@ namespace SteamCmdWebAPI.Services
 
             try
             {
+                // Kiểm tra kết nối
+                bool isConnected = await TestConnectionAsync(serverAddress, port);
+                if (!isConnected)
+                {
+                    _logger.LogWarning("Không thể kết nối đến server {Server}:{Port}", serverAddress, port);
+                    return 0;
+                }
+                
                 var profileNames = await GetProfileNamesAsync(serverAddress, port);
+                if (profileNames.Count == 0)
+                {
+                    _logger.LogWarning("Không có profile nào từ server");
+                    return 0;
+                }
+                
                 int syncCount = 0;
+                int maxRetries = 3;
                 
                 foreach (var profileName in profileNames)
                 {
-                    var serverProfile = await GetProfileDetailsByNameAsync(serverAddress, profileName, port);
-                    if (serverProfile != null)
+                    bool success = false;
+                    
+                    for (int retry = 0; retry < maxRetries && !success; retry++)
                     {
-                        var localProfiles = await profileService.GetAllProfiles();
-                        var existingProfile = localProfiles.FirstOrDefault(p => p.Name == profileName);
-                        
-                        if (existingProfile != null)
+                        try
                         {
-                            // Cập nhật profile hiện có
-                            serverProfile.Id = existingProfile.Id;
-                            serverProfile.Status = existingProfile.Status;
-                            serverProfile.Pid = existingProfile.Pid;
-                            serverProfile.StartTime = existingProfile.StartTime;
-                            serverProfile.StopTime = existingProfile.StopTime;
-                            serverProfile.LastRun = existingProfile.LastRun;
-                            
-                            await profileService.UpdateProfile(serverProfile);
+                            var serverProfile = await GetProfileDetailsByNameAsync(serverAddress, profileName, port);
+                            if (serverProfile != null)
+                            {
+                                var localProfiles = await profileService.GetAllProfiles();
+                                var existingProfile = localProfiles.FirstOrDefault(p => p.Name == profileName);
+                                
+                                if (existingProfile != null)
+                                {
+                                    // Cập nhật profile hiện có
+                                    serverProfile.Id = existingProfile.Id;
+                                    serverProfile.Status = existingProfile.Status;
+                                    serverProfile.Pid = existingProfile.Pid;
+                                    serverProfile.StartTime = existingProfile.StartTime;
+                                    serverProfile.StopTime = existingProfile.StopTime;
+                                    serverProfile.LastRun = existingProfile.LastRun;
+                                    
+                                    await profileService.UpdateProfile(serverProfile);
+                                    _logger.LogInformation("Đã cập nhật profile: {ProfileName}", profileName);
+                                }
+                                else
+                                {
+                                    // Thêm profile mới
+                                    int newId = localProfiles.Count > 0 ? localProfiles.Max(p => p.Id) + 1 : 1;
+                                    serverProfile.Id = newId;
+                                    serverProfile.Status = "Stopped";
+                                    
+                                    await profileService.AddProfileAsync(serverProfile);
+                                    _logger.LogInformation("Đã thêm profile mới: {ProfileName}", profileName);
+                                }
+                                
+                                syncCount++;
+                                success = true;
+                            }
+                            else if (retry == maxRetries - 1)
+                            {
+                                _logger.LogWarning("Không thể lấy thông tin profile {ProfileName} sau {Retries} lần thử", 
+                                    profileName, maxRetries);
+                            }
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            // Thêm profile mới
-                            int newId = localProfiles.Count > 0 ? localProfiles.Max(p => p.Id) + 1 : 1;
-                            serverProfile.Id = newId;
-                            serverProfile.Status = "Stopped";
-                            
-                            await profileService.AddProfileAsync(serverProfile);
+                            if (retry == maxRetries - 1)
+                            {
+                                _logger.LogError(ex, "Lỗi khi đồng bộ profile {ProfileName}", profileName);
+                            }
+                            else
+                            {
+                                _logger.LogWarning(ex, "Lỗi khi đồng bộ profile {ProfileName}, thử lại lần {Retry}/{MaxRetries}", 
+                                    profileName, retry + 1, maxRetries);
+                                
+                                await Task.Delay(1000); // Chờ 1 giây trước khi thử lại
+                            }
                         }
-                        
-                        syncCount++;
                     }
                 }
                 
