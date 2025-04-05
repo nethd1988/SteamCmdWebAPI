@@ -1,6 +1,6 @@
 [
   {
-    "Id": 3,
+    "Id": 1,
     "Name": "FiFa 25",
     "AppID": "2669320",
     "InstallDirectory": "E:\\Online Games\\FiFa 25",
@@ -11,30 +11,13 @@
     "AutoRun": false,
     "AnonymousLogin": false,
     "Status": "Stopped",
-    "StartTime": "2025-04-03T12:01:59.8366277+07:00",
-    "StopTime": "2025-04-03T12:02:06.9646033+07:00",
+    "StartTime": "2025-04-05T10:56:49.1034076+07:00",
+    "StopTime": "2025-04-05T10:58:08.1829069+07:00",
     "Pid": 0,
-    "LastRun": "2025-03-31T14:48:57.8642492Z"
+    "LastRun": "2025-04-05T03:58:08.1829077Z"
   },
   {
-    "Id": 4,
-    "Name": "PUBG: BATTLEGROUNDS",
-    "AppID": "578080",
-    "InstallDirectory": "E:\\Online Games\\Battleground steam",
-    "SteamUsername": "w5Sk22Jpqx5l1bXX+q0sU9F18mN/wGDU1IDzLWE/wMg=",
-    "SteamPassword": "HEQrRwQpdrg4pa/DTkl6DprBtDN8t98Ozw+Y/DAPu/s=",
-    "Arguments": "",
-    "ValidateFiles": false,
-    "AutoRun": false,
-    "AnonymousLogin": false,
-    "Status": "Stopped",
-    "StartTime": "2025-04-04T10:43:57.5473868+07:00",
-    "StopTime": "2025-04-04T10:43:57.547389+07:00",
-    "Pid": 0,
-    "LastRun": "2025-04-04T03:43:57.5473891Z"
-  },
-  {
-    "Id": 5,
+    "Id": 2,
     "Name": "Palworld",
     "AppID": "1623730",
     "InstallDirectory": "E:\\Online Games\\Palword Steam",
@@ -51,7 +34,24 @@
     "LastRun": "2025-04-04T03:42:23.5085259Z"
   },
   {
-    "Id": 6,
+    "Id": 3,
+    "Name": "PUBG: BATTLEGROUNDS",
+    "AppID": "578080",
+    "InstallDirectory": "E:\\Online Games\\Battleground steam",
+    "SteamUsername": "w5Sk22Jpqx5l1bXX+q0sU9F18mN/wGDU1IDzLWE/wMg=",
+    "SteamPassword": "HEQrRwQpdrg4pa/DTkl6DprBtDN8t98Ozw+Y/DAPu/s=",
+    "Arguments": "",
+    "ValidateFiles": false,
+    "AutoRun": false,
+    "AnonymousLogin": false,
+    "Status": "Stopped",
+    "StartTime": "2025-04-04T10:43:57.5473868+07:00",
+    "StopTime": "2025-04-04T10:43:57.547389+07:00",
+    "Pid": 0,
+    "LastRun": "2025-04-04T03:43:57.5473891Z"
+  },
+  {
+    "Id": 4,
     "Name": "Apex Legends",
     "AppID": "1172470",
     "InstallDirectory": "E:\\Online Games\\Apex Legends Steam",
@@ -68,7 +68,7 @@
     "LastRun": "2025-04-04T06:04:06.0371194Z"
   },
   {
-    "Id": 7,
+    "Id": 5,
     "Name": "A.V.A Global",
     "AppID": "1473480",
     "InstallDirectory": "E:\\Online Games\\AVA Global Steam",
@@ -85,7 +85,7 @@
     "LastRun": "2025-04-04T06:04:26.7583941Z"
   },
   {
-    "Id": 8,
+    "Id": 6,
     "Name": "Black Myth: Wukong",
     "AppID": "2358720",
     "InstallDirectory": "E:\\Online Games\\BlackMythWukongSteam",
@@ -102,7 +102,7 @@
     "LastRun": "2025-04-04T06:04:48.9382488Z"
   },
   {
-    "Id": 9,
+    "Id": 7,
     "Name": "Counter-Strike 2",
     "AppID": "730",
     "InstallDirectory": "E:\\Online Games\\CSGO",
@@ -119,7 +119,7 @@
     "LastRun": "2025-04-04T06:05:10.0317499Z"
   },
   {
-    "Id": 10,
+    "Id": 8,
     "Name": "Dota 2",
     "AppID": "570",
     "InstallDirectory": "E:\\Online Games\\DotA 2",
@@ -136,7 +136,7 @@
     "LastRun": "2025-04-04T06:05:31.681839Z"
   },
   {
-    "Id": 11,
+    "Id": 9,
     "Name": "Rust",
     "AppID": "252490",
     "InstallDirectory": "E:\\Online Games\\Rust Steam",
@@ -151,5 +151,39 @@
     "StopTime": "2025-04-05T03:46:04.502Z",
     "Pid": 0,
     "LastRun": "2025-04-05T03:46:04.502Z"
+  },
+  {
+    "Id": 10,
+    "Name": "wtqwt",
+    "AppID": "578080",
+    "InstallDirectory": "E:\\Online Games\\Apex Legends Steamaa",
+    "SteamUsername": "IpB0beslEIjqnIajuGTTBw==",
+    "SteamPassword": "pjE6G0ycG33OEfkaBIDv0A==",
+    "Arguments": "fasf",
+    "ValidateFiles": false,
+    "AutoRun": false,
+    "AnonymousLogin": false,
+    "Status": "Stopped",
+    "StartTime": "2025-04-05T10:59:24.7249339+07:00",
+    "StopTime": "2025-04-05T10:59:24.7249355+07:00",
+    "Pid": 0,
+    "LastRun": "2025-04-05T03:59:24.7249357Z"
+  },
+  {
+    "Id": 11,
+    "Name": "1111111",
+    "AppID": "236236",
+    "InstallDirectory": "E:\\Online Games\\Battleground steamasd",
+    "SteamUsername": "rKB1lQ4BCDs8o2faRQSM4g==",
+    "SteamPassword": "UeedQdBNjnOINY/ptJYnNY++fyw2Zt+XkWMT3Ri7ujY=",
+    "Arguments": "",
+    "ValidateFiles": false,
+    "AutoRun": false,
+    "AnonymousLogin": false,
+    "Status": "Stopped",
+    "StartTime": "2025-04-05T11:01:24.7979846+07:00",
+    "StopTime": "2025-04-05T11:01:24.7979865+07:00",
+    "Pid": 0,
+    "LastRun": "2025-04-05T04:01:24.7979866Z"
   }
 ]
