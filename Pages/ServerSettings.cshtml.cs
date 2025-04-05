@@ -9,7 +9,6 @@ using SteamCmdWebAPI.Services;
 
 namespace SteamCmdWebAPI.Pages
 {
-    // Đổi tên rõ ràng để tránh xung đột với Models.ServerSettings
     public class ServerSettingsPageModel : PageModel
     {
         private readonly ILogger<ServerSettingsPageModel> _logger;

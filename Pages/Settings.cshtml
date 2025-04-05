@@ -1,5 +1,5 @@
 @page
-@model SettingsModel
+@model SteamCmdWebAPI.Pages.SettingsPageModel
 @{
     ViewData["Title"] = "Cài đặt - SteamAUTO";
 }
@@ -12,35 +12,48 @@
     </div>
 
     <div class="card mb-3">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0">Hướng dẫn</h5>
+        </div>
+        <div class="card-body">
+            <h6>Cách cấu hình tự động chạy</h6>
+            <ul>
+                <li><strong>Kích hoạt tự động chạy:</strong> Bật/tắt tính năng tự động chạy cho toàn bộ hệ thống.</li>
+                <li><strong>Khoảng thời gian chạy:</strong> Đặt chu kỳ chạy tự động (1-48 tiếng). Ví dụ: nếu chọn 2 tiếng, hệ thống sẽ chạy cấu hình mỗi 2 tiếng một lần.</li>
+                <li><strong>Giờ chạy (1-24h):</strong> Đặt giờ bắt đầu chạy lần đầu tiên trong ngày. Ví dụ: nếu chọn 7h, lần chạy đầu tiên sẽ bắt đầu vào 7h sáng, các lần sau sẽ dựa vào khoảng thời gian chạy.</li>
+            </ul>
+            <div class="alert alert-info">
+                <strong>Lưu ý:</strong> Ngoài cài đặt chung này, bạn cũng cần bật tùy chọn "Tự động chạy khi khởi động" cho từng cấu hình cụ thể mà bạn muốn hệ thống tự động chạy.
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
         <div class="card-body">
             <h5>Cấu hình tự động chạy</h5>
             <form id="autoRunForm">
                 @Html.AntiForgeryToken()
-                <div class="form-check">
+                <div class="form-check mb-3">
                     <input type="checkbox" class="form-check-input" id="autoRunEnabled" name="autoRunEnabled" @(Model.AutoRunEnabled ? "checked" : "") />
                     <label class="form-check-label" for="autoRunEnabled">Kích hoạt tự động chạy</label>
                 </div>
-                <div class="form-group">
-                    <label for="autoRunInterval">Tần suất chạy</label>
+                <div class="form-group mb-3">
+                    <label for="autoRunInterval">Khoảng thời gian chạy (tiếng)</label>
                     <select class="form-control" id="autoRunInterval" name="autoRunInterval">
-                        @{
-                            string[] intervals = { "daily", "weekly", "monthly" };
-                            string[] intervalLabels = { "Hàng ngày", "Hàng tuần", "Hàng tháng" };
-                            for (int i = 0; i < intervals.Length; i++)
+                        @for (int hour = 1; hour <= 48; hour++)
+                        {
+                            if (Model.AutoRunIntervalHours == hour)
                             {
-                                if (Model.AutoRunInterval == intervals[i])
-                                {
-                                    <option value="@intervals[i]" selected>@intervalLabels[i]</option>
-                                }
-                                else
-                                {
-                                    <option value="@intervals[i]">@intervalLabels[i]</option>
-                                }
+                                <option value="@hour" selected>@hour tiếng</option>
+                            }
+                            else
+                            {
+                                <option value="@hour">@hour tiếng</option>
                             }
                         }
                     </select>
                 </div>
-                <div class="form-group">
+                <div class="form-group mb-3">
                     <label for="scheduledHour">Giờ chạy (1-24h)</label>
                     <select class="form-control" id="scheduledHour" name="scheduledHour">
                         @for (int hour = 1; hour <= 24; hour++)

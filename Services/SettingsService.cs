@@ -50,32 +50,69 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        public Task<AutoRunSettings> LoadSettingsAsync() // Bỏ async vì không cần await
+        public async Task<SteamCmdWebAPI.Models.AutoRunSettings> LoadSettingsAsync()
         {
             if (!File.Exists(_configPath))
             {
                 _logger.LogInformation("File settings.json không tồn tại tại {0}. Trả về cài đặt mặc định.", _configPath);
-                return Task.FromResult(new AutoRunSettings { AutoRunEnabled = false, AutoRunInterval = "daily", ScheduledHour = 7 });
+                return new SteamCmdWebAPI.Models.AutoRunSettings { 
+                    AutoRunEnabled = false, 
+                    AutoRunIntervalHours = 12, // Mặc định 12 giờ
+                    AutoRunInterval = "daily",
+                    ScheduledHour = 7 
+                };
             }
 
             try
             {
-                string json = File.ReadAllText(_configPath);
-                var settings = JsonConvert.DeserializeObject<AutoRunSettings>(json) ?? new AutoRunSettings { AutoRunEnabled = false, AutoRunInterval = "daily", ScheduledHour = 7 };
+                string json = await File.ReadAllTextAsync(_configPath);
+                var settings = JsonConvert.DeserializeObject<SteamCmdWebAPI.Models.AutoRunSettings>(json);
+                
+                // Nếu cài đặt là null hoặc khoảng thời gian không hợp lệ
+                if (settings == null)
+                {
+                    return new SteamCmdWebAPI.Models.AutoRunSettings { 
+                        AutoRunEnabled = false, 
+                        AutoRunIntervalHours = 12, 
+                        AutoRunInterval = "daily",
+                        ScheduledHour = 7 
+                    };
+                }
+                
+                // Kiểm tra và đảm bảo khoảng thời gian hợp lệ (1-48 giờ)
+                if (settings.AutoRunIntervalHours < 1) settings.AutoRunIntervalHours = 1;
+                if (settings.AutoRunIntervalHours > 48) settings.AutoRunIntervalHours = 48;
+                
+                // Đảm bảo giờ chạy hợp lệ (1-24h)
+                if (settings.ScheduledHour < 1) settings.ScheduledHour = 1;
+                if (settings.ScheduledHour > 24) settings.ScheduledHour = 24;
+                
                 _logger.LogInformation("Đã đọc settings từ {0}", _configPath);
-                return Task.FromResult(settings);
+                return settings;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi đọc file settings.json tại {0}", _configPath);
-                throw;
+                return new SteamCmdWebAPI.Models.AutoRunSettings { 
+                    AutoRunEnabled = false, 
+                    AutoRunIntervalHours = 12, 
+                    AutoRunInterval = "daily",
+                    ScheduledHour = 7 
+                };
             }
         }
 
-        public async Task SaveSettingsAsync(AutoRunSettings settings)
+        public async Task SaveSettingsAsync(SteamCmdWebAPI.Models.AutoRunSettings settings)
         {
             try
             {
+                // Kiểm tra giá trị hợp lệ trước khi lưu
+                if (settings.AutoRunIntervalHours < 1) settings.AutoRunIntervalHours = 1;
+                if (settings.AutoRunIntervalHours > 48) settings.AutoRunIntervalHours = 48;
+                
+                if (settings.ScheduledHour < 1) settings.ScheduledHour = 1;
+                if (settings.ScheduledHour > 24) settings.ScheduledHour = 24;
+                
                 string updatedJson = JsonConvert.SerializeObject(settings, Formatting.Indented);
                 await File.WriteAllTextAsync(_configPath, updatedJson);
                 _logger.LogInformation("Đã lưu settings vào {0}", _configPath);

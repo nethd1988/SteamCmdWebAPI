@@ -21,6 +21,9 @@ namespace SteamCmdWebAPI.Services
         // Thời gian đồng bộ server (mỗi 30 phút)
         private readonly TimeSpan _serverSyncInterval = TimeSpan.FromMinutes(30);
         private DateTime _lastServerSync = DateTime.MinValue;
+        
+        // Biến để theo dõi lần chạy cuối theo khoảng thời gian
+        private DateTime _lastAutoRunTime = DateTime.MinValue;
 
         public AutoRunBackgroundService(
             ILogger<AutoRunBackgroundService> logger,
@@ -51,13 +54,28 @@ namespace SteamCmdWebAPI.Services
                     // Lấy giờ hiện tại
                     var now = DateTime.Now;
                     int currentHour = now.Hour;
+                    int currentMinute = now.Minute;
 
-                    // Kiểm tra xem có phải giờ chạy theo lịch không
+                    // Kiểm tra xem có phải giờ chạy theo lịch không (lần đầu tiên trong ngày)
                     int scheduledHour = settings.ScheduledHour;
-                    if (currentHour == scheduledHour && now.Minute == 0) // Chạy vào phút 0 của giờ
+                    if (currentHour == scheduledHour && currentMinute == 0) // Chạy vào phút 0 của giờ
                     {
                         _logger.LogInformation("Bắt đầu chạy tất cả profile theo lịch hẹn giờ tại {Time}", now);
                         await _steamCmdService.RunAllProfilesAsync();
+                        _lastAutoRunTime = now;
+                    }
+                    
+                    // Kiểm tra chạy theo khoảng thời gian
+                    int intervalHours = settings.AutoRunIntervalHours;
+                    TimeSpan timeSinceLastRun = now - _lastAutoRunTime;
+                    
+                    // Nếu đã qua khoảng thời gian cấu hình và không phải là lần chạy đầu
+                    if (_lastAutoRunTime != DateTime.MinValue && 
+                        timeSinceLastRun.TotalHours >= intervalHours)
+                    {
+                        _logger.LogInformation("Bắt đầu chạy tất cả profile theo khoảng thời gian {Hours} giờ", intervalHours);
+                        await _steamCmdService.RunAllProfilesAsync();
+                        _lastAutoRunTime = now;
                     }
 
                     // Đồng bộ tự động với server theo định kỳ
