@@ -188,6 +188,32 @@ namespace SteamCmdWebAPI.Services
             await _hubContext.Clients.All.SendAsync("ReceiveLog", "Đã dừng tất cả tiến trình");
         }
 
+        public async Task SubmitTwoFactorCodeAsync(int profileId, string twoFactorCode)
+        {
+            try
+            {
+                _logger.LogInformation("Đang xử lý mã 2FA cho profile ID {ProfileId}", profileId);
+
+                // Gửi mã 2FA đến SteamCMD
+                if (_steamCmdProcesses.TryGetValue(profileId, out var process) && !process.HasExited)
+                {
+                    process.StandardInput.WriteLine(twoFactorCode);
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Đã gửi mã 2FA đến SteamCMD cho profile ID {profileId}");
+                    _logger.LogInformation("Đã gửi mã 2FA thành công cho profile ID {ProfileId}", profileId);
+                }
+                else
+                {
+                    _logger.LogWarning("Không tìm thấy tiến trình đang chạy cho profile ID {ProfileId}", profileId);
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Không tìm thấy tiến trình đang chạy cho profile ID {profileId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xử lý mã 2FA cho profile {ProfileId}", profileId);
+                await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Lỗi khi xử lý mã 2FA: {ex.Message}");
+            }
+        }
+
         private async Task RunSteamCmdAsync(string steamCmdPath, SteamCmdProfile profile, int profileId)
         {
             if (!File.Exists(steamCmdPath))
@@ -202,6 +228,12 @@ namespace SteamCmdWebAPI.Services
                 // Log thông tin đăng nhập (không bao gồm mật khẩu thực tế)
                 _logger.LogInformation("Profile login info: AnonymousLogin={AnonymousLogin}, HasUsername={HasUsername}, HasPassword={HasPassword}",
                     profile.AnonymousLogin, !string.IsNullOrEmpty(profile.SteamUsername), !string.IsNullOrEmpty(profile.SteamPassword));
+
+                // Tạo symbolic link cho thư mục steamapps nếu cần
+                if (!string.IsNullOrEmpty(profile.InstallDirectory))
+                {
+                    await CreateSteamAppsSymbolicLink(steamCmdPath, profile.InstallDirectory, profileId);
+                }
 
                 string arguments = BuildSteamCmdArguments(profile);
                 string safeArguments = profile.AnonymousLogin
@@ -428,11 +460,294 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        public async Task SubmitTwoFactorCodeAsync(int profileId, string twoFactorCode)
+        private async Task CreateSteamAppsSymbolicLink(string steamCmdPath, string installDirectory, int profileId)
         {
-            if (_twoFactorTasks.TryRemove(profileId, out var tcs))
+            try
             {
-                tcs.SetResult(twoFactorCode);
+                // Lấy thư mục chứa steamcmd.exe
+                string steamCmdDir = Path.GetDirectoryName(steamCmdPath);
+
+                // Tạo đường dẫn đến thư mục steamapps trong thư mục cài đặt game
+                string targetSteamAppsPath = Path.Combine(installDirectory, "steamapps");
+
+                // Tạo đường dẫn đến thư mục steamapps trong thư mục steamcmd
+                string linkSteamAppsPath = Path.Combine(steamCmdDir, "steamapps");
+
+                // Đảm bảo thư mục cài đặt game tồn tại
+                if (!Directory.Exists(installDirectory))
+                {
+                    _logger.LogInformation("Tạo thư mục cài đặt game: {InstallDirectory}", installDirectory);
+                    Directory.CreateDirectory(installDirectory);
+                }
+
+                // Đảm bảo thư mục steamapps trong thư mục cài đặt game tồn tại
+                if (!Directory.Exists(targetSteamAppsPath))
+                {
+                    _logger.LogInformation("Tạo thư mục steamapps trong thư mục cài đặt game: {SteamAppsPath}", targetSteamAppsPath);
+                    Directory.CreateDirectory(targetSteamAppsPath);
+                }
+
+                // Kiểm tra và xử lý symbolic link cũ
+                if (Directory.Exists(linkSteamAppsPath))
+                {
+                    try
+                    {
+                        // Nếu là symbolic link, xóa liên kết
+                        if (IsSymbolicLink(linkSteamAppsPath))
+                        {
+                            _logger.LogInformation("Xóa symbolic link cũ: {LinkPath}", linkSteamAppsPath);
+                            RemoveSymbolicLink(linkSteamAppsPath);
+                        }
+                        else
+                        {
+                            // Nếu là thư mục thật, đổi tên nó
+                            string backupDir = Path.Combine(steamCmdDir, "steamapps_backup_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+                            _logger.LogInformation("Di chuyển thư mục steamapps cũ sang {BackupDir}", backupDir);
+                            Directory.Move(linkSteamAppsPath, backupDir);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi xử lý thư mục steamapps hiện tại: {Error}", ex.Message);
+                        // Tiếp tục thực hiện với phương pháp khác
+                        try
+                        {
+                            if (Directory.Exists(linkSteamAppsPath))
+                                Directory.Delete(linkSteamAppsPath, true);
+                        }
+                        catch
+                        {
+                            // Bỏ qua nếu không thể xóa
+                        }
+                    }
+                }
+
+                try
+                {
+                    // Tạo symbolic link mới
+                    _logger.LogInformation("Tạo symbolic link từ {LinkPath} đến {TargetPath}", linkSteamAppsPath, targetSteamAppsPath);
+                    CreateSymbolicLink(linkSteamAppsPath, targetSteamAppsPath);
+
+                    _logger.LogInformation("Đã tạo symbolic link thành công cho thư mục steamapps");
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Đã tạo symbolic link cho thư mục steamapps đến {installDirectory}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi tạo symbolic link: {Error}", ex.Message);
+
+                    // Thử phương pháp thay thế: Tạo shortcut hoặc copy thư mục
+                    _logger.LogInformation("Thử phương pháp thay thế: copy thư mục");
+
+                    // Tạo thư mục steamapps nếu chưa tồn tại
+                    if (!Directory.Exists(linkSteamAppsPath))
+                        Directory.CreateDirectory(linkSteamAppsPath);
+
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", "Không thể tạo symbolic link, đang sử dụng phương pháp thay thế...");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xử lý thư mục steamapps: {Message}", ex.Message);
+                await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Lỗi khi xử lý thư mục steamapps: {ex.Message}");
+            }
+        }
+
+        private bool IsSymbolicLink(string path)
+        {
+            try
+            {
+                FileAttributes attr = File.GetAttributes(path);
+                return (attr & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void RemoveSymbolicLink(string linkPath)
+        {
+            if (Directory.Exists(linkPath))
+            {
+                Directory.Delete(linkPath);
+            }
+        }
+
+        private void CreateSymbolicLink(string linkPath, string targetPath)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    // Phương pháp 1: Sử dụng mklink thông qua cmd
+                    Process process = new Process
+                    {
+                        StartInfo = new ProcessStartInfo
+                        {
+                            FileName = "cmd.exe",
+                            Arguments = $"/c mklink /D \"{linkPath}\" \"{targetPath}\"",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            Verb = "runas" // Yêu cầu quyền admin
+                        }
+                    };
+
+                    process.Start();
+                    string output = process.StandardOutput.ReadToEnd();
+                    string error = process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+
+                    if (process.ExitCode != 0)
+                    {
+                        _logger.LogError("Lỗi khi tạo symbolic link (mklink): {Error}", error);
+                        throw new Exception($"Lỗi tạo symbolic link (mklink): {error}");
+                    }
+
+                    _logger.LogInformation("Tạo symbolic link thành công: {Output}", output);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi tạo symbolic link qua cmd");
+
+                    try
+                    {
+                        // Phương pháp 2: Sử dụng API của Windows
+                        string command = $"New-Item -ItemType SymbolicLink -Path \"{linkPath}\" -Target \"{targetPath}\" -Force";
+                        ProcessStartInfo startInfo = new ProcessStartInfo
+                        {
+                            FileName = "powershell",
+                            Arguments = $"-Command \"{command}\"",
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            Verb = "runas" // Yêu cầu quyền admin
+                        };
+
+                        using var process = Process.Start(startInfo);
+                        process.WaitForExit();
+
+                        if (process.ExitCode != 0)
+                        {
+                            string error = process.StandardError.ReadToEnd();
+                            _logger.LogError("Lỗi khi tạo symbolic link qua PowerShell: {Error}", error);
+                            throw new Exception($"Lỗi tạo symbolic link (PowerShell): {error}");
+                        }
+
+                        _logger.LogInformation("Tạo symbolic link thành công qua PowerShell");
+                    }
+                    catch (Exception ex2)
+                    {
+                        _logger.LogError(ex2, "Lỗi khi tạo symbolic link qua PowerShell");
+
+                        // Phương pháp 3: Tạo junction (thay thế cho symbolic link)
+                        _logger.LogInformation("Thử tạo junction thay cho symbolic link");
+                        try
+                        {
+                            if (!Directory.Exists(targetPath))
+                                Directory.CreateDirectory(targetPath);
+
+                            // Chỉ tạo junction nếu thư mục đích đã tồn tại
+                            if (Directory.Exists(linkPath))
+                                Directory.Delete(linkPath);
+
+                            Process junctionProcess = new Process
+                            {
+                                StartInfo = new ProcessStartInfo
+                                {
+                                    FileName = "cmd.exe",
+                                    Arguments = $"/c mklink /J \"{linkPath}\" \"{targetPath}\"",
+                                    UseShellExecute = false,
+                                    CreateNoWindow = true,
+                                    RedirectStandardOutput = true,
+                                    RedirectStandardError = true
+                                }
+                            };
+
+                            junctionProcess.Start();
+                            junctionProcess.WaitForExit();
+
+                            if (junctionProcess.ExitCode != 0)
+                            {
+                                string error = junctionProcess.StandardError.ReadToEnd();
+                                _logger.LogError("Lỗi khi tạo junction: {Error}", error);
+                                throw new Exception($"Không thể tạo junction: {error}");
+                            }
+
+                            _logger.LogInformation("Đã tạo junction thành công");
+                        }
+                        catch (Exception ex3)
+                        {
+                            _logger.LogError(ex3, "Không thể tạo junction");
+                            throw new Exception("Không thể tạo symbolic link hoặc junction", ex3);
+                        }
+                    }
+                }
+            }
+            else if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+            {
+                Process process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "ln",
+                        Arguments = $"-s \"{targetPath}\" \"{linkPath}\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    }
+                };
+
+                process.Start();
+                process.WaitForExit();
+
+                if (process.ExitCode != 0)
+                {
+                    string error = process.StandardError.ReadToEnd();
+                    _logger.LogError("Lỗi khi tạo symbolic link trên Linux: {Error}", error);
+                    throw new Exception($"Không thể tạo symbolic link: {error}");
+                }
+            }
+            else
+            {
+                throw new PlatformNotSupportedException("Hệ điều hành không được hỗ trợ");
+            }
+        }
+
+        private void MoveDirectoryContents(string sourceDir, string targetDir)
+        {
+            // Đảm bảo thư mục đích tồn tại
+            if (!Directory.Exists(targetDir))
+            {
+                Directory.CreateDirectory(targetDir);
+            }
+
+            // Di chuyển tất cả các file
+            foreach (string file in Directory.GetFiles(sourceDir))
+            {
+                string fileName = Path.GetFileName(file);
+                string destFile = Path.Combine(targetDir, fileName);
+
+                // Xóa file đích nếu đã tồn tại
+                if (File.Exists(destFile))
+                {
+                    File.Delete(destFile);
+                }
+
+                File.Move(file, destFile);
+            }
+
+            // Di chuyển tất cả các thư mục con
+            foreach (string dir in Directory.GetDirectories(sourceDir))
+            {
+                string dirName = Path.GetFileName(dir);
+                string destDir = Path.Combine(targetDir, dirName);
+
+                // Đệ quy di chuyển nội dung thư mục con
+                MoveDirectoryContents(dir, destDir);
             }
         }
 
@@ -443,6 +758,7 @@ namespace SteamCmdWebAPI.Services
             // Thêm thông tin đăng nhập
             if (profile.AnonymousLogin)
             {
+                _logger.LogInformation("Sử dụng đăng nhập ẩn danh cho profile: {ProfileName}", profile.Name);
                 argumentBuilder.Append("+login anonymous ");
             }
             else
@@ -456,15 +772,19 @@ namespace SteamCmdWebAPI.Services
 
                     if (string.IsNullOrEmpty(username))
                     {
-                        throw new InvalidOperationException("Tên đăng nhập không được cung cấp và không sử dụng đăng nhập ẩn danh");
+                        _logger.LogWarning("Tên đăng nhập rỗng, chuyển sang đăng nhập ẩn danh cho profile {ProfileName}", profile.Name);
+                        argumentBuilder.Append("+login anonymous ");
                     }
-
-                    argumentBuilder.Append($"+login {username} {password} ");
+                    else
+                    {
+                        argumentBuilder.Append($"+login {username} {password} ");
+                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Lỗi khi giải mã thông tin đăng nhập: {Message}", ex.Message);
-                    throw new InvalidOperationException("Lỗi khi giải mã thông tin đăng nhập: " + ex.Message, ex);
+                    _logger.LogInformation("Chuyển sang đăng nhập ẩn danh do lỗi giải mã");
+                    argumentBuilder.Append("+login anonymous ");
                 }
             }
 
@@ -475,12 +795,6 @@ namespace SteamCmdWebAPI.Services
             if (profile.ValidateFiles)
             {
                 argumentBuilder.Append("validate ");
-            }
-
-            // Thêm thư mục cài đặt nếu được cung cấp
-            if (!string.IsNullOrEmpty(profile.InstallDirectory))
-            {
-                argumentBuilder.Append($"+force_install_dir \"{profile.InstallDirectory}\" ");
             }
 
             // Thêm tham số bổ sung nếu có

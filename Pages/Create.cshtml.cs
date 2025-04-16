@@ -95,7 +95,7 @@ namespace SteamCmdWebAPI.Pages
 
         public async Task<IActionResult> OnPostSaveProfileAsync()
         {
-            _logger.LogInformation("OnPostSaveProfileAsync called");
+            _logger.LogInformation("OnPostSaveProfileAsync called for new profile: {Name}", Profile.Name);
 
             // Loại bỏ các trường không cần thiết khỏi ModelState
             ModelState.Remove("Profile.Arguments");
@@ -131,28 +131,41 @@ namespace SteamCmdWebAPI.Pages
 
             try
             {
-                _logger.LogInformation("Bắt đầu lưu profile: {Name}, AppID: {AppID}, InstallDirectory: {InstallDirectory}, AnonymousLogin: {AnonymousLogin}",
-                    Profile.Name, Profile.AppID, Profile.InstallDirectory, Profile.AnonymousLogin);
+                _logger.LogInformation("Bắt đầu lưu profile: {Name}, AppID: {AppID}, AnonymousLogin: {AnonymousLogin}",
+                    Profile.Name, Profile.AppID, Profile.AnonymousLogin);
 
                 if (!Profile.AnonymousLogin)
                 {
+                    // Nếu không dùng đăng nhập ẩn danh, cần có thông tin đăng nhập
+                    if (string.IsNullOrEmpty(Username))
+                    {
+                        _logger.LogWarning("Không cung cấp tên đăng nhập và không dùng đăng nhập ẩn danh");
+                        StatusMessage = "Không thể tạo mới: Phải cung cấp tên đăng nhập hoặc sử dụng đăng nhập ẩn danh";
+                        IsSuccess = false;
+
+                        // Lấy lại danh sách profile từ server
+                        try
+                        {
+                            ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
+                        }
+                        catch
+                        {
+                            ServerProfiles = new List<string>();
+                        }
+
+                        return Page();
+                    }
+
                     try
                     {
-                        if (!string.IsNullOrEmpty(Username))
-                        {
-                            _logger.LogInformation("Đang mã hóa thông tin đăng nhập");
-                            Profile.SteamUsername = _encryptionService.Encrypt(Username);
-                            _logger.LogInformation("Đã mã hóa tên đăng nhập, độ dài: {Length}", Profile.SteamUsername?.Length ?? 0);
-                        }
-                        else
-                        {
-                            Profile.SteamUsername = string.Empty;
-                        }
+                        _logger.LogInformation("Đang mã hóa thông tin đăng nhập: {Username}", Username);
+                        Profile.SteamUsername = _encryptionService.Encrypt(Username);
+                        _logger.LogInformation("Đã mã hóa tên đăng nhập thành công, độ dài: {Length}", Profile.SteamUsername?.Length ?? 0);
 
                         if (!string.IsNullOrEmpty(Password))
                         {
                             Profile.SteamPassword = _encryptionService.Encrypt(Password);
-                            _logger.LogInformation("Đã mã hóa mật khẩu, độ dài: {Length}", Profile.SteamPassword?.Length ?? 0);
+                            _logger.LogInformation("Đã mã hóa mật khẩu thành công, độ dài: {Length}", Profile.SteamPassword?.Length ?? 0);
                         }
                         else
                         {
@@ -161,7 +174,7 @@ namespace SteamCmdWebAPI.Pages
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Lỗi khi mã hóa thông tin đăng nhập");
+                        _logger.LogError(ex, "Lỗi khi mã hóa thông tin đăng nhập: {Message}", ex.Message);
                         StatusMessage = "Lỗi khi mã hóa thông tin đăng nhập: " + ex.Message;
                         IsSuccess = false;
 
@@ -180,10 +193,12 @@ namespace SteamCmdWebAPI.Pages
                 }
                 else
                 {
+                    _logger.LogInformation("Sử dụng đăng nhập ẩn danh, xóa thông tin đăng nhập nếu có");
                     Profile.SteamUsername = string.Empty;
                     Profile.SteamPassword = string.Empty;
                 }
 
+                // Đảm bảo Arguments không null
                 if (string.IsNullOrEmpty(Profile.Arguments))
                 {
                     Profile.Arguments = string.Empty;
@@ -193,7 +208,7 @@ namespace SteamCmdWebAPI.Pages
                 Profile.Status = "Stopped";
                 Profile.StartTime = DateTime.Now;
                 Profile.StopTime = DateTime.Now;
-                Profile.LastRun = DateTime.UtcNow;
+                Profile.LastRun = null;
                 Profile.Pid = 0;
 
                 await _profileService.AddProfileAsync(Profile);
@@ -217,7 +232,7 @@ namespace SteamCmdWebAPI.Pages
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi lưu profile trong Create");
+                _logger.LogError(ex, "Lỗi khi lưu profile mới: {Message}", ex.Message);
                 StatusMessage = $"Đã xảy ra lỗi khi lưu profile: {ex.Message}";
                 IsSuccess = false;
 

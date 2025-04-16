@@ -53,18 +53,29 @@
                 </div>
 
                 <div id="loginSection" class="@(Model.Profile.AnonymousLogin ? "d-none" : "")">
-                    <div class="mb-3">
-                        <label asp-for="NewUsername" class="form-label">Tên đăng nhập</label>
-                        <input asp-for="NewUsername" class="form-control" id="NewUsername" data-val="false" />
-                        <small class="form-text text-muted">Để trống nếu không muốn thay đổi</small>
-                        <span asp-validation-for="NewUsername" class="text-danger"></span>
-                    </div>
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h5>Thông tin đăng nhập Steam</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle me-2"></i> Lưu ý: Để trống nếu không muốn thay đổi thông tin đăng nhập cũ.
+                            </div>
 
-                    <div class="mb-3">
-                        <label asp-for="NewPassword" class="form-label">Mật khẩu</label>
-                        <input asp-for="NewPassword" class="form-control" type="password" id="NewPassword" data-val="false" />
-                        <small class="form-text text-muted">Để trống nếu không muốn thay đổi</small>
-                        <span asp-validation-for="NewPassword" class="text-danger"></span>
+                            <div class="mb-3">
+                                <label asp-for="NewUsername" class="form-label">Tên đăng nhập</label>
+                                <input asp-for="NewUsername" class="form-control" id="NewUsername" data-val="false" />
+                                <small class="form-text text-muted">Để trống nếu không muốn thay đổi</small>
+                                <span asp-validation-for="NewUsername" class="text-danger"></span>
+                            </div>
+
+                            <div class="mb-3">
+                                <label asp-for="NewPassword" class="form-label">Mật khẩu</label>
+                                <input asp-for="NewPassword" class="form-control" type="password" id="NewPassword" data-val="false" />
+                                <small class="form-text text-muted">Để trống nếu không muốn thay đổi</small>
+                                <span asp-validation-for="NewPassword" class="text-danger"></span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

@@ -127,15 +127,15 @@
                                     </div>
 
                                     <div class="mb-3">
-                                        <label for="Username" class="form-label">Tên đăng nhập</label>
-                                        <input id="Username" name="Username" value="@Model.Username" class="form-control" />
-                                        <span id="usernameError" class="text-danger"></span>
+                                        <label asp-for="Username" class="form-label">Tên đăng nhập <span class="text-danger">*</span></label>
+                                        <input asp-for="Username" class="form-control" id="Username" required />
+                                        <span class="text-danger" id="usernameError"></span>
                                     </div>
 
                                     <div class="mb-3">
-                                        <label for="Password" class="form-label">Mật khẩu</label>
-                                        <input id="Password" name="Password" value="@Model.Password" type="password" class="form-control" />
-                                        <span id="passwordError" class="text-danger"></span>
+                                        <label asp-for="Password" class="form-label">Mật khẩu</label>
+                                        <input asp-for="Password" class="form-control" type="password" id="Password" />
+                                        <span class="text-danger" id="passwordError"></span>
                                     </div>
                                 </div>
                             </div>

@@ -263,9 +263,10 @@ namespace SteamCmdWebAPI.Pages
                 await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Đã nhận mã 2FA cho profile: {profile.Name} (ID: {profileId})");
 
                 // Sử dụng SteamCmdService để xử lý mã 2FA
+                // Tìm dòng code gọi phương thức này
                 await _steamCmdService.SubmitTwoFactorCodeAsync(profileId, twoFactorCode);
 
-                return new JsonResult(new { success = true });
+                 return new JsonResult(new { success = true });
             }
             catch (Exception ex)
             {
