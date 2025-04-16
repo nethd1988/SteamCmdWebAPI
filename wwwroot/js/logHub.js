@@ -9,25 +9,24 @@ const connection = new signalR.HubConnectionBuilder()
 // Đăng ký sự kiện nhận log
 connection.on("ReceiveLog", function (message) {
     const logContainer = document.getElementById("logContainer");
-    
+
     if (logContainer) {
         // Thêm log mới
         appendLog(message);
-        
+
         // Kiểm tra nếu là yêu cầu Steam Guard - sử dụng điều kiện thống nhất
-        if (message.includes("Steam Guard code:") || 
-            message.includes("Two-factor code:") || 
-            message.includes("Enter the current code") || 
+        if (message.includes("Steam Guard code:") ||
+            message.includes("Two-factor code:") ||
+            message.includes("Enter the current code") ||
             message.toLowerCase().includes("steam guard") ||
             message.includes("Two-factor authentication") ||
-            message.includes("Vui lòng nhập mã"))
-        {
+            message.includes("Vui lòng nhập mã")) {
             // Lấy profileId từ data attribute của container hoặc sử dụng ID mặc định
             const profileId = logContainer.getAttribute("data-profile-id") || 1;
             console.log("Phát hiện yêu cầu 2FA cho profile " + profileId + ": " + message);
-            
+
             // Hiển thị popup 2FA
-            showSteamGuardPopup(profileId, function(code) {
+            showSteamGuardPopup(profileId, function (code) {
                 if (code !== '') {
                     connection.invoke("SubmitTwoFactorCode", profileId, code).catch(function (err) {
                         console.error("Lỗi khi gửi mã 2FA: " + err.toString());
@@ -36,7 +35,7 @@ connection.on("ReceiveLog", function (message) {
                 }
             });
         }
-        
+
         // Cuộn xuống dưới
         logContainer.scrollTop = logContainer.scrollHeight;
     }
@@ -46,7 +45,7 @@ connection.on("ReceiveLog", function (message) {
 function appendLog(message, type = "info") {
     const logContainer = document.getElementById("logContainer");
     if (!logContainer) return;
-    
+
     if (message.includes("\n")) {
         const lines = message.split("\n");
         lines.forEach(line => {
@@ -57,6 +56,9 @@ function appendLog(message, type = "info") {
                     span.style.color = "red";
                 } else if (type === "warning") {
                     span.style.color = "yellow";
+                } else if (line.includes("Steam Guard") || line.includes("2FA") || line.includes("mã xác thực")) {
+                    span.style.color = "#FF9900"; // Highlight 2FA messages
+                    span.style.fontWeight = "bold";
                 }
                 logContainer.appendChild(span);
             }
@@ -68,6 +70,9 @@ function appendLog(message, type = "info") {
             span.style.color = "red";
         } else if (type === "warning") {
             span.style.color = "yellow";
+        } else if (message.includes("Steam Guard") || message.includes("2FA") || message.includes("mã xác thực")) {
+            span.style.color = "#FF9900"; // Highlight 2FA messages
+            span.style.fontWeight = "bold";
         }
         logContainer.appendChild(span);
     }
@@ -76,7 +81,7 @@ function appendLog(message, type = "info") {
 // Xử lý yêu cầu mã xác thực hai lớp (2FA)
 connection.on("RequestTwoFactorCode", function (profileId) {
     console.log("Nhận yêu cầu 2FA trực tiếp cho profile ID: " + profileId);
-    showSteamGuardPopup(profileId, function(code) {
+    showSteamGuardPopup(profileId, function (code) {
         if (code !== '') {
             connection.invoke("SubmitTwoFactorCode", profileId, code).catch(function (err) {
                 console.error("Lỗi khi gửi mã 2FA: " + err.toString());
@@ -96,7 +101,7 @@ function showSteamGuardPopup(profileId, callback) {
     if (document.getElementById('steam-guard-popup')) {
         document.getElementById('steam-guard-popup').remove();
     }
-    
+
     // Tạo overlay
     const overlay = document.createElement('div');
     overlay.id = 'steam-guard-popup';
@@ -129,7 +134,7 @@ function showSteamGuardPopup(profileId, callback) {
 
     const message = document.createElement('p');
     message.textContent = `Vui lòng nhập mã xác thực Steam Guard cho profile ID: ${profileId}`;
-    
+
     const note = document.createElement('p');
     note.textContent = 'Mã này đã được gửi đến email hoặc ứng dụng Steam Mobile Authenticator của bạn';
     note.style.fontSize = '12px';
@@ -150,12 +155,12 @@ function showSteamGuardPopup(profileId, callback) {
     input.style.letterSpacing = '4px';
     input.maxLength = 5;
     input.placeholder = 'XXXXX';
-    
-    input.addEventListener('input', function() {
+
+    input.addEventListener('input', function () {
         // Chỉ cho phép nhập ký tự chữ và số
         this.value = this.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
     });
-    
+
     // Tạo button container
     const buttonContainer = document.createElement('div');
     buttonContainer.style.display = 'flex';
@@ -181,21 +186,32 @@ function showSteamGuardPopup(profileId, callback) {
     submitButton.style.borderRadius = '2px';
     submitButton.style.cursor = 'pointer';
 
+    // Thêm timeout để tự động đóng popup nếu không có phản hồi sau 2 phút
+    const autoCloseTimeout = setTimeout(() => {
+        if (document.getElementById('steam-guard-popup')) {
+            document.body.removeChild(overlay);
+            callback('');
+            console.log("2FA popup tự động đóng sau 2 phút không có phản hồi");
+        }
+    }, 120000); // 2 phút
+
     // Thêm sự kiện click cho nút hủy
-    cancelButton.addEventListener('click', function() {
+    cancelButton.addEventListener('click', function () {
+        clearTimeout(autoCloseTimeout);
         document.body.removeChild(overlay);
         callback('');
     });
 
     // Thêm sự kiện click cho nút xác nhận
-    submitButton.addEventListener('click', function() {
+    submitButton.addEventListener('click', function () {
+        clearTimeout(autoCloseTimeout);
         const code = input.value.trim();
         document.body.removeChild(overlay);
         callback(code);
     });
 
     // Thêm sự kiện nhấn Enter để submit
-    input.addEventListener('keypress', function(e) {
+    input.addEventListener('keypress', function (e) {
         if (e.key === 'Enter') {
             submitButton.click();
         }
@@ -232,23 +248,23 @@ connection.start().catch(function (err) {
 function runProfile(profileId) {
     // Đảm bảo profileId là số
     const id = parseInt(profileId, 10);
-    
+
     if (isNaN(id)) {
         console.error("ID profile không hợp lệ");
         return;
     }
-    
+
     fetch(`/api/Steam/Run/${id}`, {
         method: "POST"
     })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error("Lỗi khi chạy profile");
-        }
-        return response.json();
-    })
-    .catch(error => {
-        console.error("Lỗi:", error);
-        alert("Lỗi khi chạy profile: " + error);
-    });
+        .then(response => {
+            if (!response.ok) {
+                throw new Error("Lỗi khi chạy profile");
+            }
+            return response.json();
+        })
+        .catch(error => {
+            console.error("Lỗi:", error);
+            alert("Lỗi khi chạy profile: " + error);
+        });
 }

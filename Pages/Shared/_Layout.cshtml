@@ -13,8 +13,8 @@
         window.alert = function(message) {
             // Lọc thông báo chạy thành công và thông báo từ localhost
             if (message && (
-                message.includes("thành công") || 
-                message.includes("localhost") || 
+                message.includes("thành công") ||
+                message.includes("localhost") ||
                 message.includes("cho biết")
             )) {
                 console.log("Đã chặn thông báo: " + message);
@@ -23,13 +23,13 @@
             // Giữ nguyên các thông báo lỗi và thông báo khác
             window.originalAlert(message);
         };
-        
+
         // Chặn confirm mặc định nếu cần
         window.originalConfirm = window.confirm;
         window.confirm = function(message) {
             // Lọc xác nhận không cần thiết
             if (message && (
-                message.includes("localhost") || 
+                message.includes("localhost") ||
                 message.includes("cho biết")
             )) {
                 console.log("Đã chặn xác nhận: " + message);
@@ -82,13 +82,10 @@
             &copy; @DateTime.Now.Year - SteamAUTO - <a asp-area="" asp-page="/Privacy">Quyền riêng tư</a>
         </div>
     </footer>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
-    <!-- Trong _Layout.cshtml, thêm trước logHub.js -->
-   
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
 
     <script type="text/javascript">
         // Ngăn chặn các modal mặc định
@@ -100,7 +97,7 @@
                 $('body').removeClass('modal-open');
                 $('body').css('padding-right', '');
             }, 100);
-            
+
             // Ẩn modal thông báo "localhost:7288 cho biết..."
             const observer = new MutationObserver(function(mutations) {
                 mutations.forEach(function(mutation) {
@@ -109,13 +106,13 @@
                             const node = mutation.addedNodes[i];
                             if (node.nodeType === 1) {
                                 if (node.innerText && (
-                                    node.innerText.includes("localhost") || 
+                                    node.innerText.includes("localhost") ||
                                     node.innerText.includes("cho biết")
                                 )) {
                                     if (node.querySelector('.close') || node.classList.contains('modal') || node.classList.contains('modal-dialog')) {
                                         node.remove();
                                     }
-                                    
+
                                     // Tìm nút OK trong modal và click nó
                                     const okButton = node.querySelector('[class*="ok" i], [class*="OK" i], button:contains("OK")');
                                     if (okButton) {
@@ -127,7 +124,7 @@
                     }
                 });
             });
-            
+
             observer.observe(document.body, {
                 childList: true,
                 subtree: true
