@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using SteamCmdWebAPI.Hubs;
@@ -19,34 +20,22 @@ namespace SteamCmdWebAPI
                 string dataDir = Path.Combine(baseDir, "data");
                 string steamCmdDir = Path.Combine(baseDir, "steamcmd");
 
-                if (!Directory.Exists(dataDir))
-                    Directory.CreateDirectory(dataDir);
-
-                if (!Directory.Exists(steamCmdDir))
-                    Directory.CreateDirectory(steamCmdDir);
-
-                // Ghi log khởi động
-                File.AppendAllText(
-                    Path.Combine(baseDir, "startup_log.txt"),
-                    $"{DateTime.Now}: Ứng dụng đang khởi động...\n");
+                Directory.CreateDirectory(dataDir);
+                Directory.CreateDirectory(steamCmdDir);
 
                 var builder = WebApplication.CreateBuilder(args);
 
-                File.AppendAllText(
-                    Path.Combine(baseDir, "startup_log.txt"),
-                    $"{DateTime.Now}: Đã tạo builder\n");
+                // Cấu hình logging
+                builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
+                builder.Logging.AddConsole();
 
                 // Thêm các dịch vụ cơ bản
-                builder.Services.AddRazorPages().AddRazorPagesOptions(options =>
-                {
-                    options.Conventions.AddPageRoute("/Index", "");
-                });
+                builder.Services.AddRazorPages();
                 builder.Services.AddSignalR();
                 builder.Services.AddControllers();
 
-                File.AppendAllText(
-                    Path.Combine(baseDir, "startup_log.txt"),
-                    $"{DateTime.Now}: Đã thêm RazorPages\n");
+                // Đăng ký configuration
+                builder.Services.AddSingleton(builder.Configuration);
 
                 // Đăng ký các service theo thứ tự phụ thuộc
                 builder.Services.AddSingleton<EncryptionService>();
@@ -58,23 +47,9 @@ namespace SteamCmdWebAPI
                 builder.Services.AddSingleton<ServerSyncService>();
                 builder.Services.AddHostedService<AutoRunBackgroundService>();
 
-                // Cấu hình CORS
-                builder.Services.AddCors(options =>
-                {
-                    options.AddPolicy("AllowAll", builder =>
-                    {
-                        builder.AllowAnyOrigin()
-                               .AllowAnyMethod()
-                               .AllowAnyHeader();
-                    });
-                });
-
                 var app = builder.Build();
 
-                File.AppendAllText(
-                    Path.Combine(baseDir, "startup_log.txt"),
-                    $"{DateTime.Now}: Đã build ứng dụng\n");
-
+                // Cấu hình môi trường
                 if (app.Environment.IsDevelopment())
                 {
                     app.UseDeveloperExceptionPage();
@@ -85,34 +60,35 @@ namespace SteamCmdWebAPI
                     app.UseHsts();
                 }
 
-                app.UseCors("AllowAll");
+                // Middleware
                 app.UseHttpsRedirection();
                 app.UseStaticFiles();
                 app.UseRouting();
                 app.UseAuthorization();
 
+                // Endpoint routing
                 app.MapRazorPages();
                 app.MapHub<LogHub>("/logHub");
                 app.MapControllers();
 
+                // Chuyển hướng root
                 app.MapGet("/", context =>
                 {
                     context.Response.Redirect("/Index");
                     return System.Threading.Tasks.Task.CompletedTask;
                 });
 
-                File.AppendAllText(
-                    Path.Combine(baseDir, "startup_log.txt"),
-                    $"{DateTime.Now}: Chuẩn bị chạy ứng dụng\n");
-
                 app.Run();
             }
             catch (Exception ex)
             {
+                // Ghi log lỗi khởi động
                 Console.WriteLine($"Lỗi khởi động ứng dụng: {ex.Message}");
                 Console.WriteLine(ex.StackTrace);
-                File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "startup_error.log"),
-                    $"{DateTime.Now}: {ex.Message}\n{ex.StackTrace}");
+                File.WriteAllText(
+                    Path.Combine(AppContext.BaseDirectory, "startup_error.log"),
+                    $"{DateTime.Now}: {ex.Message}\n{ex.StackTrace}"
+                );
             }
         }
     }

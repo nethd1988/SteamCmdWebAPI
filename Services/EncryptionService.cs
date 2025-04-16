@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -10,7 +10,7 @@ namespace SteamCmdWebAPI.Services
 
         public EncryptionService()
         {
-            _encryptionKey = "yourEncryptionKey123!@#";
+            _encryptionKey = "SteamCmdWebSecureKey123!@#$%";
         }
 
         public string Encrypt(string plainText)
@@ -58,14 +58,17 @@ namespace SteamCmdWebAPI.Services
                             using (CryptoStream cs = new CryptoStream(ms, encryptor.CreateDecryptor(), CryptoStreamMode.Write))
                             {
                                 cs.Write(cipherBytes, 0, cipherBytes.Length);
+                                cs.FlushFinalBlock();
                             }
                             return Encoding.Unicode.GetString(ms.ToArray());
                         }
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                // Log lỗi nhưng trả về chuỗi rỗng
+                Console.WriteLine("Lỗi giải mã: " + ex.Message);
                 return string.Empty;
             }
         }

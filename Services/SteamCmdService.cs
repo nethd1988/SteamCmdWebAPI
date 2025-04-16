@@ -21,6 +21,11 @@ namespace SteamCmdWebAPI.Services
         private readonly ConcurrentDictionary<int, Process> _steamCmdProcesses = new ConcurrentDictionary<int, Process>();
         private readonly ConcurrentDictionary<int, TaskCompletionSource<string>> _twoFactorTasks = new ConcurrentDictionary<int, TaskCompletionSource<string>>();
 
+        // Regex để trích xuất phần trăm tiến trình
+        private static readonly Regex _progressRegex = new Regex(@"(\d+)(?:\.\d+)?%", RegexOptions.Compiled);
+        // Regex để lọc các dòng liên quan đến mklink
+        private static readonly Regex _mklinkRegex = new Regex(@"symbolic link created|MKLINK", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         public class LogEntry
         {
             public DateTime Timestamp { get; set; }
@@ -30,6 +35,7 @@ namespace SteamCmdWebAPI.Services
         }
 
         private readonly List<LogEntry> _logs = new List<LogEntry>();
+        private readonly object _logsLock = new object();
 
         public SteamCmdService(
             ILogger<SteamCmdService> logger,
@@ -45,7 +51,10 @@ namespace SteamCmdWebAPI.Services
 
         public List<LogEntry> GetLogs()
         {
-            return _logs;
+            lock (_logsLock)
+            {
+                return _logs.ToList();
+            }
         }
 
         public async Task<bool> RunProfileAsync(int profileId)
@@ -73,15 +82,37 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogError(ex, "Lỗi khi chạy profile {ProfileId}", profileId);
 
                 // Thêm vào log
-                _logs.Add(new LogEntry
+                lock (_logsLock)
                 {
-                    Timestamp = DateTime.Now,
-                    ProfileName = (await _profileService.GetProfileById(profileId))?.Name ?? $"Unknown (ID: {profileId})",
-                    Status = "Error",
-                    Message = $"Lỗi: {ex.Message}"
-                });
+                    _logs.Add(new LogEntry
+                    {
+                        Timestamp = DateTime.Now,
+                        ProfileName = (GetProfileNameById(profileId) ?? $"Unknown (ID: {profileId})"),
+                        Status = "Error",
+                        Message = $"Lỗi: {ex.Message}"
+                    });
+
+                    // Giới hạn số lượng log lưu trữ
+                    if (_logs.Count > 1000)
+                    {
+                        _logs.RemoveRange(0, _logs.Count - 1000);
+                    }
+                }
 
                 return false;
+            }
+        }
+
+        private string GetProfileNameById(int profileId)
+        {
+            try
+            {
+                var profile = _profileService.GetProfileById(profileId).GetAwaiter().GetResult();
+                return profile?.Name;
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -106,8 +137,24 @@ namespace SteamCmdWebAPI.Services
         {
             if (_steamCmdProcesses.TryGetValue(profileId, out var process) && !process.HasExited)
             {
-                process.Kill();
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Đã dừng tiến trình ID {profileId}");
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Đã dừng tiến trình ID {profileId}");
+
+                    // Cập nhật trạng thái profile
+                    var profile = await _profileService.GetProfileById(profileId);
+                    if (profile != null)
+                    {
+                        profile.Status = "Stopped";
+                        profile.StopTime = DateTime.Now;
+                        await _profileService.UpdateProfile(profile);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi dừng tiến trình profile {ProfileId}", profileId);
+                }
             }
         }
 
@@ -119,8 +166,17 @@ namespace SteamCmdWebAPI.Services
                 {
                     try
                     {
-                        kvp.Value.Kill();
+                        kvp.Value.Kill(entireProcessTree: true);
                         await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Đã dừng tiến trình ID {kvp.Key}");
+
+                        // Cập nhật trạng thái profile
+                        var profile = await _profileService.GetProfileById(kvp.Key);
+                        if (profile != null)
+                        {
+                            profile.Status = "Stopped";
+                            profile.StopTime = DateTime.Now;
+                            await _profileService.UpdateProfile(profile);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -143,8 +199,17 @@ namespace SteamCmdWebAPI.Services
             Process steamCmdProcess = null;
             try
             {
+                // Log thông tin đăng nhập (không bao gồm mật khẩu thực tế)
+                _logger.LogInformation("Profile login info: AnonymousLogin={AnonymousLogin}, HasUsername={HasUsername}, HasPassword={HasPassword}",
+                    profile.AnonymousLogin, !string.IsNullOrEmpty(profile.SteamUsername), !string.IsNullOrEmpty(profile.SteamPassword));
+
                 string arguments = BuildSteamCmdArguments(profile);
-                _logger.LogInformation("Chạy SteamCMD với profile {ProfileName} (ID: {ProfileId})", profile.Name, profileId);
+                string safeArguments = profile.AnonymousLogin
+                    ? arguments
+                    : arguments.Replace(_encryptionService.Decrypt(profile.SteamPassword), "********");
+
+                _logger.LogInformation("Chạy SteamCMD với profile {ProfileName} (ID: {ProfileId}), Arguments: {Arguments}",
+                    profile.Name, profileId, safeArguments);
 
                 steamCmdProcess = new Process
                 {
@@ -168,6 +233,8 @@ namespace SteamCmdWebAPI.Services
                 await _profileService.UpdateProfile(profile);
 
                 var tcs = new TaskCompletionSource<bool>();
+                string lastProgressLog = string.Empty;
+
                 steamCmdProcess.Exited += async (sender, args) =>
                 {
                     try
@@ -186,13 +253,22 @@ namespace SteamCmdWebAPI.Services
                         await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Tiến trình profile {profile.Name} đã kết thúc");
 
                         // Thêm vào log
-                        _logs.Add(new LogEntry
+                        lock (_logsLock)
                         {
-                            Timestamp = DateTime.Now,
-                            ProfileName = profile.Name,
-                            Status = "Success",
-                            Message = $"Hoàn thành chạy profile"
-                        });
+                            _logs.Add(new LogEntry
+                            {
+                                Timestamp = DateTime.Now,
+                                ProfileName = profile.Name,
+                                Status = "Success",
+                                Message = $"Hoàn thành chạy profile"
+                            });
+
+                            // Giới hạn số lượng log lưu trữ
+                            if (_logs.Count > 1000)
+                            {
+                                _logs.RemoveRange(0, _logs.Count - 1000);
+                            }
+                        }
 
                         tcs.TrySetResult(true);
                     }
@@ -209,8 +285,31 @@ namespace SteamCmdWebAPI.Services
                 {
                     if (!string.IsNullOrEmpty(e.Data))
                     {
-                        _logger.LogDebug("SteamCMD output: {Output}", e.Data);
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", e.Data);
+                        // Lọc bỏ log liên quan đến mklink
+                        if (_mklinkRegex.IsMatch(e.Data))
+                        {
+                            _logger.LogDebug("Bỏ qua log mklink: {Output}", e.Data);
+                            return;
+                        }
+
+                        // Xử lý thông tin tiến trình
+                        var progressMatch = _progressRegex.Match(e.Data);
+                        if (progressMatch.Success)
+                        {
+                            string progressLog = $"Tiến trình: {progressMatch.Groups[1].Value}%";
+
+                            // Chỉ hiển thị log khi phần trăm thay đổi để tránh spam
+                            if (progressLog != lastProgressLog)
+                            {
+                                await _hubContext.Clients.All.SendAsync("ReceiveLog", progressLog);
+                                lastProgressLog = progressLog;
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogDebug("SteamCMD output: {Output}", e.Data);
+                            await _hubContext.Clients.All.SendAsync("ReceiveLog", e.Data);
+                        }
 
                         if (e.Data.Contains("Steam Guard code") || e.Data.Contains("Two-factor code"))
                         {
@@ -255,6 +354,13 @@ namespace SteamCmdWebAPI.Services
                 {
                     if (!string.IsNullOrEmpty(e.Data))
                     {
+                        // Lọc bỏ log liên quan đến mklink
+                        if (_mklinkRegex.IsMatch(e.Data))
+                        {
+                            _logger.LogDebug("Bỏ qua log mklink error: {Output}", e.Data);
+                            return;
+                        }
+
                         _logger.LogError("SteamCMD error: {Error}", e.Data);
                         await _hubContext.Clients.All.SendAsync("ReceiveLog", $"LỖI: {e.Data}");
                     }
@@ -286,7 +392,7 @@ namespace SteamCmdWebAPI.Services
 
                     if (!steamCmdProcess.HasExited)
                     {
-                        steamCmdProcess.Kill();
+                        steamCmdProcess.Kill(entireProcessTree: true);
                         _logger.LogInformation("Đã dừng tiến trình SteamCMD cho profile {ProfileName} (ID: {ProfileId}) do timeout", profile.Name, profileId);
                     }
                 }
@@ -301,13 +407,22 @@ namespace SteamCmdWebAPI.Services
                 await _profileService.UpdateProfile(profile);
 
                 // Thêm vào log
-                _logs.Add(new LogEntry
+                lock (_logsLock)
                 {
-                    Timestamp = DateTime.Now,
-                    ProfileName = profile.Name,
-                    Status = "Error",
-                    Message = $"Lỗi: {ex.Message}"
-                });
+                    _logs.Add(new LogEntry
+                    {
+                        Timestamp = DateTime.Now,
+                        ProfileName = profile.Name,
+                        Status = "Error",
+                        Message = $"Lỗi: {ex.Message}"
+                    });
+
+                    // Giới hạn số lượng log lưu trữ
+                    if (_logs.Count > 1000)
+                    {
+                        _logs.RemoveRange(0, _logs.Count - 1000);
+                    }
+                }
 
                 throw;
             }
@@ -332,15 +447,25 @@ namespace SteamCmdWebAPI.Services
             }
             else
             {
-                string username = _encryptionService.Decrypt(profile.SteamUsername);
-                string password = _encryptionService.Decrypt(profile.SteamPassword);
-
-                if (string.IsNullOrEmpty(username))
+                try
                 {
-                    throw new InvalidOperationException("Tên đăng nhập không được cung cấp và không sử dụng đăng nhập ẩn danh");
-                }
+                    string username = !string.IsNullOrEmpty(profile.SteamUsername) ?
+                        _encryptionService.Decrypt(profile.SteamUsername) : "";
+                    string password = !string.IsNullOrEmpty(profile.SteamPassword) ?
+                        _encryptionService.Decrypt(profile.SteamPassword) : "";
 
-                argumentBuilder.Append($"+login {username} {password} ");
+                    if (string.IsNullOrEmpty(username))
+                    {
+                        throw new InvalidOperationException("Tên đăng nhập không được cung cấp và không sử dụng đăng nhập ẩn danh");
+                    }
+
+                    argumentBuilder.Append($"+login {username} {password} ");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi giải mã thông tin đăng nhập: {Message}", ex.Message);
+                    throw new InvalidOperationException("Lỗi khi giải mã thông tin đăng nhập: " + ex.Message, ex);
+                }
             }
 
             // Thêm lệnh cập nhật ứng dụng
@@ -417,21 +542,91 @@ namespace SteamCmdWebAPI.Services
             string steamCmdUrl = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
             string zipPath = Path.Combine(steamCmdDir, "steamcmd.zip");
 
-            using (var httpClient = new HttpClient())
+            try
             {
-                // Tải file zip
-                _logger.LogInformation("Đang tải SteamCMD từ {0}...", steamCmdUrl);
-                byte[] zipData = await httpClient.GetByteArrayAsync(steamCmdUrl);
-                await File.WriteAllBytesAsync(zipPath, zipData);
+                // Đảm bảo thư mục tồn tại
+                if (!Directory.Exists(steamCmdDir))
+                {
+                    Directory.CreateDirectory(steamCmdDir);
+                    _logger.LogInformation("Đã tạo thư mục steamcmd tại {Directory}", steamCmdDir);
+                }
 
-                // Giải nén file
-                _logger.LogInformation("Đang giải nén SteamCMD...");
-                System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, steamCmdDir, true);
+                using (var httpClient = new System.Net.Http.HttpClient())
+                {
+                    httpClient.Timeout = TimeSpan.FromMinutes(10); // Tăng timeout để xử lý tập tin lớn
 
-                // Xóa file zip
-                File.Delete(zipPath);
+                    // Tải file zip
+                    _logger.LogInformation("Đang tải SteamCMD từ {0}...", steamCmdUrl);
 
-                _logger.LogInformation("Đã cài đặt SteamCMD thành công");
+                    // Hiển thị tiến trình tải
+                    var progress = new Progress<float>(percent =>
+                    {
+                        _hubContext.Clients.All.SendAsync("ReceiveLog", $"Tải SteamCMD: {percent:F2}%").Wait();
+                    });
+
+                    // Tạo tác vụ tải file
+                    var downloadTask = DownloadFileWithProgressAsync(httpClient, steamCmdUrl, zipPath, progress);
+                    await downloadTask;
+
+                    // Giải nén file
+                    _logger.LogInformation("Đang giải nén SteamCMD...");
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", "Đang giải nén SteamCMD...");
+                    System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, steamCmdDir, true);
+
+                    // Xóa file zip
+                    File.Delete(zipPath);
+
+                    _logger.LogInformation("Đã cài đặt SteamCMD thành công");
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", "Đã cài đặt SteamCMD thành công");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi tải và cài đặt SteamCMD: {Message}", ex.Message);
+                await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Lỗi khi tải SteamCMD: {ex.Message}");
+                throw;
+            }
+        }
+
+        private async Task DownloadFileWithProgressAsync(System.Net.Http.HttpClient client, string url, string destinationPath, IProgress<float> progress)
+        {
+            // Tạo các thư mục cần thiết
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath));
+
+            // Tải xuống tệp tin
+            using (var response = await client.GetAsync(url, System.Net.Http.HttpCompletionOption.ResponseHeadersRead))
+            {
+                response.EnsureSuccessStatusCode();
+
+                var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+                var totalReadBytes = 0L;
+                var buffer = new byte[81920]; // 80 KB buffer
+                var isMoreToRead = true;
+
+                using (var fileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, buffer.Length, true))
+                using (var contentStream = await response.Content.ReadAsStreamAsync())
+                {
+                    do
+                    {
+                        var readBytes = await contentStream.ReadAsync(buffer);
+                        if (readBytes == 0)
+                        {
+                            isMoreToRead = false;
+                        }
+                        else
+                        {
+                            await fileStream.WriteAsync(buffer, 0, readBytes);
+
+                            totalReadBytes += readBytes;
+                            if (totalBytes > 0 && progress != null)
+                            {
+                                var progressPercent = (float)totalReadBytes / totalBytes * 100;
+                                progress.Report(progressPercent);
+                            }
+                        }
+                    }
+                    while (isMoreToRead);
+                }
             }
         }
 
@@ -443,48 +638,79 @@ namespace SteamCmdWebAPI.Services
             string steamCmdUrl = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
             string tarPath = Path.Combine(steamCmdDir, "steamcmd_linux.tar.gz");
 
-            using (var httpClient = new HttpClient())
+            try
             {
-                // Tải file tar.gz
-                _logger.LogInformation("Đang tải SteamCMD từ {0}...", steamCmdUrl);
-                byte[] tarData = await httpClient.GetByteArrayAsync(steamCmdUrl);
-                await File.WriteAllBytesAsync(tarPath, tarData);
-
-                // Giải nén file bằng lệnh hệ thống
-                _logger.LogInformation("Đang giải nén SteamCMD...");
-                Process process = new Process
+                // Đảm bảo thư mục tồn tại
+                if (!Directory.Exists(steamCmdDir))
                 {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "tar",
-                        Arguments = $"-xzf {tarPath} -C {steamCmdDir}",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    }
-                };
+                    Directory.CreateDirectory(steamCmdDir);
+                    _logger.LogInformation("Đã tạo thư mục steamcmd tại {Directory}", steamCmdDir);
+                }
 
-                process.Start();
-                await process.WaitForExitAsync();
-
-                // Cấp quyền thực thi
-                process = new Process
+                using (var httpClient = new System.Net.Http.HttpClient())
                 {
-                    StartInfo = new ProcessStartInfo
+                    httpClient.Timeout = TimeSpan.FromMinutes(10); // Tăng timeout để xử lý tập tin lớn
+
+                    // Tải file tar.gz
+                    _logger.LogInformation("Đang tải SteamCMD từ {0}...", steamCmdUrl);
+
+                    // Hiển thị tiến trình tải
+                    var progress = new Progress<float>(percent =>
                     {
-                        FileName = "chmod",
-                        Arguments = $"+x {Path.Combine(steamCmdDir, "steamcmd.sh")}",
-                        UseShellExecute = false
-                    }
-                };
+                        _hubContext.Clients.All.SendAsync("ReceiveLog", $"Tải SteamCMD: {percent:F2}%").Wait();
+                    });
 
-                process.Start();
-                await process.WaitForExitAsync();
+                    // Tạo tác vụ tải file
+                    var downloadTask = DownloadFileWithProgressAsync(httpClient, steamCmdUrl, tarPath, progress);
+                    await downloadTask;
 
-                // Xóa file tar.gz
-                File.Delete(tarPath);
+                    // Giải nén file bằng lệnh hệ thống
+                    _logger.LogInformation("Đang giải nén SteamCMD...");
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", "Đang giải nén SteamCMD...");
 
-                _logger.LogInformation("Đã cài đặt SteamCMD thành công");
+                    Process process = new Process
+                    {
+                        StartInfo = new ProcessStartInfo
+                        {
+                            FileName = "tar",
+                            Arguments = $"-xzf {tarPath} -C {steamCmdDir}",
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            CreateNoWindow = true
+                        }
+                    };
+
+                    process.Start();
+                    await process.WaitForExitAsync();
+
+                    // Cấp quyền thực thi
+                    process = new Process
+                    {
+                        StartInfo = new ProcessStartInfo
+                        {
+                            FileName = "chmod",
+                            Arguments = $"+x {Path.Combine(steamCmdDir, "steamcmd.sh")}",
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        }
+                    };
+
+                    process.Start();
+                    await process.WaitForExitAsync();
+
+                    // Xóa file tar.gz
+                    File.Delete(tarPath);
+
+                    _logger.LogInformation("Đã cài đặt SteamCMD thành công");
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", "Đã cài đặt SteamCMD thành công");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi tải và cài đặt SteamCMD: {Message}", ex.Message);
+                await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Lỗi khi tải SteamCMD: {ex.Message}");
+                throw;
             }
         }
     }
