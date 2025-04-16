@@ -1,0 +1,178 @@
+@page
+@model SteamCmdWebAPI.Pages.ServerSyncPageModel
+@{
+    ViewData["Title"] = "Đồng bộ Server - SteamAUTO";
+}
+
+<div class="container">
+    <h1>Đồng bộ với Server</h1>
+
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
+            @Model.StatusMessage
+        </div>
+    }
+
+    @if (Model.IsServerConfigured)
+    {
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Thông tin kết nối</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Trạng thái:</strong> 
+                            <span id="connectionStatus" class="badge bg-info">Đang kiểm tra...</span>
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Lần đồng bộ cuối:</strong> 
+                            @(Model.LastSyncTime.HasValue ? Model.LastSyncTime.Value.ToString("dd/MM/yyyy HH:mm:ss") : "Chưa đồng bộ")
+                        </p>
+                        <button id="testConnectionBtn" class="btn btn-info me-2">Kiểm tra kết nối</button>
+                        <button id="forceSyncBtn" class="btn btn-warning">Đồng bộ ngay</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card h-100">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">Đồng bộ từ Server về Client</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-4">
+                            <h6>Đồng bộ tất cả profiles</h6>
+                            <p>Đồng bộ toàn bộ profiles từ server. Thao tác này sẽ cập nhật các profiles hiện có và thêm mới nếu chưa tồn tại.</p>
+                            <form method="post" asp-page-handler="SyncAll">
+                                @Html.AntiForgeryToken()
+                                <button type="submit" class="btn btn-success">Đồng bộ tất cả từ Server</button>
+                            </form>
+                        </div>
+
+                        <div>
+                            <h6>Đồng bộ một profile cụ thể</h6>
+                            <form method="post" asp-page-handler="SyncSingle">
+                                @Html.AntiForgeryToken()
+                                <div class="mb-3">
+                                    <label for="profileName" class="form-label">Chọn profile từ server:</label>
+                                    <select id="profileName" name="profileName" class="form-select">
+                                        <option value="">-- Chọn profile --</option>
+                                        @foreach (var profile in Model.AvailableProfiles)
+                                        {
+                                            <option value="@profile">@profile</option>
+                                        }
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Đồng bộ profile đã chọn</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-warning">
+            <h4 class="alert-heading">Chưa cấu hình kết nối server!</h4>
+            <p>Bạn cần kích hoạt đồng bộ server trước khi có thể đồng bộ.</p>
+            <hr>
+            <p class="mb-0">Hãy vào <a href="/ServerSettings" class="alert-link">Cài đặt Server</a> để thiết lập kết nối.</p>
+        </div>
+    }
+
+    <div class="mt-3">
+        <a asp-page="/Index" class="btn btn-secondary">Quay lại trang chủ</a>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Kiểm tra kết nối khi tải trang
+            checkServerConnection();
+            
+            // Thêm event listener cho nút kiểm tra kết nối
+            document.getElementById('testConnectionBtn')?.addEventListener('click', function() {
+                checkServerConnection();
+            });
+            
+            // Thêm event listener cho nút đồng bộ ngay
+            document.getElementById('forceSyncBtn')?.addEventListener('click', function() {
+                forceSyncWithServer();
+            });
+        });
+
+        function checkServerConnection() {
+            const statusElement = document.getElementById('connectionStatus');
+            if (!statusElement) return;
+
+            statusElement.textContent = 'Đang kiểm tra...';
+            statusElement.className = 'badge bg-info';
+
+            // Sử dụng API controller thay vì handler
+            fetch('/api/Server/test-connection', {
+                method: 'GET'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    statusElement.textContent = 'Kết nối thành công';
+                    statusElement.className = 'badge bg-success';
+                } else {
+                    statusElement.textContent = 'Kết nối thất bại';
+                    statusElement.className = 'badge bg-danger';
+                }
+            })
+            .catch(error => {
+                console.error('Error testing connection:', error);
+                statusElement.textContent = 'Lỗi kiểm tra';
+                statusElement.className = 'badge bg-danger';
+            });
+        }
+        
+        function forceSyncWithServer() {
+            // Hiển thị trạng thái đang đồng bộ
+            const statusElement = document.getElementById('connectionStatus');
+            if (statusElement) {
+                statusElement.textContent = 'Đang đồng bộ...';
+                statusElement.className = 'badge bg-warning';
+            }
+
+            // Sử dụng API controller để đồng bộ
+            fetch('/api/Server/sync', {
+                method: 'GET'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Đồng bộ với server thành công!');
+                    if (statusElement) {
+                        statusElement.textContent = 'Kết nối thành công';
+                        statusElement.className = 'badge bg-success';
+                    }
+                    location.reload(); // Tải lại trang để cập nhật dữ liệu
+                } else {
+                    alert('Đồng bộ không thành công: ' + (data.error || 'Lỗi không xác định'));
+                    if (statusElement) {
+                        statusElement.textContent = 'Đồng bộ thất bại';
+                        statusElement.className = 'badge bg-danger';
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error syncing with server:', error);
+                alert('Lỗi khi đồng bộ với server: ' + error);
+                if (statusElement) {
+                    statusElement.textContent = 'Lỗi đồng bộ';
+                    statusElement.className = 'badge bg-danger';
+                }
+            });
+        }
+    </script>
+}

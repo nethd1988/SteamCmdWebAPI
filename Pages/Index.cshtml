@@ -1,0 +1,365 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Quản lý cấu hình Steam AUTO";
+}
+
+<div class="container">
+    <h1>Quản lý cấu hình SteamAUTO</h1>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">
+            @TempData["Success"]
+        </div>
+    }
+
+    <!-- Form ẩn để tạo Anti-Forgery Token -->
+    <form id="antiForgeryForm">
+        @Html.AntiForgeryToken()
+    </form>
+
+    <div class="mb-3">
+        <a asp-page="./Create" class="btn btn-primary">Tạo cấu hình mới</a>
+        <button id="runAllBtn" class="btn btn-success">Chạy tất cả</button>
+        <button id="stopAllBtn" class="btn btn-danger">Dừng tất cả</button>
+        <a asp-page="./Logs" class="btn btn-info">Xem Logs</a>
+        <a asp-page="./Settings" class="btn btn-warning">Cài đặt</a>
+        <a asp-page="./ServerSync" class="btn btn-primary">Đồng bộ Server</a>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5>Logs</h5>
+            <div id="logContainer" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; background-color: black; color: limegreen; font-family: Consolas, monospace;"></div>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Tên</th>
+                    <th>App ID</th>
+                    <th>Thư mục cài đặt</th>
+                    <th>Trạng thái</th>
+                    <th>Lần chạy cuối</th>
+                    <th>Thao tác</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var profile in Model.Profiles)
+                {
+                    <tr>
+                        <td>@profile.Id</td>
+                        <td>@profile.Name</td>
+                        <td>@profile.AppID</td>
+                        <td>@profile.InstallDirectory</td>
+                        <td>
+                            @if (profile.Status == "Running")
+                            {
+                                <span class="badge bg-success">@profile.Status</span>
+                            }
+                            else if (profile.Status == "Error")
+                            {
+                                <span class="badge bg-danger">@profile.Status</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary">@profile.Status</span>
+                            }
+                        </td>
+                        <td>@(profile.LastRun.HasValue ? profile.LastRun.Value.ToString("dd/MM/yyyy HH:mm") : "-")</td>
+                        <td>
+                            <button class="btn btn-sm btn-success run-btn" data-id="@profile.Id">Chạy</button>
+                            <button class="btn btn-sm btn-danger stop-btn" data-id="@profile.Id">Dừng</button>
+                            <a asp-page="./Edit" asp-route-id="@profile.Id" class="btn btn-sm btn-primary">Sửa</a>
+                            <button class="btn btn-sm btn-danger delete-btn" data-id="@profile.Id">Xóa</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Popup 2FA -->
+    <div class="modal fade" id="twoFactorModal" tabindex="-1" aria-labelledby="twoFactorModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="twoFactorModalLabel">Nhập mã xác thực Steam Guard</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> Vui lòng kiểm tra ứng dụng Steam hoặc email của bạn để lấy mã xác thực.
+                    </div>
+                    <form id="twoFactorForm">
+                        <div class="mb-3">
+                            <label for="twoFactorCode" class="form-label">Mã xác thực Steam Guard</label>
+                            <input type="text" class="form-control" id="twoFactorCode" placeholder="Nhập mã xác thực" autocomplete="off" maxlength="5" required>
+                            <input type="hidden" id="profileId" value="">
+                            <div class="form-text">Mã xác thực thường gồm 5 ký tự và có hiệu lực trong thời gian ngắn.</div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy bỏ</button>
+                    <button type="button" class="btn btn-primary" id="submitTwoFactorBtn">Xác nhận</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+    <script>
+        $(document).ready(function () {
+            // Khởi tạo kết nối SignalR
+            const connection = new signalR.HubConnectionBuilder()
+                .withUrl("/logHub")
+                .withAutomaticReconnect()
+                .build();
+
+            // Đăng ký xử lý sự kiện nhận log
+            connection.on("ReceiveLog", function (message) {
+                const logElement = document.getElementById("logContainer");
+                const newLine = document.createElement("div");
+                newLine.textContent = message;
+                logElement.appendChild(newLine);
+                logElement.scrollTop = logElement.scrollHeight;
+            });
+
+            // Đăng ký xử lý sự kiện yêu cầu mã 2FA
+            connection.on("RequestTwoFactorCode", function (profileId) {
+                console.log("Nhận yêu cầu mã 2FA cho profile ID:", profileId);
+                $("#profileId").val(profileId);
+                const modal = new bootstrap.Modal(document.getElementById('twoFactorModal'));
+                modal.show();
+                $("#twoFactorCode").val("").focus();
+            });
+
+            // Khởi động kết nối SignalR
+            connection.start()
+                .then(() => {
+                    console.log("Kết nối SignalR thành công");
+                    // Thêm log khi kết nối thành công
+                    $("#logContainer").append("<div>Đã kết nối tới server</div>");
+                })
+                .catch(err => {
+                    console.error("Lỗi kết nối SignalR:", err);
+                    $("#logContainer").append("<div style='color:red'>Lỗi kết nối: " + err + "</div>");
+                });
+
+            // Lấy Anti-Forgery Token
+            const token = $('input[name="__RequestVerificationToken"]').val();
+            if (!token) {
+                console.error("Không tìm thấy Anti-Forgery Token!");
+            }
+
+            // Xử lý nút chạy profile
+            $(".run-btn").click(function () {
+                const profileId = $(this).data("id");
+                const button = $(this);
+
+                button.prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang xử lý...');
+
+                $.ajax({
+                    url: "/Index?handler=Run",
+                    method: "POST",
+                    data: { profileId: profileId },
+                    headers: { "RequestVerificationToken": token },
+                    success: function (response) {
+                        if (response.success) {
+                            $("#logContainer").append("<div>Đã gửi lệnh chạy profile ID " + profileId + "</div>");
+                            $("#logContainer").scrollTop($("#logContainer")[0].scrollHeight);
+                        } else {
+                            alert("Lỗi: " + response.error);
+                        }
+                    },
+                    error: function (xhr) {
+                        alert("Lỗi: " + (xhr.responseText || "Không thể gửi yêu cầu."));
+                    },
+                    complete: function() {
+                        button.prop("disabled", false).text("Chạy");
+                        setTimeout(function() {
+                            location.reload();  // Tải lại trang để cập nhật trạng thái
+                        }, 2000);
+                    }
+                });
+            });
+
+            // Xử lý nút dừng profile
+            $(".stop-btn").click(function () {
+                const profileId = $(this).data("id");
+                const button = $(this);
+
+                button.prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang xử lý...');
+
+                $.ajax({
+                    url: "/Index?handler=Stop",
+                    method: "POST",
+                    data: { profileId: profileId },
+                    headers: { "RequestVerificationToken": token },
+                    success: function (response) {
+                        if (response.success) {
+                            $("#logContainer").append("<div>Đã gửi lệnh dừng profile ID " + profileId + "</div>");
+                            $("#logContainer").scrollTop($("#logContainer")[0].scrollHeight);
+                        } else {
+                            alert("Lỗi: " + response.error);
+                        }
+                    },
+                    error: function (xhr) {
+                        alert("Lỗi: " + (xhr.responseText || "Không thể gửi yêu cầu."));
+                    },
+                    complete: function() {
+                        button.prop("disabled", false).text("Dừng");
+                        setTimeout(function() {
+                            location.reload();  // Tải lại trang để cập nhật trạng thái
+                        }, 2000);
+                    }
+                });
+            });
+
+            // Xử lý nút xóa profile
+            $(".delete-btn").click(function () {
+                if (confirm("Bạn có chắc chắn muốn xóa cấu hình này?")) {
+                    const profileId = $(this).data("id");
+                    const button = $(this);
+
+                    button.prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang xử lý...');
+
+                    $.ajax({
+                        url: "/Index?handler=Delete",
+                        method: "POST",
+                        data: { profileId: profileId },
+                        headers: { "RequestVerificationToken": token },
+                        success: function (response) {
+                            if (response.success) {
+                                location.reload();
+                            } else {
+                                alert("Lỗi: " + response.error);
+                                button.prop("disabled", false).text("Xóa");
+                            }
+                        },
+                        error: function (xhr) {
+                            alert("Lỗi: " + (xhr.responseText || "Không thể gửi yêu cầu."));
+                            button.prop("disabled", false).text("Xóa");
+                        }
+                    });
+                }
+            });
+
+            // Xử lý nút chạy tất cả
+            $("#runAllBtn").click(function () {
+                const button = $(this);
+
+                button.prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang xử lý...');
+
+                $.ajax({
+                    url: "/Index?handler=RunAll",
+                    method: "POST",
+                    headers: { "RequestVerificationToken": token },
+                    success: function (response) {
+                        if (response.success) {
+                            $("#logContainer").append("<div>Đã gửi lệnh chạy tất cả profile</div>");
+                            $("#logContainer").scrollTop($("#logContainer")[0].scrollHeight);
+                        } else {
+                            alert("Lỗi: " + response.error);
+                        }
+                    },
+                    error: function (xhr) {
+                        alert("Lỗi: " + (xhr.responseText || "Không thể gửi yêu cầu."));
+                    },
+                    complete: function() {
+                        button.prop("disabled", false).text("Chạy tất cả");
+                        setTimeout(function() {
+                            location.reload();  // Tải lại trang để cập nhật trạng thái
+                        }, 3000);
+                    }
+                });
+            });
+
+            // Xử lý nút dừng tất cả
+            $("#stopAllBtn").click(function () {
+                const button = $(this);
+
+                button.prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang xử lý...');
+
+                $.ajax({
+                    url: "/Index?handler=StopAll",
+                    method: "POST",
+                    headers: { "RequestVerificationToken": token },
+                    success: function (response) {
+                        if (response.success) {
+                            $("#logContainer").append("<div>Đã gửi lệnh dừng tất cả tiến trình</div>");
+                            $("#logContainer").scrollTop($("#logContainer")[0].scrollHeight);
+                        } else {
+                            alert("Lỗi: " + response.error);
+                        }
+                    },
+                    error: function (xhr) {
+                        alert("Lỗi: " + (xhr.responseText || "Không thể gửi yêu cầu."));
+                    },
+                    complete: function() {
+                        button.prop("disabled", false).text("Dừng tất cả");
+                        setTimeout(function() {
+                            location.reload();  // Tải lại trang để cập nhật trạng thái
+                        }, 2000);
+                    }
+                });
+            });
+
+            // Xử lý form 2FA
+            $("#submitTwoFactorBtn").click(function() {
+                submitTwoFactorCode();
+            });
+
+            // Cũng xử lý khi nhấn Enter trong form
+            $("#twoFactorCode").keypress(function(e) {
+                if (e.which === 13) {
+                    e.preventDefault();
+                    submitTwoFactorCode();
+                }
+            });
+
+            function submitTwoFactorCode() {
+                const profileId = parseInt($("#profileId").val(), 10);
+                const twoFactorCode = $("#twoFactorCode").val().trim();
+
+                if (!twoFactorCode) {
+                    alert("Vui lòng nhập mã xác thực Steam Guard!");
+                    return;
+                }
+
+                $("#submitTwoFactorBtn").prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang xử lý...');
+
+                $.ajax({
+                    url: "/Index?handler=SubmitTwoFactorCode",
+                    method: "POST",
+                    data: { profileId: profileId, twoFactorCode: twoFactorCode },
+                    headers: { "RequestVerificationToken": token },
+                    success: function (response) {
+                        if (response.success) {
+                            const modal = bootstrap.Modal.getInstance(document.getElementById('twoFactorModal'));
+                            modal.hide();
+                            $("#twoFactorCode").val("");
+                            $("#logContainer").append("<div>Đã gửi mã xác thực Steam Guard</div>");
+                            $("#logContainer").scrollTop($("#logContainer")[0].scrollHeight);
+                        } else {
+                            alert("Lỗi: " + response.error);
+                        }
+                    },
+                    error: function (xhr) {
+                        alert("Lỗi khi gửi mã xác thực: " + (xhr.responseText || "Không thể gửi yêu cầu."));
+                    },
+                    complete: function() {
+                        $("#submitTwoFactorBtn").prop("disabled", false).text("Xác nhận");
+                    }
+                });
+            }
+        });
+    </script>
+}

@@ -1,0 +1,10 @@
+16/4/2025 10:40:18 AM: Ứng dụng đang khởi động...
+16/4/2025 10:40:18 AM: Đã tạo builder
+16/4/2025 10:40:18 AM: Đã thêm RazorPages
+16/4/2025 10:40:18 AM: Đã build ứng dụng
+16/4/2025 10:40:18 AM: Chuẩn bị chạy ứng dụng
+16/4/2025 10:42:48 AM: Ứng dụng đang khởi động...
+16/4/2025 10:42:48 AM: Đã tạo builder
+16/4/2025 10:42:48 AM: Đã thêm RazorPages
+16/4/2025 10:42:48 AM: Đã build ứng dụng
+16/4/2025 10:42:48 AM: Chuẩn bị chạy ứng dụng

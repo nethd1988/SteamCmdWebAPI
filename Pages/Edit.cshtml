@@ -1,0 +1,124 @@
+@page
+@model EditModel
+@{
+    ViewData["Title"] = "Sửa cấu hình - SteamAUTO";
+}
+
+<div class="container">
+    <h1>Sửa cấu hình</h1>
+    
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
+            @Model.StatusMessage
+        </div>
+    }
+
+    <form method="post" asp-page-handler="SaveProfile" id="editProfileForm">
+        <input type="hidden" asp-for="Profile.Id" />
+        <input type="hidden" asp-for="Profile.Status" />
+        <input type="hidden" asp-for="Profile.Pid" />
+
+        <div class="card">
+            <div class="card-header">
+                <h5>Thông tin cấu hình</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label asp-for="Profile.Name" class="form-label">Tên cấu hình</label>
+                    <input asp-for="Profile.Name" class="form-control" required />
+                    <span asp-validation-for="Profile.Name" class="text-danger"></span>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="Profile.AppID" class="form-label">App ID</label>
+                    <input asp-for="Profile.AppID" class="form-control" required />
+                    <small class="form-text text-muted">Nhập ID của ứng dụng Steam (ví dụ: 730 cho CS:GO)</small>
+                    <span asp-validation-for="Profile.AppID" class="text-danger"></span>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="Profile.InstallDirectory" class="form-label">Đường dẫn cài đặt</label>
+                    <input asp-for="Profile.InstallDirectory" class="form-control" />
+                    <small class="form-text text-muted">Đường dẫn đầy đủ đến thư mục cài đặt ứng dụng</small>
+                    <span asp-validation-for="Profile.InstallDirectory" class="text-danger"></span>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="Profile.AnonymousLogin" class="form-label">Đăng nhập ẩn danh</label>
+                    <div class="form-check">
+                        <input asp-for="Profile.AnonymousLogin" class="form-check-input" id="AnonymousLogin" />
+                        <label class="form-check-label">Chọn nếu không cần đăng nhập tài khoản Steam</label>
+                    </div>
+                </div>
+
+                <div id="loginSection" class="@(Model.Profile.AnonymousLogin ? "d-none" : "")">
+                    <div class="mb-3">
+                        <label asp-for="NewUsername" class="form-label">Tên đăng nhập</label>
+                        <input asp-for="NewUsername" class="form-control" id="NewUsername" data-val="false" />
+                        <small class="form-text text-muted">Để trống nếu không muốn thay đổi</small>
+                        <span asp-validation-for="NewUsername" class="text-danger"></span>
+                    </div>
+
+                    <div class="mb-3">
+                        <label asp-for="NewPassword" class="form-label">Mật khẩu</label>
+                        <input asp-for="NewPassword" class="form-control" type="password" id="NewPassword" data-val="false" />
+                        <small class="form-text text-muted">Để trống nếu không muốn thay đổi</small>
+                        <span asp-validation-for="NewPassword" class="text-danger"></span>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="Profile.Arguments" class="form-label">Các tham số bổ sung</label>
+                    <textarea asp-for="Profile.Arguments" class="form-control" rows="3" data-val="false"></textarea>
+                    <small class="form-text text-muted">Các tham số bổ sung cho SteamCMD (tùy chọn)</small>
+                    <span asp-validation-for="Profile.Arguments" class="text-danger"></span>
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input asp-for="Profile.ValidateFiles" class="form-check-input" />
+                    <label asp-for="Profile.ValidateFiles" class="form-check-label">Kiểm tra và sửa chữa file</label>
+                </div>
+                
+                <div class="mb-3 form-check">
+                    <input asp-for="Profile.AutoRun" class="form-check-input" />
+                    <label asp-for="Profile.AutoRun" class="form-check-label">Tự động chạy khi khởi động</label>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Lưu thay đổi</button>
+                <a asp-page="/Index" class="btn btn-secondary">Hủy</a>
+            </div>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            // Xử lý sự kiện khi check/uncheck "Đăng nhập ẩn danh"
+            $('#AnonymousLogin').change(function() {
+                if ($(this).is(':checked')) {
+                    $('#loginSection').addClass('d-none');
+                    $('#NewUsername').val('');
+                    $('#NewPassword').val('');
+                } else {
+                    $('#loginSection').removeClass('d-none');
+                }
+            });
+
+            // Đảm bảo trạng thái ban đầu
+            if ($('#AnonymousLogin').is(':checked')) {
+                $('#loginSection').addClass('d-none');
+                $('#NewUsername').val('');
+                $('#NewPassword').val('');
+            }
+
+            // Xử lý khi form chỉnh sửa được submit
+            $('#editProfileForm').submit(function(e) {
+                console.log("Edit profile form submitted");
+                return true;
+            });
+        });
+    </script>
+    <partial name="_ValidationScriptsPartial" />
+}

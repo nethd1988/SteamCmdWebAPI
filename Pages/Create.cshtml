@@ -1,0 +1,266 @@
+@page
+@model SteamCmdWebAPI.Pages.CreateModel
+@{
+    ViewData["Title"] = "Tạo cấu hình mới";
+}
+
+<div class="container">
+    <h1>Tạo Profile Game Mới</h1>
+
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
+            @Model.StatusMessage
+        </div>
+    }
+
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Hướng dẫn</h5>
+                </div>
+                <div class="card-body">
+                    <h6>Cách tạo profile mới</h6>
+                    <p>Nhập thông tin cần thiết cho profile game:</p>
+                    <ul>
+                        <li><strong>Tên Profile:</strong> Tên để nhận diện profile</li>
+                        <li><strong>App ID:</strong> ID của game trên Steam</li>
+                        <li><strong>Đường dẫn cài đặt:</strong> Thư mục cài đặt game</li>
+                        <li><strong>Tham số bổ sung:</strong> Các tham số tùy chọn</li>
+                    </ul>
+                    <p>Nếu game yêu cầu đăng nhập, hãy bỏ chọn "Đăng nhập ẩn danh" và nhập thông tin tài khoản Steam.</p>
+                    <div class="alert alert-info">
+                        <strong>Mẹo:</strong> Bạn cũng có thể sử dụng nút "Lấy từ Server" để nhập nhanh từ cơ sở dữ liệu có sẵn.
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Chọn profile từ Server</h5>
+                </div>
+                <div class="card-body">
+                    @if (Model.ServerProfiles != null && Model.ServerProfiles.Count > 0)
+                    {
+                        <div class="mb-3">
+                            <label for="serverProfileSelect" class="form-label">Profiles có sẵn trên server:</label>
+                            <select id="serverProfileSelect" class="form-select">
+                                <option value="">-- Chọn profile từ server --</option>
+                                @foreach (var profileName in Model.ServerProfiles)
+                                {
+                                    <option value="@profileName">@profileName</option>
+                                }
+                            </select>
+                        </div>
+                        <button type="button" id="loadProfileBtn" class="btn btn-info">Tải thông tin</button>
+                        <button type="button" id="importProfileBtn" class="btn btn-success">Nhập profile từ server</button>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle me-2"></i> Không tìm thấy profiles trên server hoặc kết nối server chưa được thiết lập.
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h5>Thông tin cấu hình mới</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post" id="createProfileForm" asp-page-handler="SaveProfile">
+                        @Html.AntiForgeryToken()
+
+                        <div class="mb-3">
+                            <label for="Profile_Name" class="form-label">Tên Profile</label>
+                            <input id="Profile_Name" name="Profile.Name" value="@Model.Profile.Name" class="form-control" required />
+                            <span asp-validation-for="Profile.Name" class="text-danger"></span>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="Profile_AppID" class="form-label">App ID</label>
+                            <input id="Profile_AppID" name="Profile.AppID" value="@Model.Profile.AppID" class="form-control" required />
+                            <span asp-validation-for="Profile.AppID" class="text-danger"></span>
+                            <small class="text-muted">Nhập ID của game trên Steam. Ví dụ: 730 cho CS:GO</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="Profile_InstallDirectory" class="form-label">Đường dẫn cài đặt</label>
+                            <input id="Profile_InstallDirectory" name="Profile.InstallDirectory" value="@Model.Profile.InstallDirectory" class="form-control" required />
+                            <span asp-validation-for="Profile.InstallDirectory" class="text-danger"></span>
+                            <small class="text-muted">Nhập đường dẫn đầy đủ nơi game sẽ được cài đặt</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="Profile_Arguments" class="form-label">Tham số bổ sung (tùy chọn)</label>
+                            <input id="Profile_Arguments" name="Profile.Arguments" value="@Model.Profile.Arguments" class="form-control" />
+                            <span asp-validation-for="Profile.Arguments" class="text-danger"></span>
+                            <small class="text-muted">Các tham số dòng lệnh bổ sung cho SteamCMD</small>
+                        </div>
+
+                        <div class="mb-3 form-check">
+                            <input id="Profile_ValidateFiles" name="Profile.ValidateFiles" type="checkbox" class="form-check-input" @(Model.Profile.ValidateFiles ? "checked" : "") />
+                            <label for="Profile_ValidateFiles" class="form-check-label">Kiểm tra và sửa chữa file</label>
+                        </div>
+                        
+                        <div class="mb-3 form-check">
+                            <input id="Profile_AutoRun" name="Profile.AutoRun" type="checkbox" class="form-check-input" @(Model.Profile.AutoRun ? "checked" : "") />
+                            <label for="Profile_AutoRun" class="form-check-label">Tự động chạy khi khởi động</label>
+                        </div>
+
+                        <div class="mb-3 form-check">
+                            <input id="Profile_AnonymousLogin" name="Profile.AnonymousLogin" type="checkbox" class="form-check-input" @(Model.Profile.AnonymousLogin ? "checked" : "") />
+                            <label for="Profile_AnonymousLogin" class="form-check-label">Đăng nhập ẩn danh</label>
+                            <small class="d-block text-muted">Chọn nếu game có thể tải về mà không cần đăng nhập vào tài khoản Steam</small>
+                        </div>
+
+                        <div id="loginSection" class="@(Model.Profile.AnonymousLogin ? "d-none" : "")">
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h5>Thông tin đăng nhập Steam</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="alert alert-warning">
+                                        <i class="bi bi-exclamation-triangle me-2"></i> Lưu ý: Thông tin đăng nhập sẽ được lưu dưới dạng mã hóa trong cơ sở dữ liệu.
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="Username" class="form-label">Tên đăng nhập</label>
+                                        <input id="Username" name="Username" value="@Model.Username" class="form-control" />
+                                        <span id="usernameError" class="text-danger"></span>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="Password" class="form-label">Mật khẩu</label>
+                                        <input id="Password" name="Password" value="@Model.Password" type="password" class="form-control" />
+                                        <span id="passwordError" class="text-danger"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex">
+                            <button type="submit" class="btn btn-primary me-2">Lưu cấu hình</button>
+                            <a asp-page="./Index" class="btn btn-secondary">Quay lại</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+    
+    <script>
+        $(document).ready(function() {
+            // Xử lý sự kiện khi check/uncheck "Đăng nhập ẩn danh"
+            $('#Profile_AnonymousLogin').change(function() {
+                if ($(this).is(':checked')) {
+                    $('#loginSection').addClass('d-none');
+                    $('#Username').val('');
+                    $('#Password').val('');
+                } else {
+                    $('#loginSection').removeClass('d-none');
+                }
+            });
+            
+            // Xử lý khi nhấp vào nút "Tải thông tin"
+            $('#loadProfileBtn').click(function() {
+                const profileName = $('#serverProfileSelect').val();
+                if (!profileName) {
+                    alert('Vui lòng chọn một profile từ server!');
+                    return;
+                }
+                
+                // Hiển thị thông báo đang tải
+                $('#loadProfileBtn').text('Đang tải...').prop('disabled', true);
+                
+                // Gọi API để lấy thông tin profile
+                $.ajax({
+                    url: `?handler=ProfileFromServer&profileName=${encodeURIComponent(profileName)}`,
+                    type: 'GET',
+                    success: function(response) {
+                        if (response.success) {
+                            // Điền thông tin vào form
+                            const profile = response.profile;
+                            $('#Profile_Name').val(profile.Name);
+                            $('#Profile_AppID').val(profile.AppID);
+                            $('#Profile_InstallDirectory').val(profile.InstallDirectory);
+                            $('#Profile_Arguments').val(profile.Arguments);
+                            $('#Profile_ValidateFiles').prop('checked', profile.ValidateFiles);
+                            $('#Profile_AutoRun').prop('checked', profile.AutoRun);
+                            $('#Profile_AnonymousLogin').prop('checked', profile.AnonymousLogin);
+                            
+                            // Cập nhật hiển thị phần đăng nhập
+                            if (profile.AnonymousLogin) {
+                                $('#loginSection').addClass('d-none');
+                            } else {
+                                $('#loginSection').removeClass('d-none');
+                            }
+                            
+                            alert('Đã tải thông tin profile từ server!');
+                        } else {
+                            alert('Lỗi: ' + (response.error || 'Không thể tải thông tin profile'));
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        alert('Lỗi khi tải thông tin profile: ' + (xhr.responseJSON?.error || error));
+                    },
+                    complete: function() {
+                        // Khôi phục nút
+                        $('#loadProfileBtn').text('Tải thông tin').prop('disabled', false);
+                    }
+                });
+            });
+            
+            // Xử lý khi nhấp vào nút "Nhập profile từ server"
+            $('#importProfileBtn').click(function() {
+                const profileName = $('#serverProfileSelect').val();
+                if (!profileName) {
+                    alert('Vui lòng chọn một profile từ server!');
+                    return;
+                }
+                
+                if (confirm(`Bạn có chắc muốn nhập profile "${profileName}" từ server không?`)) {
+                    // Hiển thị thông báo đang xử lý
+                    $('#importProfileBtn').text('Đang nhập...').prop('disabled', true);
+                    
+                    // Lấy token CSRF
+                    const token = $('input[name="__RequestVerificationToken"]').val();
+                    
+                    // Gọi API để nhập profile từ server
+                    $.ajax({
+                        url: '?handler=ImportFromServer',
+                        type: 'POST',
+                        data: { profileName: profileName },
+                        headers: {
+                            'RequestVerificationToken': token
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                alert(response.message || 'Đã nhập profile từ server thành công!');
+                                // Chuyển hướng về trang Index nếu có URL
+                                if (response.redirectUrl) {
+                                    window.location.href = response.redirectUrl;
+                                }
+                            } else {
+                                alert('Lỗi: ' + (response.error || 'Không thể nhập profile'));
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            alert('Lỗi khi nhập profile: ' + (xhr.responseJSON?.error || error));
+                        },
+                        complete: function() {
+                            // Khôi phục nút
+                            $('#importProfileBtn').text('Nhập profile từ server').prop('disabled', false);
+                        }
+                    });
+                }
+            });
+        });
+    </script>
+}
