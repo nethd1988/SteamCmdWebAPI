@@ -867,6 +867,7 @@ namespace SteamCmdWebAPI.Services
                     ? arguments.Replace(passwordToUse, "********")
                     : arguments;
 
+                // Trong phương thức RunSteamCmdAsync, thay đổi phần khởi tạo Process
                 steamCmdProcess = new Process
                 {
                     StartInfo = new ProcessStartInfo
@@ -876,83 +877,65 @@ namespace SteamCmdWebAPI.Services
                         UseShellExecute = false,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
+                        RedirectStandardInput = true, // Đảm bảo có thể gửi input
                         CreateNoWindow = true
                     },
                     EnableRaisingEvents = true
                 };
 
-                // Thêm tiến trình vào danh sách
-                if (!_steamCmdProcesses.TryAdd(profileId, steamCmdProcess))
-                {
-                    throw new InvalidOperationException($"Không thể thêm tiến trình SteamCMD cho profile {profileId} vào danh sách.");
-                }
-
-                // Handle output với phương thức bắt lỗi tốt hơn
-                steamCmdProcess.OutputDataReceived += (sender, e) =>
+                // Thay đổi phần xử lý OutputDataReceived
+                // Thay đổi phần xử lý OutputDataReceived
+                steamCmdProcess.OutputDataReceived += async (sender, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
                     {
                         _logger.LogInformation("SteamCMD Output: {Data}", e.Data);
-                        _ = SafeSendLogAsync(profile.Name, "Info", e.Data);
+                        await SafeSendLogAsync(profile.Name, "Info", e.Data);
+
+                        // Kiểm tra nhiều dạng thông báo yêu cầu Steam Guard
+                        // Kiểm tra nhiều dạng thông báo yêu cầu Steam Guard
+                        if (e.Data.Contains("Steam Guard code:") ||
+                            e.Data.Contains("Two-factor code:") ||
+                            e.Data.Contains("Steam Guard Code:") ||
+                            e.Data.Contains("Enter the current code from your Mobile Authenticator app:") ||
+                            e.Data.EndsWith("code:") ||
+                            e.Data.Contains("Two-factor authentication"))
+                        {
+                            _logger.LogInformation("Phát hiện yêu cầu 2FA, gửi yêu cầu popup");
+
+                            try
+                            {
+                                // Gửi thông báo CHÍNH XÁC đến log về việc yêu cầu mã 2FA
+                                await SafeSendLogAsync(profile.Name, "Info", "Steam Guard code: Vui lòng nhập mã xác thực");
+
+                                // Gửi yêu cầu trực tiếp thông qua SignalR
+                                await _hubContext.Clients.All.SendAsync("RequestTwoFactorCode", profileId);
+
+                                // Đợi mã 2FA
+                                string twoFactorCode = await LogHub.RequestTwoFactorCode(profileId, _hubContext);
+
+                                // Nếu nhận được mã, gửi vào process
+                                if (!string.IsNullOrEmpty(twoFactorCode))
+                                {
+                                    await SafeSendLogAsync(profile.Name, "Info", "Đã nhận mã 2FA, đang tiếp tục...");
+                                    await steamCmdProcess.StandardInput.WriteLineAsync(twoFactorCode);
+                                    await steamCmdProcess.StandardInput.FlushAsync();
+                                    _logger.LogInformation("Đã gửi mã 2FA cho Steam Guard");
+                                }
+                                else
+                                {
+                                    _logger.LogWarning("Không nhận được mã 2FA, quá trình có thể thất bại");
+                                    await SafeSendLogAsync(profile.Name, "Warning", "Không nhận được mã 2FA, quá trình có thể thất bại");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Lỗi khi xử lý yêu cầu 2FA");
+                                await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi xử lý 2FA: {ex.Message}");
+                            }
+                        }
                     }
                 };
-
-                steamCmdProcess.ErrorDataReceived += (sender, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                    {
-                        _logger.LogError("SteamCMD Error: {Data}", e.Data);
-
-                        // Kiểm tra nếu thông điệp lỗi chứa "(Invalid Password)"
-                        if (e.Data.Contains("(Invalid Password)"))
-                        {
-                            _ = SafeSendLogAsync(profile.Name, "Error", $"{profile.Name}: Sai tên đăng nhập hoặc mật khẩu");
-                        }
-                        else
-                        {
-                            _ = SafeSendLogAsync(profile.Name, "Error", $"ERROR: {e.Data}");
-                        }
-                    }
-                };
-
-                _logger.LogInformation("Bắt đầu chạy SteamCMD: {Path} {Arguments}", steamCmdPath, safeArguments);
-                try
-                {
-                    steamCmdProcess.Start();
-                    steamCmdProcess.BeginOutputReadLine();
-                    steamCmdProcess.BeginErrorReadLine();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Lỗi khi chạy SteamCMD cho profile {ProfileId}", profileId);
-                    _steamCmdProcesses.TryRemove(profileId, out _);
-                    throw new Exception($"Lỗi khi chạy SteamCMD: {ex.Message}");
-                }
-
-                // Cập nhật PID trong profile
-                profile.Pid = steamCmdProcess.Id;
-                await _profileService.UpdateProfile(profile);
-
-                // Chờ tiến trình hoàn thành với timeout
-                if (!steamCmdProcess.WaitForExit(1000 * 60 * 30)) // 30 phút timeout
-                {
-                    _logger.LogWarning("SteamCMD chạy quá lâu (>30 phút) cho profile {ProfileName}, đang dừng", profile.Name);
-                    await SafeSendLogAsync(profile.Name, "Warning", "SteamCMD chạy quá lâu (>30 phút), đang dừng");
-                    try { steamCmdProcess.Kill(); } catch { }
-                }
-                else
-                {
-                    _logger.LogInformation("SteamCMD đã kết thúc với mã thoát: {ExitCode} cho profile {ProfileId}",
-                        steamCmdProcess.ExitCode, profileId);
-
-                    if (steamCmdProcess.ExitCode != 0)
-                    {
-                        _logger.LogError("SteamCMD kết thúc với mã lỗi: {ExitCode} cho profile {ProfileId}",
-                            steamCmdProcess.ExitCode, profileId);
-                        await SafeSendLogAsync(profile.Name, "Error",
-                            $"SteamCMD kết thúc với mã lỗi: {steamCmdProcess.ExitCode}");
-                    }
-                }
             }
             finally
             {

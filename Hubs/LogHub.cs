@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
+using System;
 
 namespace SteamCmdWebAPI.Hubs
 {
@@ -20,12 +21,24 @@ namespace SteamCmdWebAPI.Hubs
         }
 
         // Phương thức để server yêu cầu mã 2FA từ client
-        public static Task<string> RequestTwoFactorCode(int profileId, IHubContext<LogHub> hubContext)
+        public static async Task<string> RequestTwoFactorCode(int profileId, IHubContext<LogHub> hubContext)
         {
             var tcs = new TaskCompletionSource<string>();
             _twoFactorCodeTasks.TryAdd(profileId, tcs);
-            hubContext.Clients.All.SendAsync("RequestTwoFactorCode", profileId);
-            return tcs.Task;
+
+            await hubContext.Clients.All.SendAsync("RequestTwoFactorCode", profileId);
+
+            // Đặt timeout để không chờ mãi mãi
+            var timeoutTask = Task.Delay(TimeSpan.FromMinutes(2));
+            var completedTask = await Task.WhenAny(tcs.Task, timeoutTask);
+
+            if (completedTask == timeoutTask)
+            {
+                _twoFactorCodeTasks.TryRemove(profileId, out _);
+                return string.Empty;
+            }
+
+            return await tcs.Task;
         }
     }
 }

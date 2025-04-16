@@ -26,12 +26,13 @@
         <a asp-page="./Logs" class="btn btn-info">Xem Logs</a>
         <a asp-page="./Settings" class="btn btn-warning">Cài đặt</a>
         <a asp-page="./ServerSync" class="btn btn-primary">Đồng bộ Server</a>
+        <button id="test2FABtn" class="btn btn-info">Test 2FA Popup</button>
     </div>
 
     <div class="card mb-3">
         <div class="card-body">
             <h5>Logs</h5>
-            <div id="logContainer" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; background-color: black; color: limegreen;"></div>
+            <div id="logContainer" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; background-color: black; color: limegreen;" data-profile-id="0"></div>
         </div>
     </div>
 
@@ -69,21 +70,10 @@
 
 @section Scripts {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+    <script src="~/js/logHub.js"></script>
+
     <script>
         $(document).ready(function () {
-            const connection = new signalR.HubConnectionBuilder()
-                .withUrl("/logHub")
-                .build();
-
-            connection.on("ReceiveLog", function (message) {
-                $("#logContainer").append("<p>" + message + "</p>");
-                $("#logContainer").scrollTop($("#logContainer")[0].scrollHeight);
-            });
-
-            connection.start().catch(function (err) {
-                console.error("Lỗi khi kết nối SignalR: " + err.toString());
-            });
-
             // Lấy Anti-Forgery Token từ form
             var token = $('input[name="__RequestVerificationToken"]').val();
             if (!token) {
@@ -92,9 +82,34 @@
                 console.log("Anti-Forgery Token: " + token);
             }
 
+            // Test 2FA Popup
+            $("#test2FABtn").click(function() {
+                // Lấy profile ID đầu tiên hoặc một ID cố định
+                const profileId = $(".run-btn").first().data("id") || 1;
+                $("#logContainer").attr("data-profile-id", profileId);
+
+                $.ajax({
+                    url: "/Index?handler=Test2FA",
+                    method: "POST",
+                    data: { profileId: profileId },
+                    headers: {
+                        "RequestVerificationToken": token
+                    },
+                    success: function(response) {
+                        console.log("Đã gửi yêu cầu test 2FA");
+                    },
+                    error: function(xhr, status, error) {
+                        console.error("Lỗi khi test 2FA:", error);
+                    }
+                });
+            });
+
             $(".run-btn").click(function () {
                 const profileId = $(this).data("id");
                 console.log("Gửi yêu cầu Run với profileId: " + profileId);
+                // Cập nhật data-profile-id cho logContainer
+                $("#logContainer").attr("data-profile-id", profileId);
+
                 $.ajax({
                     url: "/Index?handler=Run",
                     method: "POST",
@@ -104,7 +119,8 @@
                     },
                     success: function (response) {
                         if (response.success) {
-                            alert("Đã chạy cấu hình thành công!");
+                            // Bỏ alert thông báo thành công
+                            console.log("Đã chạy cấu hình thành công");
                         } else {
                             console.error("Lỗi từ server: " + response.error);
                             alert("Lỗi: " + response.error);
@@ -130,7 +146,7 @@
                     },
                     success: function (response) {
                         if (response.success) {
-                            alert("Đã dừng cấu hình thành công!");
+                            console.log("Đã dừng cấu hình thành công");
                         } else {
                             console.error("Lỗi từ server: " + response.error);
                             alert("Lỗi: " + response.error);
@@ -182,7 +198,7 @@
                     },
                     success: function (response) {
                         if (response.success) {
-                            alert("Đã chạy tất cả cấu hình thành công!");
+                            console.log("Đã chạy tất cả cấu hình thành công");
                         } else {
                             console.error("Lỗi từ server: " + response.error);
                             alert("Lỗi: " + response.error);
@@ -206,7 +222,7 @@
                     },
                     success: function (response) {
                         if (response.success) {
-                            alert("Đã dừng tất cả tiến trình thành công!");
+                            console.log("Đã dừng tất cả tiến trình thành công");
                         } else {
                             console.error("Lỗi từ server: " + response.error);
                             alert("Lỗi: " + response.error);
