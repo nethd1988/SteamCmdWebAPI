@@ -14,13 +14,10 @@ connection.on("ReceiveLog", function (message) {
         // Thêm log mới
         appendLog(message);
         
-        // Kiểm tra nếu là yêu cầu Steam Guard - thêm các mẫu phát hiện
+        // Kiểm tra nếu là yêu cầu Steam Guard - sử dụng điều kiện thống nhất
         if (message.includes("Steam Guard code:") || 
-            message.includes("Steam Guard code: Vui lòng nhập mã xác thực") || 
             message.includes("Two-factor code:") || 
-            message.includes("Steam Guard Code:") || 
-            message.includes("Enter the current code from your Mobile Authenticator app:") ||
-            message.endsWith("code:") || 
+            message.includes("Enter the current code") || 
             message.toLowerCase().includes("steam guard") ||
             message.includes("Two-factor authentication") ||
             message.includes("Vui lòng nhập mã"))
