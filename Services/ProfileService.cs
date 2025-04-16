@@ -17,8 +17,8 @@ namespace SteamCmdWebAPI.Services
 
         public ProfileService(ILogger<ProfileService> logger)
         {
-            // Lấy thư mục hiện tại của ứng dụng
-            string projectDir = Directory.GetCurrentDirectory();
+            // Sử dụng thư mục hiện tại của ứng dụng
+            string projectDir = AppContext.BaseDirectory;
 
             // Lưu file profiles.json trong thư mục data
             string dataDir = Path.Combine(projectDir, "data");
@@ -31,13 +31,6 @@ namespace SteamCmdWebAPI.Services
             _profilesPath = Path.Combine(dataDir, "profiles.json");
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _logger.LogInformation("ProfileService khởi tạo với _profilesPath: {0}", _profilesPath);
-
-            // Kiểm tra xem file profiles.json có tồn tại trong thư mục gốc không
-            string rootProfilesPath = Path.Combine(projectDir, "profiles.json");
-            if (File.Exists(rootProfilesPath))
-            {
-                _logger.LogWarning("File profiles.json tồn tại trong thư mục gốc: {0}. Vui lòng di chuyển file này vào thư mục data.", rootProfilesPath);
-            }
         }
 
         public async Task<List<SteamCmdProfile>> GetAllProfiles()

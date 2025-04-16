@@ -23,21 +23,8 @@ namespace SteamCmdWebAPI.Services
         {
             _logger = logger;
 
-            // Lấy thư mục gốc của dự án
+            // Sử dụng thư mục hiện tại của ứng dụng
             string projectDir = AppContext.BaseDirectory;
-            int maxDepth = 10;
-            int depth = 0;
-
-            while (projectDir != null && !File.Exists(Path.Combine(projectDir, "SteamCmdWebAPI.csproj")) && depth < maxDepth)
-            {
-                projectDir = Directory.GetParent(projectDir)?.FullName;
-                depth++;
-            }
-
-            if (projectDir == null || depth >= maxDepth)
-            {
-                throw new Exception($"Không thể tìm thấy thư mục gốc của dự án. BaseDirectory: {AppContext.BaseDirectory}");
-            }
 
             // Lưu file server_settings.json trong thư mục data
             string dataDir = Path.Combine(projectDir, "data");
@@ -109,7 +96,7 @@ namespace SteamCmdWebAPI.Services
                 // Đảm bảo luôn ghi đè địa chỉ server bằng địa chỉ mặc định
                 settings.ServerAddress = DEFAULT_SERVER_ADDRESS;
                 settings.ServerPort = DEFAULT_SERVER_PORT;
-                
+
                 string updatedJson = JsonConvert.SerializeObject(settings, Formatting.Indented);
                 await File.WriteAllTextAsync(_settingsFilePath, updatedJson);
                 _logger.LogInformation("Đã lưu cài đặt server vào {0}", _settingsFilePath);
