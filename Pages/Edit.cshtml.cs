@@ -61,7 +61,10 @@ namespace SteamCmdWebAPI.Pages
 
         public async Task<IActionResult> OnPostSaveProfileAsync()
         {
-            _logger.LogInformation("OnPostSaveProfileAsync called for profile ID {0}", Profile.Id);
+            _logger.LogInformation("OnPostSaveProfileAsync called");
+            _logger.LogInformation("Profile before binding: Name={Name}, AppID={AppID}, InstallDirectory={InstallDirectory}, AnonymousLogin={AnonymousLogin}, ValidateFiles={ValidateFiles}, AutoRun={AutoRun}",
+                Profile.Name, Profile.AppID, Profile.InstallDirectory, Profile.AnonymousLogin, Profile.ValidateFiles, Profile.AutoRun);
+            _logger.LogInformation("NewUsername={NewUsername}, NewPassword={NewPassword}", NewUsername, NewPassword);
 
             // Loại bỏ validation cho các trường không cần thiết
             ModelState.Remove("NewUsername");
@@ -86,85 +89,52 @@ namespace SteamCmdWebAPI.Pages
                     return NotFound();
                 }
 
-                // Giữ nguyên các trường không thay đổi
                 Profile.StartTime = existingProfile.StartTime;
                 Profile.StopTime = existingProfile.StopTime;
                 Profile.LastRun = existingProfile.LastRun;
 
                 if (Profile.AnonymousLogin)
                 {
-                    _logger.LogInformation("Đã chọn chế độ đăng nhập ẩn danh, xóa thông tin đăng nhập cũ");
                     Profile.SteamUsername = string.Empty;
                     Profile.SteamPassword = string.Empty;
                 }
                 else
                 {
-                    _logger.LogInformation("Không sử dụng đăng nhập ẩn danh, cập nhật thông tin đăng nhập");
-
-                    // Kiểm tra xem người dùng đã nhập username mới chưa
-                    if (!string.IsNullOrEmpty(NewUsername))
+                    try
                     {
-                        _logger.LogInformation("Mã hóa tên đăng nhập mới: {Username}", NewUsername);
-                        try
+                        if (!string.IsNullOrEmpty(NewUsername))
                         {
                             Profile.SteamUsername = _encryptionService.Encrypt(NewUsername);
-                            _logger.LogInformation("Mã hóa thành công, độ dài: {Length}", Profile.SteamUsername.Length);
                         }
-                        catch (Exception ex)
+                        else
                         {
-                            _logger.LogError(ex, "Lỗi khi mã hóa tên đăng nhập: {Message}", ex.Message);
-                            StatusMessage = "Lỗi khi mã hóa tên đăng nhập";
-                            IsSuccess = false;
-                            return Page();
+                            Profile.SteamUsername = existingProfile.SteamUsername;
                         }
-                    }
-                    else
-                    {
-                        _logger.LogInformation("Không có tên đăng nhập mới, giữ nguyên tên đăng nhập cũ");
-                        Profile.SteamUsername = existingProfile.SteamUsername;
-                    }
-
-                    // Kiểm tra xem người dùng đã nhập password mới chưa
-                    if (!string.IsNullOrEmpty(NewPassword))
-                    {
-                        _logger.LogInformation("Mã hóa mật khẩu mới");
-                        try
+                        if (!string.IsNullOrEmpty(NewPassword))
                         {
                             Profile.SteamPassword = _encryptionService.Encrypt(NewPassword);
-                            _logger.LogInformation("Mã hóa mật khẩu thành công, độ dài: {Length}", Profile.SteamPassword.Length);
                         }
-                        catch (Exception ex)
+                        else
                         {
-                            _logger.LogError(ex, "Lỗi khi mã hóa mật khẩu: {Message}", ex.Message);
-                            StatusMessage = "Lỗi khi mã hóa mật khẩu";
-                            IsSuccess = false;
-                            return Page();
+                            Profile.SteamPassword = existingProfile.SteamPassword;
                         }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        _logger.LogInformation("Không có mật khẩu mới, giữ nguyên mật khẩu cũ");
-                        Profile.SteamPassword = existingProfile.SteamPassword;
-                    }
-
-                    // Kiểm tra xem có thông tin đăng nhập không
-                    if (string.IsNullOrEmpty(Profile.SteamUsername))
-                    {
-                        _logger.LogWarning("Không có tên đăng nhập và không dùng đăng nhập ẩn danh");
-                        StatusMessage = "Không thể cập nhật: Phải cung cấp tên đăng nhập hoặc sử dụng đăng nhập ẩn danh";
+                        _logger.LogError(ex, "Lỗi khi mã hóa thông tin đăng nhập trong Edit");
+                        StatusMessage = "Lỗi khi mã hóa thông tin đăng nhập: " + ex.Message;
                         IsSuccess = false;
                         return Page();
                     }
                 }
 
-                // Đảm bảo rằng trường Arguments không null
                 if (string.IsNullOrEmpty(Profile.Arguments))
                 {
                     Profile.Arguments = "";
                 }
 
-                _logger.LogInformation("Profile before update: Name={Name}, AppID={AppID}, AnonymousLogin={AnonymousLogin}, HasUsername={HasUsername}",
-                    Profile.Name, Profile.AppID, Profile.AnonymousLogin, !string.IsNullOrEmpty(Profile.SteamUsername));
+                _logger.LogInformation("Profile before update: Name={Name}, AppID={AppID}, InstallDirectory={InstallDirectory}, AnonymousLogin={AnonymousLogin}, ValidateFiles={ValidateFiles}, AutoRun={AutoRun}",
+                    Profile.Name, Profile.AppID, Profile.InstallDirectory, Profile.AnonymousLogin, Profile.ValidateFiles, Profile.AutoRun);
 
                 await _profileService.UpdateProfile(Profile);
 
@@ -174,7 +144,7 @@ namespace SteamCmdWebAPI.Pages
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi cập nhật cấu hình với ID {Id}: {Message}", Profile.Id, ex.Message);
+                _logger.LogError(ex, "Lỗi khi cập nhật cấu hình với ID {Id}", Profile.Id);
                 StatusMessage = "Lỗi khi cập nhật cấu hình: " + ex.Message;
                 IsSuccess = false;
                 return Page();

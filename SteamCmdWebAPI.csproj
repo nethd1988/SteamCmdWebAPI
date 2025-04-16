@@ -3,8 +3,6 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- Thêm dòng này để hiển thị console -->
-    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
   <ItemGroup>

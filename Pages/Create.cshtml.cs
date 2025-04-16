@@ -95,7 +95,7 @@ namespace SteamCmdWebAPI.Pages
 
         public async Task<IActionResult> OnPostSaveProfileAsync()
         {
-            _logger.LogInformation("OnPostSaveProfileAsync called for new profile: {Name}", Profile.Name);
+            _logger.LogInformation("OnPostSaveProfileAsync called");
 
             // Loại bỏ các trường không cần thiết khỏi ModelState
             ModelState.Remove("Profile.Arguments");
@@ -115,141 +115,100 @@ namespace SteamCmdWebAPI.Pages
                 _logger.LogWarning("Validation failed with errors: {Errors}", string.Join(", ", errors));
                 StatusMessage = "Vui lòng kiểm tra lại thông tin: " + string.Join(", ", errors);
                 IsSuccess = false;
-
+                
                 // Lấy lại danh sách profile từ server
-                try
-                {
+                try {
                     ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
                 }
-                catch
-                {
+                catch {
                     ServerProfiles = new List<string>();
                 }
-
+                
                 return Page();
             }
 
             try
             {
-                _logger.LogInformation("Bắt đầu lưu profile: {Name}, AppID: {AppID}, AnonymousLogin: {AnonymousLogin}",
-                    Profile.Name, Profile.AppID, Profile.AnonymousLogin);
+                _logger.LogInformation("Bắt đầu lưu profile: {Name}, AppID: {AppID}, InstallDirectory: {InstallDirectory}", 
+                    Profile.Name, Profile.AppID, Profile.InstallDirectory);
 
                 if (!Profile.AnonymousLogin)
                 {
-                    // Nếu không dùng đăng nhập ẩn danh, cần có thông tin đăng nhập
-                    if (string.IsNullOrEmpty(Username))
-                    {
-                        _logger.LogWarning("Không cung cấp tên đăng nhập và không dùng đăng nhập ẩn danh");
-                        StatusMessage = "Không thể tạo mới: Phải cung cấp tên đăng nhập hoặc sử dụng đăng nhập ẩn danh";
-                        IsSuccess = false;
-
-                        // Lấy lại danh sách profile từ server
-                        try
-                        {
-                            ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
-                        }
-                        catch
-                        {
-                            ServerProfiles = new List<string>();
-                        }
-
-                        return Page();
-                    }
-
                     try
                     {
-                        _logger.LogInformation("Đang mã hóa thông tin đăng nhập: {Username}", Username);
-                        Profile.SteamUsername = _encryptionService.Encrypt(Username);
-                        _logger.LogInformation("Đã mã hóa tên đăng nhập thành công, độ dài: {Length}", Profile.SteamUsername?.Length ?? 0);
-
-                        if (!string.IsNullOrEmpty(Password))
-                        {
-                            Profile.SteamPassword = _encryptionService.Encrypt(Password);
-                            _logger.LogInformation("Đã mã hóa mật khẩu thành công, độ dài: {Length}", Profile.SteamPassword?.Length ?? 0);
-                        }
-                        else
-                        {
-                            Profile.SteamPassword = string.Empty;
-                        }
+                        Profile.SteamUsername = string.IsNullOrEmpty(Username) ? string.Empty : _encryptionService.Encrypt(Username);
+                        Profile.SteamPassword = string.IsNullOrEmpty(Password) ? string.Empty : _encryptionService.Encrypt(Password);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Lỗi khi mã hóa thông tin đăng nhập: {Message}", ex.Message);
+                        _logger.LogError(ex, "Lỗi khi mã hóa thông tin đăng nhập");
                         StatusMessage = "Lỗi khi mã hóa thông tin đăng nhập: " + ex.Message;
                         IsSuccess = false;
-
+                        
                         // Lấy lại danh sách profile từ server
-                        try
-                        {
+                        try {
                             ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
                         }
-                        catch
-                        {
+                        catch {
                             ServerProfiles = new List<string>();
                         }
-
+                        
                         return Page();
                     }
                 }
                 else
                 {
-                    _logger.LogInformation("Sử dụng đăng nhập ẩn danh, xóa thông tin đăng nhập nếu có");
                     Profile.SteamUsername = string.Empty;
                     Profile.SteamPassword = string.Empty;
                 }
 
-                // Đảm bảo Arguments không null
                 if (string.IsNullOrEmpty(Profile.Arguments))
                 {
                     Profile.Arguments = string.Empty;
                 }
-
+                
                 // Đặt trạng thái ban đầu
                 Profile.Status = "Stopped";
                 Profile.StartTime = DateTime.Now;
                 Profile.StopTime = DateTime.Now;
-                Profile.LastRun = null;
+                Profile.LastRun = DateTime.UtcNow;
                 Profile.Pid = 0;
 
                 await _profileService.AddProfileAsync(Profile);
 
                 _logger.LogInformation("Đã lưu profile thành công: {Name}", Profile.Name);
                 TempData["Success"] = $"Đã thêm mới cấu hình {Profile.Name}";
-
+                
                 // Đồng bộ tự động sau khi thêm mới
                 _ = Task.Run(async () => {
-                    try
-                    {
+                    try {
                         await _serverSyncService.AutoSyncWithServerAsync();
                     }
-                    catch (Exception ex)
-                    {
+                    catch (Exception ex) {
                         _logger.LogError(ex, "Lỗi khi đồng bộ tự động sau khi thêm profile mới");
                     }
                 });
-
+                
                 return RedirectToPage("./Index");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi lưu profile mới: {Message}", ex.Message);
+                _logger.LogError(ex, "Lỗi khi lưu profile trong Create");
                 StatusMessage = $"Đã xảy ra lỗi khi lưu profile: {ex.Message}";
                 IsSuccess = false;
-
+                
                 // Lấy lại danh sách profile từ server
-                try
-                {
+                try {
                     ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
                 }
-                catch
-                {
+                catch {
                     ServerProfiles = new List<string>();
                 }
-
+                
                 return Page();
             }
         }
-
+        
         // Thêm handler để lưu profile từ server
         public async Task<IActionResult> OnPostImportFromServerAsync(string profileName)
         {

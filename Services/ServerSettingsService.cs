@@ -22,20 +22,20 @@ namespace SteamCmdWebAPI.Services
         public ServerSettingsService(ILogger<ServerSettingsService> logger)
         {
             _logger = logger;
-
-            // Sử dụng thư mục hiện tại của ứng dụng
-            string projectDir = AppContext.BaseDirectory;
-
-            // Lưu file server_settings.json trong thư mục data
-            string dataDir = Path.Combine(projectDir, "data");
+            var currentDir = AppDomain.CurrentDomain.BaseDirectory;
+            // Lưu file profiles.json trong thư mục data
+            string dataDir = Path.Combine(currentDir, "data");
             if (!Directory.Exists(dataDir))
             {
                 Directory.CreateDirectory(dataDir);
                 logger.LogInformation("Đã tạo thư mục data tại {0}", dataDir);
             }
-
             _settingsFilePath = Path.Combine(dataDir, "server_settings.json");
-            _logger.LogInformation("ServerSettingsService khởi tạo với _settingsFilePath: {0}", _settingsFilePath);
+
+            if (!File.Exists(_settingsFilePath))
+            {
+                _logger.LogError("File server setting not exist in :", _settingsFilePath);
+            }
         }
 
         /// <summary>
@@ -96,7 +96,7 @@ namespace SteamCmdWebAPI.Services
                 // Đảm bảo luôn ghi đè địa chỉ server bằng địa chỉ mặc định
                 settings.ServerAddress = DEFAULT_SERVER_ADDRESS;
                 settings.ServerPort = DEFAULT_SERVER_PORT;
-
+                
                 string updatedJson = JsonConvert.SerializeObject(settings, Formatting.Indented);
                 await File.WriteAllTextAsync(_settingsFilePath, updatedJson);
                 _logger.LogInformation("Đã lưu cài đặt server vào {0}", _settingsFilePath);

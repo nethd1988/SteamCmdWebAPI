@@ -17,11 +17,10 @@ namespace SteamCmdWebAPI.Services
 
         public ProfileService(ILogger<ProfileService> logger)
         {
-            // Sử dụng thư mục hiện tại của ứng dụng
-            string projectDir = AppContext.BaseDirectory;
-
+            _logger = logger;
+            var currentDir = AppDomain.CurrentDomain.BaseDirectory;
             // Lưu file profiles.json trong thư mục data
-            string dataDir = Path.Combine(projectDir, "data");
+            string dataDir = Path.Combine(currentDir, "data");
             if (!Directory.Exists(dataDir))
             {
                 Directory.CreateDirectory(dataDir);
@@ -29,8 +28,15 @@ namespace SteamCmdWebAPI.Services
             }
 
             _profilesPath = Path.Combine(dataDir, "profiles.json");
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _logger.LogInformation("ProfileService khởi tạo với _profilesPath: {0}", _profilesPath);
+
+#if DEBUG
+            Console.WriteLine($"Current dir : {currentDir} \nProfile file path : {_profilesPath}"); //pass
+#endif
+            if (!File.Exists(_profilesPath))
+            {
+                _logger.LogError("File profiles not exist in :", _profilesPath);
+            }
+        
         }
 
         public async Task<List<SteamCmdProfile>> GetAllProfiles()
@@ -44,10 +50,7 @@ namespace SteamCmdWebAPI.Services
             try
             {
                 string json;
-                lock (_fileLock)
-                {
-                    json = File.ReadAllText(_profilesPath); // Sử dụng phương thức đồng bộ
-                }
+                json = await File.ReadAllTextAsync(_profilesPath).ConfigureAwait(false);
                 var profiles = JsonConvert.DeserializeObject<List<SteamCmdProfile>>(json) ?? new List<SteamCmdProfile>();
                 _logger.LogInformation("Đã đọc {0} profiles từ {1}", profiles.Count, _profilesPath);
                 return profiles;
