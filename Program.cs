@@ -25,12 +25,28 @@ namespace SteamCmdWebAPI
                 if (!Directory.Exists(steamCmdDir))
                     Directory.CreateDirectory(steamCmdDir);
 
+                // Ghi log khởi động
+                File.AppendAllText(
+                    Path.Combine(baseDir, "startup_log.txt"),
+                    $"{DateTime.Now}: Ứng dụng đang khởi động...\n");
+
                 var builder = WebApplication.CreateBuilder(args);
 
+                File.AppendAllText(
+                    Path.Combine(baseDir, "startup_log.txt"),
+                    $"{DateTime.Now}: Đã tạo builder\n");
+
                 // Thêm các dịch vụ cơ bản
-                builder.Services.AddRazorPages();
+                builder.Services.AddRazorPages().AddRazorPagesOptions(options =>
+                {
+                    options.Conventions.AddPageRoute("/Index", "");
+                });
                 builder.Services.AddSignalR();
                 builder.Services.AddControllers();
+
+                File.AppendAllText(
+                    Path.Combine(baseDir, "startup_log.txt"),
+                    $"{DateTime.Now}: Đã thêm RazorPages\n");
 
                 // Đăng ký các service theo thứ tự phụ thuộc
                 builder.Services.AddSingleton<EncryptionService>();
@@ -42,7 +58,22 @@ namespace SteamCmdWebAPI
                 builder.Services.AddSingleton<ServerSyncService>();
                 builder.Services.AddHostedService<AutoRunBackgroundService>();
 
+                // Cấu hình CORS
+                builder.Services.AddCors(options =>
+                {
+                    options.AddPolicy("AllowAll", builder =>
+                    {
+                        builder.AllowAnyOrigin()
+                               .AllowAnyMethod()
+                               .AllowAnyHeader();
+                    });
+                });
+
                 var app = builder.Build();
+
+                File.AppendAllText(
+                    Path.Combine(baseDir, "startup_log.txt"),
+                    $"{DateTime.Now}: Đã build ứng dụng\n");
 
                 if (app.Environment.IsDevelopment())
                 {
@@ -54,6 +85,7 @@ namespace SteamCmdWebAPI
                     app.UseHsts();
                 }
 
+                app.UseCors("AllowAll");
                 app.UseHttpsRedirection();
                 app.UseStaticFiles();
                 app.UseRouting();
@@ -68,6 +100,10 @@ namespace SteamCmdWebAPI
                     context.Response.Redirect("/Index");
                     return System.Threading.Tasks.Task.CompletedTask;
                 });
+
+                File.AppendAllText(
+                    Path.Combine(baseDir, "startup_log.txt"),
+                    $"{DateTime.Now}: Chuẩn bị chạy ứng dụng\n");
 
                 app.Run();
             }

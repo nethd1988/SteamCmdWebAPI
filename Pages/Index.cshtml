@@ -114,45 +114,8 @@
 </div>
 
 @section Scripts {
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
     <script>
         $(document).ready(function () {
-            // Khởi tạo kết nối SignalR
-            const connection = new signalR.HubConnectionBuilder()
-                .withUrl("/logHub")
-                .withAutomaticReconnect()
-                .build();
-
-            // Đăng ký xử lý sự kiện nhận log
-            connection.on("ReceiveLog", function (message) {
-                const logElement = document.getElementById("logContainer");
-                const newLine = document.createElement("div");
-                newLine.textContent = message;
-                logElement.appendChild(newLine);
-                logElement.scrollTop = logElement.scrollHeight;
-            });
-
-            // Đăng ký xử lý sự kiện yêu cầu mã 2FA
-            connection.on("RequestTwoFactorCode", function (profileId) {
-                console.log("Nhận yêu cầu mã 2FA cho profile ID:", profileId);
-                $("#profileId").val(profileId);
-                const modal = new bootstrap.Modal(document.getElementById('twoFactorModal'));
-                modal.show();
-                $("#twoFactorCode").val("").focus();
-            });
-
-            // Khởi động kết nối SignalR
-            connection.start()
-                .then(() => {
-                    console.log("Kết nối SignalR thành công");
-                    // Thêm log khi kết nối thành công
-                    $("#logContainer").append("<div>Đã kết nối tới server</div>");
-                })
-                .catch(err => {
-                    console.error("Lỗi kết nối SignalR:", err);
-                    $("#logContainer").append("<div style='color:red'>Lỗi kết nối: " + err + "</div>");
-                });
-
             // Lấy Anti-Forgery Token
             const token = $('input[name="__RequestVerificationToken"]').val();
             if (!token) {
@@ -311,55 +274,6 @@
                     }
                 });
             });
-
-            // Xử lý form 2FA
-            $("#submitTwoFactorBtn").click(function() {
-                submitTwoFactorCode();
-            });
-
-            // Cũng xử lý khi nhấn Enter trong form
-            $("#twoFactorCode").keypress(function(e) {
-                if (e.which === 13) {
-                    e.preventDefault();
-                    submitTwoFactorCode();
-                }
-            });
-
-            function submitTwoFactorCode() {
-                const profileId = parseInt($("#profileId").val(), 10);
-                const twoFactorCode = $("#twoFactorCode").val().trim();
-
-                if (!twoFactorCode) {
-                    alert("Vui lòng nhập mã xác thực Steam Guard!");
-                    return;
-                }
-
-                $("#submitTwoFactorBtn").prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang xử lý...');
-
-                $.ajax({
-                    url: "/Index?handler=SubmitTwoFactorCode",
-                    method: "POST",
-                    data: { profileId: profileId, twoFactorCode: twoFactorCode },
-                    headers: { "RequestVerificationToken": token },
-                    success: function (response) {
-                        if (response.success) {
-                            const modal = bootstrap.Modal.getInstance(document.getElementById('twoFactorModal'));
-                            modal.hide();
-                            $("#twoFactorCode").val("");
-                            $("#logContainer").append("<div>Đã gửi mã xác thực Steam Guard</div>");
-                            $("#logContainer").scrollTop($("#logContainer")[0].scrollHeight);
-                        } else {
-                            alert("Lỗi: " + response.error);
-                        }
-                    },
-                    error: function (xhr) {
-                        alert("Lỗi khi gửi mã xác thực: " + (xhr.responseText || "Không thể gửi yêu cầu."));
-                    },
-                    complete: function() {
-                        $("#submitTwoFactorBtn").prop("disabled", false).text("Xác nhận");
-                    }
-                });
-            }
         });
     </script>
 }

@@ -382,10 +382,110 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        // Thêm phương thức này vào lớp SteamCmdService
         private string GetSteamCmdPath()
         {
             string steamCmdDir = Path.Combine(AppContext.BaseDirectory, "steamcmd");
-            return Path.Combine(steamCmdDir, OperatingSystem.IsWindows() ? "steamcmd.exe" : "steamcmd.sh");
+            string steamCmdPath = Path.Combine(steamCmdDir, OperatingSystem.IsWindows() ? "steamcmd.exe" : "steamcmd.sh");
+
+            // Kiểm tra xem steamcmd đã tồn tại chưa
+            if (!File.Exists(steamCmdPath))
+            {
+                // Tự động tải và cài đặt SteamCMD
+                if (OperatingSystem.IsWindows())
+                {
+                    DownloadAndInstallSteamCmdWindows(steamCmdDir).Wait();
+                }
+                else if (OperatingSystem.IsLinux())
+                {
+                    DownloadAndInstallSteamCmdLinux(steamCmdDir).Wait();
+                }
+                else
+                {
+                    throw new PlatformNotSupportedException("Chỉ hỗ trợ Windows và Linux");
+                }
+            }
+
+            return steamCmdPath;
+        }
+
+        private async Task DownloadAndInstallSteamCmdWindows(string steamCmdDir)
+        {
+            _logger.LogInformation("Tự động tải và cài đặt SteamCMD cho Windows...");
+
+            // URL tải SteamCMD
+            string steamCmdUrl = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
+            string zipPath = Path.Combine(steamCmdDir, "steamcmd.zip");
+
+            using (var httpClient = new HttpClient())
+            {
+                // Tải file zip
+                _logger.LogInformation("Đang tải SteamCMD từ {0}...", steamCmdUrl);
+                byte[] zipData = await httpClient.GetByteArrayAsync(steamCmdUrl);
+                await File.WriteAllBytesAsync(zipPath, zipData);
+
+                // Giải nén file
+                _logger.LogInformation("Đang giải nén SteamCMD...");
+                System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, steamCmdDir, true);
+
+                // Xóa file zip
+                File.Delete(zipPath);
+
+                _logger.LogInformation("Đã cài đặt SteamCMD thành công");
+            }
+        }
+
+        private async Task DownloadAndInstallSteamCmdLinux(string steamCmdDir)
+        {
+            _logger.LogInformation("Tự động tải và cài đặt SteamCMD cho Linux...");
+
+            // URL tải SteamCMD
+            string steamCmdUrl = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
+            string tarPath = Path.Combine(steamCmdDir, "steamcmd_linux.tar.gz");
+
+            using (var httpClient = new HttpClient())
+            {
+                // Tải file tar.gz
+                _logger.LogInformation("Đang tải SteamCMD từ {0}...", steamCmdUrl);
+                byte[] tarData = await httpClient.GetByteArrayAsync(steamCmdUrl);
+                await File.WriteAllBytesAsync(tarPath, tarData);
+
+                // Giải nén file bằng lệnh hệ thống
+                _logger.LogInformation("Đang giải nén SteamCMD...");
+                Process process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "tar",
+                        Arguments = $"-xzf {tarPath} -C {steamCmdDir}",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    }
+                };
+
+                process.Start();
+                await process.WaitForExitAsync();
+
+                // Cấp quyền thực thi
+                process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "chmod",
+                        Arguments = $"+x {Path.Combine(steamCmdDir, "steamcmd.sh")}",
+                        UseShellExecute = false
+                    }
+                };
+
+                process.Start();
+                await process.WaitForExitAsync();
+
+                // Xóa file tar.gz
+                File.Delete(tarPath);
+
+                _logger.LogInformation("Đã cài đặt SteamCMD thành công");
+            }
         }
     }
 }

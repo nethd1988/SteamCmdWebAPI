@@ -27,5 +27,11 @@ namespace SteamCmdWebAPI.Hubs
             hubContext.Clients.All.SendAsync("RequestTwoFactorCode", profileId);
             return tcs.Task;
         }
+
+        // Phương thức để gửi log từ server đến tất cả client
+        public static Task SendLogToClients(string message, IHubContext<LogHub> hubContext)
+        {
+            return hubContext.Clients.All.SendAsync("ReceiveLog", message);
+        }
     }
 }
