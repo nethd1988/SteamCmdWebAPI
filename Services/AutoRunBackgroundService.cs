@@ -26,10 +26,10 @@ namespace SteamCmdWebAPI.Services
         private DateTime _lastAutoRunTime = DateTime.MinValue;
 
         public AutoRunBackgroundService(
-            ILogger<AutoRunBackgroundService> logger,
-            SteamCmdService steamCmdService,
-            SettingsService settingsService,
-            ServerSyncService serverSyncService)
+    ILogger<AutoRunBackgroundService> logger,
+    SteamCmdService steamCmdService,
+    SettingsService settingsService,
+    ServerSyncService serverSyncService)
         {
             _logger = logger;
             _steamCmdService = steamCmdService;

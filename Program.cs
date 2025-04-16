@@ -15,7 +15,7 @@ namespace SteamCmdWebAPI
             try
             {
                 // Đảm bảo thư mục data và steamcmd tồn tại
-                string baseDir = Directory.GetCurrentDirectory();
+                string baseDir = AppContext.BaseDirectory;
                 string dataDir = Path.Combine(baseDir, "data");
                 string steamCmdDir = Path.Combine(baseDir, "steamcmd");
 
@@ -75,7 +75,7 @@ namespace SteamCmdWebAPI
             {
                 Console.WriteLine($"Lỗi khởi động ứng dụng: {ex.Message}");
                 Console.WriteLine(ex.StackTrace);
-                File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), "startup_error.log"),
+                File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "startup_error.log"),
                     $"{DateTime.Now}: {ex.Message}\n{ex.StackTrace}");
             }
         }

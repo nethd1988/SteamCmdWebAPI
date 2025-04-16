@@ -384,7 +384,7 @@ namespace SteamCmdWebAPI.Services
 
         private string GetSteamCmdPath()
         {
-            string steamCmdDir = Path.Combine(Directory.GetCurrentDirectory(), "steamcmd");
+            string steamCmdDir = Path.Combine(AppContext.BaseDirectory, "steamcmd");
             return Path.Combine(steamCmdDir, OperatingSystem.IsWindows() ? "steamcmd.exe" : "steamcmd.sh");
         }
     }
