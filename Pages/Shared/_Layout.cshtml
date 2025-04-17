@@ -12,47 +12,33 @@
         // Ghi đè các hàm thông báo mặc định để ngăn chặn thông báo không mong muốn
         window.originalAlert = window.alert;
         window.alert = function(message) {
-            // Chặn tất cả thông báo có chứa từ khóa không mong muốn
+            // Lọc thông báo chạy thành công và thông báo từ localhost
             if (message && (
                 message.includes("thành công") ||
                 message.includes("localhost") ||
-                message.includes("cho biết") ||
-                message.includes("Lỗi") ||
-                message.includes("error") ||
-                message.includes("không thành công") ||
-                message.includes("không thể")
+                message.includes("cho biết")
             )) {
                 console.log("Đã chặn thông báo: " + message);
                 return;
             }
+            // Giữ nguyên các thông báo lỗi và thông báo khác
             window.originalAlert(message);
         };
 
         // Chặn confirm mặc định nếu cần
         window.originalConfirm = window.confirm;
         window.confirm = function(message) {
+            // Lọc xác nhận không cần thiết
             if (message && (
                 message.includes("localhost") ||
-                message.includes("cho biết") ||
-                message.includes("Lỗi") ||
-                message.includes("error") ||
-                message.includes("không thành công") ||
-                message.includes("không thể")
+                message.includes("cho biết")
             )) {
                 console.log("Đã chặn xác nhận: " + message);
                 return true;
             }
+            // Giữ nguyên các xác nhận khác
             return window.originalConfirm(message);
         };
-
-        // Hàm tự động click nút OK trong các modal không mong muốn
-        function autoClickOkButton(modal) {
-            const okButton = modal.querySelector('[class*="ok" i], [class*="OK" i], button:contains("OK")');
-            if (okButton) {
-                okButton.click();
-                console.log("Đã tự động click nút OK trong modal");
-            }
-        }
     </script>
 </head>
 <body>
@@ -103,6 +89,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
 
     <script type="text/javascript">
+        // Ngăn chặn các modal mặc định
         $(document).ready(function() {
             // Tự động đóng modal mặc định
             setTimeout(function() {
@@ -112,43 +99,26 @@
                 $('body').css('padding-right', '');
             }, 100);
 
-            // Quan sát và chặn modal thông báo không mong muốn
+            // Ẩn modal thông báo "localhost:7288 cho biết..."
             const observer = new MutationObserver(function(mutations) {
                 mutations.forEach(function(mutation) {
                     if (mutation.addedNodes && mutation.addedNodes.length > 0) {
                         for (let i = 0; i < mutation.addedNodes.length; i++) {
                             const node = mutation.addedNodes[i];
                             if (node.nodeType === 1) {
-                                // Kiểm tra nội dung của node
-                                const nodeText = (node.innerText || '').toLowerCase();
-                                if (nodeText.includes("localhost") ||
-                                    nodeText.includes("cho biết") ||
-                                    nodeText.includes("lỗi") ||
-                                    nodeText.includes("error") ||
-                                    nodeText.includes("không thành công") ||
-                                    nodeText.includes("Có lỗi xảy ra:")) {
-                                    // Xóa modal hoặc các phần tử liên quan
-                                    if (node.classList.contains('modal') ||
-                                        node.classList.contains('modal-dialog') ||
-                                        node.classList.contains('modal-content')) {
+                                if (node.innerText && (
+                                    node.innerText.includes("localhost") ||
+                                    node.innerText.includes("cho biết")
+                                )) {
+                                    if (node.querySelector('.close') || node.classList.contains('modal') || node.classList.contains('modal-dialog')) {
                                         node.remove();
-                                        console.log("Đã xóa modal chứa nội dung không mong muốn");
-                                    } else {
-                                        // Tìm modal cha và xóa
-                                        const modalParent = node.closest('.modal');
-                                        if (modalParent) {
-                                            modalParent.remove();
-                                            console.log("Đã xóa modal cha chứa nội dung không mong muốn");
-                                        }
                                     }
 
-                                    // Tự động click nút OK nếu tìm thấy
-                                    autoClickOkButton(node);
-
-                                    // Xóa backdrop và các lớp liên quan
-                                    $('.modal-backdrop').remove();
-                                    $('body').removeClass('modal-open');
-                                    $('body').css('padding-right', '');
+                                    // Tìm nút OK trong modal và click nó
+                                    const okButton = node.querySelector('[class*="ok" i], [class*="OK" i], button:contains("OK")');
+                                    if (okButton) {
+                                        okButton.click();
+                                    }
                                 }
                             }
                         }
@@ -159,27 +129,6 @@
             observer.observe(document.body, {
                 childList: true,
                 subtree: true
-            });
-
-            // Chặn các alert từ server trả về trong các AJAX request
-            $(document).ajaxComplete(function(event, xhr, settings) {
-                const responseText = xhr.responseText || '';
-                try {
-                    const response = JSON.parse(responseText);
-                    if (response && response.error && (
-                        response.error.toLowerCase().includes("localhost") ||
-                        response.error.toLowerCase().includes("cho biết") ||
-                        response.error.toLowerCase().includes("lỗi") ||
-                        response.error.toLowerCase().includes("error") ||
-                        response.error.toLowerCase().includes("không thành công") ||
-                        response.error.toLowerCase().includes("Có lỗi xảy ra:")
-                    )) {
-                        console.log("Đã chặn thông báo lỗi từ AJAX response: " + response.error);
-                        return;
-                    }
-                } catch (e) {
-                    // Không làm gì nếu response không phải JSON
-                }
             });
         });
     </script>
