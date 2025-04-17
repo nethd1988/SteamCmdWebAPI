@@ -18,7 +18,6 @@ namespace SteamCmdWebAPI.Pages
 
         public bool AutoRunEnabled { get; set; }
         public int AutoRunIntervalHours { get; set; } = 12; // Mặc định 12 giờ
-        public int ScheduledHour { get; set; } = 7;
 
         public SettingsPageModel(
             ILogger<SettingsPageModel> logger,
@@ -35,7 +34,7 @@ namespace SteamCmdWebAPI.Pages
             _logger.LogInformation("Đang tải cài đặt tự động chạy...");
             var settings = await _settingsService.LoadSettingsAsync();
             AutoRunEnabled = settings.AutoRunEnabled;
-            
+
             // Chuyển đổi từ cài đặt cũ sang mới nếu cần
             if (settings.AutoRunIntervalHours > 0)
             {
@@ -60,49 +59,45 @@ namespace SteamCmdWebAPI.Pages
                         break;
                 }
             }
-            
+
             // Giới hạn trong khoảng 1-48 giờ
             if (AutoRunIntervalHours < 1) AutoRunIntervalHours = 1;
             if (AutoRunIntervalHours > 48) AutoRunIntervalHours = 48;
-            
-            ScheduledHour = settings.ScheduledHour;
+
             _logger.LogInformation("Đã tải cài đặt tự động chạy");
         }
 
-        public async Task<IActionResult> OnPostAutoRunAsync(bool autoRunEnabled, int autoRunInterval, int scheduledHour)
+        public async Task<IActionResult> OnPostSaveDirectAsync(bool autoRunEnabled, int autoRunInterval)
         {
             try
             {
-                if (scheduledHour < 1 || scheduledHour > 24)
-                {
-                    return new JsonResult(new { success = false, error = "Giờ hẹn phải từ 1h đến 24h." }) { StatusCode = 400 };
-                }
-                
                 if (autoRunInterval < 1 || autoRunInterval > 48)
                 {
-                    return new JsonResult(new { success = false, error = "Khoảng thời gian chạy phải từ 1 đến 48 giờ." }) { StatusCode = 400 };
+                    TempData["ErrorMessage"] = "Khoảng thời gian chạy phải từ 1 đến 48 giờ.";
+                    return RedirectToPage();
                 }
 
                 var settings = new SteamCmdWebAPI.Models.AutoRunSettings
                 {
                     AutoRunEnabled = autoRunEnabled,
                     AutoRunIntervalHours = autoRunInterval,
-                    AutoRunInterval = ConvertIntervalHoursToString(autoRunInterval),
-                    ScheduledHour = scheduledHour
+                    AutoRunInterval = ConvertIntervalHoursToString(autoRunInterval)
                 };
 
                 await _settingsService.SaveSettingsAsync(settings);
 
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cấu hình tự động chạy đã được cập nhật: {(autoRunEnabled ? "Bật" : "Tắt")}, {autoRunInterval} giờ/lần, bắt đầu lúc {scheduledHour}h");
-                return new JsonResult(new { success = true });
+                TempData["SuccessMessage"] = $"Cấu hình tự động chạy đã được cập nhật: {(autoRunEnabled ? "Bật" : "Tắt")}, {autoRunInterval} giờ/lần";
+                return RedirectToPage();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi lưu cấu hình tự động chạy");
-                return new JsonResult(new { success = false, error = $"Lỗi khi lưu cấu hình tự động chạy: {ex.Message}" }) { StatusCode = 500 };
+                TempData["ErrorMessage"] = $"Lỗi khi lưu cấu hình tự động chạy: {ex.Message}";
+                return RedirectToPage();
             }
         }
         
+
         // Helper method để chuyển đổi giờ thành chuỗi tương thích ngược
         private string ConvertIntervalHoursToString(int hours)
         {

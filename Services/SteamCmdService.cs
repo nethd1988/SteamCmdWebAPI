@@ -37,6 +37,12 @@ namespace SteamCmdWebAPI.Services
         private int _currentProfileIndex = 0;
         private volatile bool _cancelAutoRun = false;
 
+
+
+        // Thêm biến class member
+        private DateTime _lastAutoRunTime = DateTime.MinValue;
+
+
         // Danh sách để lưu trữ log chi tiết
         private readonly List<LogEntry> _logs = new List<LogEntry>(MaxLogEntries);
 
@@ -92,6 +98,7 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        // Cập nhật lại phương thức CheckScheduleAsync
         private async Task CheckScheduleAsync()
         {
             try
@@ -103,10 +110,15 @@ namespace SteamCmdWebAPI.Services
                 }
 
                 var now = DateTime.Now;
-                if (now.Hour == settings.ScheduledHour && now.Minute == 0) // Chạy đúng giờ hẹn
+                // Kiểm tra dựa theo khoảng thời gian
+                TimeSpan timeSinceLastRun = now - _lastAutoRunTime;
+                int intervalHours = settings.AutoRunIntervalHours;
+
+                if (_lastAutoRunTime == DateTime.MinValue || timeSinceLastRun.TotalHours >= intervalHours)
                 {
-                    _logger.LogInformation("Đang chạy tất cả profile theo lịch hẹn tại {0}h...", settings.ScheduledHour);
+                    _logger.LogInformation("Đang chạy tất cả profile theo khoảng thời gian {0} giờ", intervalHours);
                     await RunAllProfilesAsync();
+                    _lastAutoRunTime = now;
                 }
             }
             catch (Exception ex)

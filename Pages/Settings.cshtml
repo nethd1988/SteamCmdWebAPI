@@ -20,8 +20,10 @@
             <ul>
                 <li><strong>Kích hoạt tự động chạy:</strong> Bật/tắt tính năng tự động chạy cho toàn bộ hệ thống.</li>
                 <li><strong>Khoảng thời gian chạy:</strong> Đặt chu kỳ chạy tự động (1-48 tiếng). Ví dụ: nếu chọn 2 tiếng, hệ thống sẽ chạy cấu hình mỗi 2 tiếng một lần.</li>
-                <li><strong>Giờ chạy (1-24h):</strong> Đặt giờ bắt đầu chạy lần đầu tiên trong ngày. Ví dụ: nếu chọn 7h, lần chạy đầu tiên sẽ bắt đầu vào 7h sáng, các lần sau sẽ dựa vào khoảng thời gian chạy.</li>
             </ul>
+            <div class="alert alert-info">
+                <strong>Lưu ý:</strong> Khoảng thời gian chạy được tính từ thời điểm cài đặt hoặc khởi động hệ thống. Ví dụ: nếu chọn 1 giờ, hệ thống sẽ chạy mỗi 1 giờ một lần; nếu chọn 2 giờ, hệ thống sẽ chạy mỗi 2 giờ một lần, v.v.
+            </div>
             <div class="alert alert-info">
                 <strong>Lưu ý:</strong> Ngoài cài đặt chung này, bạn cũng cần bật tùy chọn "Tự động chạy khi khởi động" cho từng cấu hình cụ thể mà bạn muốn hệ thống tự động chạy.
             </div>
@@ -31,6 +33,18 @@
     <div class="card mb-3">
         <div class="card-body">
             <h5>Cấu hình tự động chạy</h5>
+
+            @if (TempData["SuccessMessage"] != null)
+            {
+                <div class="alert alert-success">@TempData["SuccessMessage"]</div>
+            }
+
+            @if (TempData["ErrorMessage"] != null)
+            {
+                <div class="alert alert-danger">@TempData["ErrorMessage"]</div>
+            }
+
+            <!-- Form AJAX hiện tại -->
             <form id="autoRunForm">
                 @Html.AntiForgeryToken()
                 <div class="form-check mb-3">
@@ -53,27 +67,38 @@
                         }
                     </select>
                 </div>
+                <button type="submit" class="btn btn-primary">Lưu (AJAX)</button>
+            </form>
+
+            <hr />
+
+            <!-- Form không dùng AJAX (phương án dự phòng) -->
+            <form method="post" asp-page-handler="SaveDirect">
+                @Html.AntiForgeryToken()
+                <div class="form-check mb-3">
+                    <input type="checkbox" class="form-check-input" id="directAutoRunEnabled" name="autoRunEnabled" value="true" @(Model.AutoRunEnabled ? "checked" : "") />
+                    <label class="form-check-label" for="directAutoRunEnabled">Kích hoạt tự động chạy</label>
+                </div>
                 <div class="form-group mb-3">
-                    <label for="scheduledHour">Giờ chạy (1-24h)</label>
-                    <select class="form-control" id="scheduledHour" name="scheduledHour">
-                        @for (int hour = 1; hour <= 24; hour++)
+                    <label for="directAutoRunInterval">Khoảng thời gian chạy (tiếng)</label>
+                    <select class="form-control" id="directAutoRunInterval" name="autoRunInterval">
+                        @for (int hour = 1; hour <= 48; hour++)
                         {
-                            if (Model.ScheduledHour == hour)
+                            if (Model.AutoRunIntervalHours == hour)
                             {
-                                <option value="@hour" selected>@hour h</option>
+                                <option value="@hour" selected>@hour tiếng</option>
                             }
                             else
                             {
-                                <option value="@hour">@hour h</option>
+                                <option value="@hour">@hour tiếng</option>
                             }
                         }
                     </select>
                 </div>
-                <button type="submit" class="btn btn-primary">Lưu</button>
+                <button type="submit" class="btn btn-success">Lưu trực tiếp</button>
             </form>
         </div>
     </div>
-</div>
 
 @section Scripts {
     <script>
@@ -81,25 +106,27 @@
             // Lấy Anti-Forgery Token từ form
             var token = $('input[name="__RequestVerificationToken"]').val();
 
-            $("#autoRunForm").submit(function (e) {
-                e.preventDefault();
-                $.ajax({
-                    url: "/Settings?handler=AutoRun",
-                    method: "POST",
-                    data: $(this).serialize(),
-                    headers: {
-                        "RequestVerificationToken": token
-                    },
-                    success: function (response) {
-                        if (response.success) {
-                            alert("Cập nhật cấu hình tự động chạy thành công!");
-                        }
-                    },
-                    error: function (err) {
-                        alert("Lỗi: " + err.responseText);
+                    $("#autoRunForm").submit(function (e) {
+            e.preventDefault();
+            $.ajax({
+                url: "/Settings?handler=AutoRun",
+                method: "POST",
+                data: $(this).serialize(),
+                headers: {
+                    "RequestVerificationToken": token
+                },
+                success: function (response) {
+                    if (response.success) {
+                        alert("Cập nhật cấu hình tự động chạy thành công!");
+                        // Tải lại trang sau khi lưu thành công
+                        location.reload();
                     }
-                });
+                },
+                error: function (err) {
+                    alert("Lỗi: " + err.responseText);
+                }
             });
+        });
         });
     </script>
 }

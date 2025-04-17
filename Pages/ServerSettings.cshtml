@@ -6,14 +6,14 @@
 
 <div class="container">
     <h1>Cài đặt Server</h1>
-    
+
     @if (!string.IsNullOrEmpty(Model.StatusMessage))
     {
         <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
             @Model.StatusMessage
         </div>
     }
-    
+
     <div class="card">
         <div class="card-header">
             <h5>Cấu hình kết nối đến Server</h5>
@@ -23,19 +23,19 @@
                 <!-- Thêm các trường ServerAddress và ServerPort dưới dạng hidden -->
                 <input type="hidden" asp-for="Settings.ServerAddress" />
                 <input type="hidden" asp-for="Settings.ServerPort" />
-                
+
                 <div class="mb-3 form-check">
                     <input asp-for="Settings.EnableServerSync" type="checkbox" class="form-check-input" />
                     <label asp-for="Settings.EnableServerSync" class="form-check-label">Cho phép đồng bộ với server</label>
                 </div>
-                
+
                 @if (Model.Settings.LastSyncTime.HasValue)
                 {
                     <div class="mb-3">
                         <p>Lần đồng bộ cuối: @Model.Settings.LastSyncTime.Value.ToString("dd/MM/yyyy HH:mm:ss")</p>
                     </div>
                 }
-                
+
                 <div class="d-flex">
                     <button type="submit" class="btn btn-primary me-2">Lưu cài đặt</button>
                     <button type="submit" asp-page-handler="TestConnection" class="btn btn-secondary me-2">Kiểm tra kết nối</button>
@@ -45,12 +45,14 @@
             </form>
         </div>
     </div>
-    
+
     <div class="mt-3">
         <a asp-page="/Index" class="btn btn-secondary">Quay lại trang chủ</a>
     </div>
 </div>
 
 @section Scripts {
-    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
 }
