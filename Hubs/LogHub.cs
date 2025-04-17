@@ -21,15 +21,21 @@ namespace SteamCmdWebAPI.Hubs
         }
 
         // Phương thức để server yêu cầu mã 2FA từ client
+        // Phương thức để server yêu cầu mã 2FA từ client
         public static async Task<string> RequestTwoFactorCode(int profileId, IHubContext<LogHub> hubContext)
         {
             var tcs = new TaskCompletionSource<string>();
+            _twoFactorCodeTasks.TryRemove(profileId, out _); // Xóa task cũ nếu có
             _twoFactorCodeTasks.TryAdd(profileId, tcs);
 
+            // Gửi yêu cầu trực tiếp
             await hubContext.Clients.All.SendAsync("RequestTwoFactorCode", profileId);
 
-            // Đặt timeout để không chờ mãi mãi
-            var timeoutTask = Task.Delay(TimeSpan.FromMinutes(2));
+            // Đánh dấu lại để sử dụng như cờ báo
+            await hubContext.Clients.All.SendAsync("ReceiveLog", $"STEAMGUARD_REQUEST_{profileId}");
+
+            // Giảm thời gian chờ
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(45)); // 45 giây timeout
             var completedTask = await Task.WhenAny(tcs.Task, timeoutTask);
 
             if (completedTask == timeoutTask)

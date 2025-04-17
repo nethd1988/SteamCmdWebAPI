@@ -7,9 +7,6 @@ using SteamCmdWebAPI.Models;
 
 namespace SteamCmdWebAPI.Services
 {
-    /// <summary>
-    /// Dịch vụ quản lý cài đặt server
-    /// </summary>
     public class ServerSettingsService
     {
         private readonly ILogger<ServerSettingsService> _logger;
@@ -23,7 +20,6 @@ namespace SteamCmdWebAPI.Services
         {
             _logger = logger;
             var currentDir = AppDomain.CurrentDomain.BaseDirectory;
-            // Lưu file profiles.json trong thư mục data
             string dataDir = Path.Combine(currentDir, "data");
             if (!Directory.Exists(dataDir))
             {
@@ -31,16 +27,8 @@ namespace SteamCmdWebAPI.Services
                 logger.LogInformation("Đã tạo thư mục data tại {0}", dataDir);
             }
             _settingsFilePath = Path.Combine(dataDir, "server_settings.json");
-
-            if (!File.Exists(_settingsFilePath))
-            {
-                _logger.LogError("File server setting not exist in :", _settingsFilePath);
-            }
         }
 
-        /// <summary>
-        /// Tải cài đặt server từ file
-        /// </summary>
         public async Task<ServerSettings> LoadSettingsAsync()
         {
             try
@@ -50,7 +38,6 @@ namespace SteamCmdWebAPI.Services
                     string json = await File.ReadAllTextAsync(_settingsFilePath);
                     var settings = JsonConvert.DeserializeObject<ServerSettings>(json);
 
-                    // Trả về cài đặt đã lưu nhưng luôn đảm bảo địa chỉ server là mặc định
                     if (settings != null)
                     {
                         // Luôn ghi đè địa chỉ server bằng địa chỉ mặc định
@@ -70,9 +57,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        /// <summary>
-        /// Tạo cài đặt mặc định
-        /// </summary>
         private ServerSettings CreateDefaultSettings()
         {
             // Cấu hình mặc định
@@ -86,9 +70,6 @@ namespace SteamCmdWebAPI.Services
             };
         }
 
-        /// <summary>
-        /// Lưu cài đặt server vào file
-        /// </summary>
         public async Task SaveSettingsAsync(ServerSettings settings)
         {
             try
@@ -96,7 +77,7 @@ namespace SteamCmdWebAPI.Services
                 // Đảm bảo luôn ghi đè địa chỉ server bằng địa chỉ mặc định
                 settings.ServerAddress = DEFAULT_SERVER_ADDRESS;
                 settings.ServerPort = DEFAULT_SERVER_PORT;
-                
+
                 string updatedJson = JsonConvert.SerializeObject(settings, Formatting.Indented);
                 await File.WriteAllTextAsync(_settingsFilePath, updatedJson);
                 _logger.LogInformation("Đã lưu cài đặt server vào {0}", _settingsFilePath);
@@ -108,9 +89,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        /// <summary>
-        /// Cập nhật thời gian đồng bộ cuối cùng
-        /// </summary>
         public async Task UpdateLastSyncTimeAsync()
         {
             try
@@ -127,9 +105,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        /// <summary>
-        /// Cập nhật trạng thái kết nối
-        /// </summary>
         public async Task UpdateConnectionStatusAsync(string status)
         {
             try

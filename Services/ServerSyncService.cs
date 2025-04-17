@@ -10,9 +10,6 @@ using SteamCmdWebAPI.Models;
 
 namespace SteamCmdWebAPI.Services
 {
-    /// <summary>
-    /// Dịch vụ đồng bộ với server
-    /// </summary>
     public class ServerSyncService
     {
         private readonly ILogger<ServerSyncService> _logger;
@@ -40,9 +37,6 @@ namespace SteamCmdWebAPI.Services
             _httpClient.Timeout = TimeSpan.FromMinutes(5); // 5 phút timeout cho các request lớn
         }
 
-        /// <summary>
-        /// Lấy danh sách tên profile từ server
-        /// </summary>
         public async Task<List<string>> GetProfileNamesFromServerAsync()
         {
             try
@@ -73,9 +67,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        /// <summary>
-        /// Đồng bộ tự động tất cả profiles với server
-        /// </summary>
         public async Task<bool> AutoSyncWithServerAsync()
         {
             try
@@ -132,9 +123,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        /// <summary>
-        /// Lấy thông tin chi tiết profile từ server theo tên
-        /// </summary>
         public async Task<SteamCmdProfile> GetProfileFromServerByNameAsync(string profileName)
         {
             try
@@ -191,9 +179,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        /// <summary>
-        /// Đồng bộ profile từ server vào client
-        /// </summary>
         private async Task<bool> SyncProfileToClientAsync(SteamCmdProfile serverProfile)
         {
             try
@@ -243,9 +228,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        /// <summary>
-        /// Đồng bộ danh sách profile từ client lên server
-        /// </summary>
         private async Task<bool> UploadProfilesToServerAsync(List<SteamCmdProfile> profiles)
         {
             try

@@ -10,7 +10,6 @@ using SteamCmdWebAPI.Services;
 
 namespace SteamCmdWebAPI.Pages
 {
-    // Đổi tên rõ ràng để tránh xung đột với ServerSyncService
     public class ServerSyncPageModel : PageModel
     {
         private readonly ILogger<ServerSyncPageModel> _logger;
@@ -49,12 +48,12 @@ namespace SteamCmdWebAPI.Pages
         public async Task<IActionResult> OnGetAsync()
         {
             await LoadServerSettingsAsync();
-            
+
             if (IsServerConfigured)
             {
                 await LoadAvailableProfilesAsync();
             }
-            
+
             return Page();
         }
 
@@ -67,8 +66,8 @@ namespace SteamCmdWebAPI.Pages
                 ServerAddress = settings.ServerAddress;
                 ServerPort = settings.ServerPort;
                 LastSyncTime = settings.LastSyncTime;
-                
-                _logger.LogInformation("Loaded server settings: Server={Server}, Port={Port}, Enabled={Enabled}", 
+
+                _logger.LogInformation("Loaded server settings: Server={Server}, Port={Port}, Enabled={Enabled}",
                     ServerAddress, ServerPort, IsServerConfigured);
             }
             catch (Exception ex)
@@ -85,19 +84,19 @@ namespace SteamCmdWebAPI.Pages
             try
             {
                 AvailableProfiles.Clear();
-                
+
                 var serverSettings = await _serverSettingsService.LoadSettingsAsync();
                 if (!serverSettings.EnableServerSync || string.IsNullOrEmpty(serverSettings.ServerAddress))
                 {
                     _logger.LogWarning("Server sync is not enabled or server address is empty");
                     return;
                 }
-                
+
                 _logger.LogInformation("Loading available profiles from server");
-                
+
                 // Sử dụng service mới để lấy danh sách profile
                 var profileNames = await _serverSyncService.GetProfileNamesFromServerAsync();
-                
+
                 AvailableProfiles.AddRange(profileNames);
                 _logger.LogInformation("Loaded {Count} profiles from server", AvailableProfiles.Count);
             }
@@ -114,7 +113,7 @@ namespace SteamCmdWebAPI.Pages
             try
             {
                 _logger.LogInformation("Starting sync of all profiles from server");
-                
+
                 await LoadServerSettingsAsync();
                 if (!IsServerConfigured)
                 {
@@ -122,10 +121,10 @@ namespace SteamCmdWebAPI.Pages
                     IsSuccess = false;
                     return Page();
                 }
-                
+
                 // Sử dụng service mới để đồng bộ
                 bool success = await _serverSyncService.AutoSyncWithServerAsync();
-                
+
                 if (success)
                 {
                     StatusMessage = "Đã đồng bộ tất cả profile từ server thành công.";
@@ -136,7 +135,7 @@ namespace SteamCmdWebAPI.Pages
                     StatusMessage = "Đồng bộ không thành công. Vui lòng kiểm tra kết nối.";
                     IsSuccess = false;
                 }
-                
+
                 await LoadServerSettingsAsync();
                 await LoadAvailableProfilesAsync();
                 return Page();
@@ -156,7 +155,7 @@ namespace SteamCmdWebAPI.Pages
             try
             {
                 _logger.LogInformation("Starting sync of profile '{ProfileName}' from server", profileName);
-                
+
                 if (string.IsNullOrEmpty(profileName))
                 {
                     StatusMessage = "Vui lòng chọn một profile";
@@ -165,7 +164,7 @@ namespace SteamCmdWebAPI.Pages
                     await LoadAvailableProfilesAsync();
                     return Page();
                 }
-                
+
                 await LoadServerSettingsAsync();
                 if (!IsServerConfigured)
                 {
@@ -173,10 +172,10 @@ namespace SteamCmdWebAPI.Pages
                     IsSuccess = false;
                     return Page();
                 }
-                
+
                 // Lấy chi tiết profile từ server
                 var serverProfile = await _serverSyncService.GetProfileFromServerByNameAsync(profileName);
-                
+
                 if (serverProfile == null)
                 {
                     StatusMessage = $"Không tìm thấy profile '{profileName}' trên server";
@@ -184,11 +183,11 @@ namespace SteamCmdWebAPI.Pages
                     await LoadAvailableProfilesAsync();
                     return Page();
                 }
-                
+
                 // Kiểm tra xem profile đã tồn tại chưa
                 var currentProfiles = await _profileService.GetAllProfiles();
                 var existingProfile = currentProfiles.FirstOrDefault(p => p.Name == profileName);
-                
+
                 if (existingProfile != null)
                 {
                     // Cập nhật profile hiện có
@@ -198,7 +197,7 @@ namespace SteamCmdWebAPI.Pages
                     serverProfile.StartTime = existingProfile.StartTime;
                     serverProfile.StopTime = existingProfile.StopTime;
                     serverProfile.LastRun = existingProfile.LastRun;
-                    
+
                     await _profileService.UpdateProfile(serverProfile);
                     StatusMessage = $"Đã cập nhật profile '{profileName}' từ server";
                 }
@@ -208,16 +207,16 @@ namespace SteamCmdWebAPI.Pages
                     int newId = currentProfiles.Count > 0 ? currentProfiles.Max(p => p.Id) + 1 : 1;
                     serverProfile.Id = newId;
                     serverProfile.Status = "Stopped";
-                    
+
                     await _profileService.AddProfileAsync(serverProfile);
                     StatusMessage = $"Đã thêm profile '{profileName}' từ server";
                 }
-                
+
                 IsSuccess = true;
-                
+
                 // Cập nhật thời gian đồng bộ
                 await _serverSettingsService.UpdateLastSyncTimeAsync();
-                
+
                 await LoadServerSettingsAsync();
                 await LoadAvailableProfilesAsync();
                 return Page();
@@ -238,7 +237,7 @@ namespace SteamCmdWebAPI.Pages
             try
             {
                 _logger.LogInformation("Starting upload profiles to server");
-                
+
                 await LoadServerSettingsAsync();
                 if (!IsServerConfigured)
                 {
@@ -246,10 +245,10 @@ namespace SteamCmdWebAPI.Pages
                     IsSuccess = false;
                     return Page();
                 }
-                
+
                 // Sử dụng service mới để đồng bộ
                 bool success = await _serverSyncService.AutoSyncWithServerAsync();
-                
+
                 if (success)
                 {
                     StatusMessage = "Đã đồng bộ tất cả profiles với server thành công";
@@ -260,7 +259,7 @@ namespace SteamCmdWebAPI.Pages
                     StatusMessage = "Đồng bộ lên server không thành công";
                     IsSuccess = false;
                 }
-                
+
                 await LoadServerSettingsAsync();
                 return Page();
             }

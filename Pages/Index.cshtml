@@ -82,63 +82,63 @@
                 console.log("Anti-Forgery Token đã được tải");
             }
 
-            // Kiểm tra 2FA popup đã được tạo chưa
-            function check2FAPopup() {
-                // Nếu không có, tạo một container để đảm bảo popup hiển thị đúng
-                if (!document.getElementById('steamauth-container')) {
-                    const container = document.createElement('div');
-                    container.id = 'steamauth-container';
-                    container.style.position = 'fixed';
-                    container.style.bottom = '0';
-                    container.style.right = '0';
-                    container.style.width = '1px';
-                    container.style.height = '1px';
-                    container.style.opacity = '0';
-                    container.style.pointerEvents = 'none';
-                    document.body.appendChild(container);
-                }
-            }
+            // Khởi tạo theo dõi logContainer để phát hiện yêu cầu 2FA sớm
+            const logContainer = document.getElementById('logContainer');
+            if (logContainer) {
+                const observer = new MutationObserver(function(mutations) {
+                    mutations.forEach(function(mutation) {
+                        if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+                            for (let i = 0; i < mutation.addedNodes.length; i++) {
+                                const node = mutation.addedNodes[i];
+                                if (node.textContent) {
+                                    const text = node.textContent;
+                                    // Kiểm tra đây có phải là yêu cầu 2FA không
+                                    const is2FARequest =
+                                        text.includes("Steam Guard code:") ||
+                                        text.includes("Two-factor code:") ||
+                                        text.includes("Enter the current code") ||
+                                        text.toLowerCase().includes("mobile authenticator") ||
+                                        (text.toLowerCase().includes("steam guard") && !text.includes("thành công"));
 
-            check2FAPopup();
+                                    if (is2FARequest) {
+                                        const profileId = parseInt(logContainer.getAttribute("data-profile-id") || "1");
 
-            // Thêm observer để kiểm tra thông báo Steam Guard
-            const observer = new MutationObserver(function(mutations) {
-                mutations.forEach(function(mutation) {
-                    if (mutation.addedNodes && mutation.addedNodes.length > 0) {
-                        for (let i = 0; i < mutation.addedNodes.length; i++) {
-                            const node = mutation.addedNodes[i];
-                            if (node.textContent && (
-                                node.textContent.includes("Steam Guard") ||
-                                node.textContent.includes("mã xác thực") ||
-                                node.textContent.includes("Two-factor")
-                            )) {
-                                console.log("Phát hiện thông báo 2FA");
+                                        // Kiểm tra nếu đã có yêu cầu cho profile này
+                                        if (window.logHubHelpers && window.logHubHelpers.pendingAuthRequests &&
+                                            !window.logHubHelpers.pendingAuthRequests.has(profileId)) {
 
-                                // Gọi chức năng showSteamGuardPopup từ logHub.js
-                                const profileId = $("#logContainer").attr("data-profile-id") || 1;
-                                if (typeof showSteamGuardPopup === 'function') {
-                                    showSteamGuardPopup(profileId, function(code) {
-                                        if (code) {
-                                            console.log("Mã 2FA đã được nhập: " + code);
-                                            connection.invoke("SubmitTwoFactorCode", parseInt(profileId), code);
+                                            console.log("Phát hiện yêu cầu 2FA từ MutationObserver: " + text);
+
+                                            // Nếu showSteamGuardPopup đã được định nghĩa
+                                            if (typeof showSteamGuardPopup === 'function') {
+                                                window.logHubHelpers.pendingAuthRequests.add(profileId);
+
+                                                // Hiển thị popup
+                                                showSteamGuardPopup(profileId, function(code) {
+                                                    window.logHubHelpers.pendingAuthRequests.delete(profileId);
+
+                                                    if (code && typeof connection !== 'undefined') {
+                                                        connection.invoke("SubmitTwoFactorCode", profileId, code)
+                                                            .catch(function(err) {
+                                                                console.error("Lỗi khi gửi mã 2FA: " + err);
+                                                            });
+                                                    }
+                                                });
+                                            }
                                         }
-                                    });
-                                } else {
-                                    console.error("Hàm showSteamGuardPopup không tồn tại");
+                                    }
                                 }
                             }
                         }
-                    }
+                    });
                 });
-            });
 
-            // Theo dõi log container
-            const logContainer = document.getElementById('logContainer');
-            if (logContainer) {
                 observer.observe(logContainer, {
                     childList: true,
                     subtree: true
                 });
+
+                console.log("Đã thiết lập theo dõi log container cho 2FA");
             }
 
             // Test 2FA Popup
@@ -293,6 +293,13 @@
                         alert("Lỗi: " + (xhr.responseText || "Không thể gửi yêu cầu."));
                     }
                 });
+            });
+
+            // Xử lý nút Escape để đóng popup nếu có
+            $(document).keyup(function(e) {
+                if (e.key === "Escape") {
+                    $('#steam-guard-popup').remove();
+                }
             });
         });
     </script>

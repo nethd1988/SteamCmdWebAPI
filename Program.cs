@@ -67,18 +67,14 @@ namespace SteamCmdWebAPI
             app.UseRouting();
             app.UseAuthorization();
 
-            app.UseEndpoints(endpoints =>
-            {
-                endpoints.MapRazorPages();
-                endpoints.MapHub<LogHub>("/logHub");
-                endpoints.MapControllers();
+            app.MapRazorPages();
+            app.MapHub<LogHub>("/logHub");
+            app.MapControllers();
 
-                // Map default route
-                endpoints.MapGet("/", async context =>
-                {
-                    context.Response.Redirect("/Index");
-                    await Task.CompletedTask;
-                });
+            // Map default route
+            app.MapGet("/", context => {
+                context.Response.Redirect("/Index");
+                return Task.CompletedTask;
             });
 
             // Địa chỉ truy cập

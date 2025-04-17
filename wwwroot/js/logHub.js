@@ -1,5 +1,8 @@
 "use strict";
 
+// Biến toàn cục để theo dõi các yêu cầu 2FA đang xử lý
+let pendingAuthRequests = new Set();
+
 // Thiết lập kết nối SignalR
 const connection = new signalR.HubConnectionBuilder()
     .withUrl("/logHub")
@@ -14,26 +17,34 @@ connection.on("ReceiveLog", function (message) {
         // Thêm log mới
         appendLog(message);
 
-        // Kiểm tra nếu là yêu cầu Steam Guard - sử dụng điều kiện thống nhất
-        if (message.includes("Steam Guard code:") ||
+        // Di chuyển kiểm tra 2FA lên trước để phát hiện sớm hơn
+        // Kiểm tra yêu cầu Steam Guard với điều kiện chính xác hơn
+        const is2FARequest =
+            message.includes("Steam Guard code:") ||
             message.includes("Two-factor code:") ||
             message.includes("Enter the current code") ||
-            message.toLowerCase().includes("steam guard") ||
-            message.includes("Two-factor authentication") ||
-            message.includes("Vui lòng nhập mã")) {
-            // Lấy profileId từ data attribute của container hoặc sử dụng ID mặc định
-            const profileId = logContainer.getAttribute("data-profile-id") || 1;
-            console.log("Phát hiện yêu cầu 2FA cho profile " + profileId + ": " + message);
+            message.toLowerCase().includes("mobile authenticator") ||
+            (message.toLowerCase().includes("steam guard") && !message.includes("thành công"));
 
-            // Hiển thị popup 2FA
-            showSteamGuardPopup(profileId, function (code) {
-                if (code !== '') {
-                    connection.invoke("SubmitTwoFactorCode", profileId, code).catch(function (err) {
-                        console.error("Lỗi khi gửi mã 2FA: " + err.toString());
-                        appendLog("Lỗi khi gửi mã 2FA: " + err.toString(), "error");
-                    });
-                }
-            });
+        if (is2FARequest) {
+            // Lấy profileId từ data attribute
+            const profileId = parseInt(logContainer.getAttribute("data-profile-id") || "1");
+
+            // Tránh hiển thị nhiều popup cùng lúc cho cùng một profile
+            if (!pendingAuthRequests.has(profileId)) {
+                pendingAuthRequests.add(profileId);
+                console.log("Phát hiện yêu cầu 2FA cho profile " + profileId + ": " + message);
+
+                showSteamGuardPopup(profileId, function (code) {
+                    pendingAuthRequests.delete(profileId);
+                    if (code !== '') {
+                        connection.invoke("SubmitTwoFactorCode", profileId, code).catch(function (err) {
+                            console.error("Lỗi khi gửi mã 2FA: " + err.toString());
+                            appendLog("Lỗi khi gửi mã 2FA: " + err.toString(), "error");
+                        });
+                    }
+                });
+            }
         }
 
         // Cuộn xuống dưới
@@ -81,7 +92,16 @@ function appendLog(message, type = "info") {
 // Xử lý yêu cầu mã xác thực hai lớp (2FA)
 connection.on("RequestTwoFactorCode", function (profileId) {
     console.log("Nhận yêu cầu 2FA trực tiếp cho profile ID: " + profileId);
+
+    // Tránh nhiều popup cho cùng profile
+    if (pendingAuthRequests.has(profileId)) {
+        console.log("Đã có popup 2FA cho profile này, bỏ qua");
+        return;
+    }
+
+    pendingAuthRequests.add(profileId);
     showSteamGuardPopup(profileId, function (code) {
+        pendingAuthRequests.delete(profileId);
         if (code !== '') {
             connection.invoke("SubmitTwoFactorCode", profileId, code).catch(function (err) {
                 console.error("Lỗi khi gửi mã 2FA: " + err.toString());
@@ -186,14 +206,14 @@ function showSteamGuardPopup(profileId, callback) {
     submitButton.style.borderRadius = '2px';
     submitButton.style.cursor = 'pointer';
 
-    // Thêm timeout để tự động đóng popup nếu không có phản hồi sau 2 phút
+    // Thêm timeout để tự động đóng popup nếu không có phản hồi
     const autoCloseTimeout = setTimeout(() => {
         if (document.getElementById('steam-guard-popup')) {
             document.body.removeChild(overlay);
             callback('');
-            console.log("2FA popup tự động đóng sau 2 phút không có phản hồi");
+            console.log("2FA popup tự động đóng sau 45 giây không có phản hồi");
         }
-    }, 120000); // 2 phút
+    }, 45000); // 45 giây
 
     // Thêm sự kiện click cho nút hủy
     cancelButton.addEventListener('click', function () {
@@ -232,7 +252,10 @@ function showSteamGuardPopup(profileId, callback) {
     document.body.appendChild(overlay);
 
     // Focus vào input field
-    input.focus();
+    setTimeout(() => {
+        input.focus();
+        input.select();
+    }, 100);
 }
 
 // Khởi động kết nối
@@ -268,3 +291,10 @@ function runProfile(profileId) {
             alert("Lỗi khi chạy profile: " + error);
         });
 }
+
+// Export các hàm để sử dụng từ bên ngoài
+window.logHubHelpers = {
+    showSteamGuardPopup,
+    appendLog,
+    pendingAuthRequests
+};
