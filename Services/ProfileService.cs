@@ -83,39 +83,55 @@ namespace SteamCmdWebAPI.Services
 
         public async Task SaveProfiles(List<SteamCmdProfile> profiles)
         {
-            try
-            {
-                // Kiểm tra quyền truy cập file trước khi ghi
-                var directory = Path.GetDirectoryName(_profilesPath);
-                if (!Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                    _logger.LogInformation("Đã tạo thư mục {0}", directory);
-                }
+            int retryCount = 0;
+            int maxRetries = 5;
+            int retryDelayMs = 200;
 
-                // Kiểm tra quyền ghi file
-                if (File.Exists(_profilesPath))
+            while (retryCount < maxRetries)
+            {
+                try
                 {
-                    using (var stream = new FileStream(_profilesPath, FileMode.Open, FileAccess.ReadWrite))
+                    var directory = Path.GetDirectoryName(_profilesPath);
+                    if (!Directory.Exists(directory))
                     {
-                        if (!stream.CanWrite)
-                        {
-                            throw new IOException("Không có quyền ghi file profiles.json");
-                        }
+                        Directory.CreateDirectory(directory);
+                        _logger.LogInformation("Đã tạo thư mục {0}", directory);
+                    }
+
+                    string updatedJson = JsonConvert.SerializeObject(profiles, Formatting.Indented);
+
+                    // Sử dụng FileMode.Create để tạo mới file mỗi lần ghi
+                    using (var fileStream = new FileStream(_profilesPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    using (var writer = new StreamWriter(fileStream))
+                    {
+                        await writer.WriteAsync(updatedJson);
+                    }
+
+                    _logger.LogInformation("Đã lưu {0} profiles vào {1}", profiles.Count, _profilesPath);
+                    return;
+                }
+                catch (IOException ex) when (ex.Message.Contains("being used") || ex.Message.Contains("access") || ex.HResult == -2147024864)
+                {
+                    retryCount++;
+                    _logger.LogWarning("Lần thử {0}/{1}: Không thể truy cập file profiles.json, đang chờ {2}ms",
+                        retryCount, maxRetries, retryDelayMs);
+
+                    if (retryCount < maxRetries)
+                    {
+                        await Task.Delay(retryDelayMs);
+                        retryDelayMs *= 2; // Tăng thời gian chờ theo cấp số nhân
+                    }
+                    else
+                    {
+                        _logger.LogError("Không thể lưu profiles.json sau {0} lần thử: {1}", maxRetries, ex.Message);
+                        throw new Exception($"Không thể lưu file profiles.json sau nhiều lần thử: {ex.Message}", ex);
                     }
                 }
-
-                string updatedJson = JsonConvert.SerializeObject(profiles, Formatting.Indented);
-                lock (_fileLock)
+                catch (Exception ex)
                 {
-                    File.WriteAllText(_profilesPath, updatedJson); // Sử dụng phương thức đồng bộ
+                    _logger.LogError(ex, "Lỗi khi lưu profiles vào {0}", _profilesPath);
+                    throw new Exception($"Không thể lưu file profiles.json: {ex.Message}", ex);
                 }
-                _logger.LogInformation("Đã lưu {0} profiles vào {1}", profiles.Count, _profilesPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi khi lưu profiles vào {0}", _profilesPath);
-                throw new Exception($"Không thể lưu file profiles.json: {ex.Message}", ex);
             }
         }
 
