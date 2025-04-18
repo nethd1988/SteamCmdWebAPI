@@ -1150,6 +1150,7 @@ namespace SteamCmdWebAPI.Services
                 };
 
                 // Theo dõi output
+                // Thay đổi phần kiểm tra 2FA trong hàm RunSteamCmdAsync
                 steamCmdProcess.OutputDataReceived += async (sender, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
@@ -1163,6 +1164,8 @@ namespace SteamCmdWebAPI.Services
                             e.Data.Contains("Steam Guard Code:") ||
                             e.Data.Contains("Enter the current code") ||
                             e.Data.Contains("Mobile Authenticator") ||
+                            e.Data.Contains("your Steam account") ||
+                            e.Data.Contains("email address") ||
                             (e.Data.ToLower().Contains("steam guard") && !e.Data.Contains("thành công")))
                         {
                             // Xử lý tức thì 2FA trước khi ghi log thành công
@@ -1240,6 +1243,7 @@ namespace SteamCmdWebAPI.Services
         }
 
         // Phương thức xử lý yêu cầu 2FA
+        // Thay đổi hàm ProcessTwoFactorRequest
         private async Task ProcessTwoFactorRequest(int profileId, string profileName, Process steamCmdProcess)
         {
             _logger.LogInformation("Phát hiện yêu cầu 2FA, gửi yêu cầu popup");
@@ -1247,7 +1251,7 @@ namespace SteamCmdWebAPI.Services
             try
             {
                 // Gửi thông báo đến log về việc yêu cầu mã 2FA với độ ưu tiên cao hơn
-                await SafeSendLogAsync(profileName, "Warning", "Steam Guard code: Vui lòng nhập mã xác thực");
+                await SafeSendLogAsync(profileName, "Warning", $"STEAMGUARD_REQUEST_{profileId}: Vui lòng nhập mã xác thực");
 
                 // Gửi yêu cầu trực tiếp thông qua SignalR 
                 await _hubContext.Clients.All.SendAsync("RequestTwoFactorCode", profileId);

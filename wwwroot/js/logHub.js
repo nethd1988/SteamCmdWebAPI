@@ -20,15 +20,24 @@ connection.on("ReceiveLog", function (message) {
         // Di chuyển kiểm tra 2FA lên trước để phát hiện sớm hơn
         // Kiểm tra yêu cầu Steam Guard với điều kiện chính xác hơn
         const is2FARequest =
+            message.includes("STEAMGUARD_REQUEST_") ||
             message.includes("Steam Guard code:") ||
             message.includes("Two-factor code:") ||
             message.includes("Enter the current code") ||
             message.toLowerCase().includes("mobile authenticator") ||
+            message.toLowerCase().includes("email address") ||
             (message.toLowerCase().includes("steam guard") && !message.includes("thành công"));
 
         if (is2FARequest) {
-            // Lấy profileId từ data attribute
-            const profileId = parseInt(logContainer.getAttribute("data-profile-id") || "1");
+            // Trích xuất profileId từ message nếu có
+            let profileId = 1; // Mặc định là 1
+            const profileIdMatch = message.match(/STEAMGUARD_REQUEST_(\d+)/);
+            if (profileIdMatch && profileIdMatch[1]) {
+                profileId = parseInt(profileIdMatch[1]);
+            } else {
+                // Nếu không tìm thấy trong message, lấy từ data attribute
+                profileId = parseInt(logContainer.getAttribute("data-profile-id") || "1");
+            }
 
             // Tránh hiển thị nhiều popup cùng lúc cho cùng một profile
             if (!pendingAuthRequests.has(profileId)) {
@@ -67,7 +76,8 @@ function appendLog(message, type = "info") {
                     span.style.color = "red";
                 } else if (type === "warning") {
                     span.style.color = "yellow";
-                } else if (line.includes("Steam Guard") || line.includes("2FA") || line.includes("mã xác thực")) {
+                } else if (line.includes("Steam Guard") || line.includes("2FA") || line.includes("mã xác thực") ||
+                    line.includes("STEAMGUARD_REQUEST_") || line.includes("email")) {
                     span.style.color = "#FF9900"; // Highlight 2FA messages
                     span.style.fontWeight = "bold";
                 }
@@ -81,7 +91,8 @@ function appendLog(message, type = "info") {
             span.style.color = "red";
         } else if (type === "warning") {
             span.style.color = "yellow";
-        } else if (message.includes("Steam Guard") || message.includes("2FA") || message.includes("mã xác thực")) {
+        } else if (message.includes("Steam Guard") || message.includes("2FA") || message.includes("mã xác thực") ||
+            message.includes("STEAMGUARD_REQUEST_") || message.includes("email")) {
             span.style.color = "#FF9900"; // Highlight 2FA messages
             span.style.fontWeight = "bold";
         }
@@ -211,9 +222,9 @@ function showSteamGuardPopup(profileId, callback) {
         if (document.getElementById('steam-guard-popup')) {
             document.body.removeChild(overlay);
             callback('');
-            console.log("2FA popup tự động đóng sau 45 giây không có phản hồi");
+            console.log("2FA popup tự động đóng sau 60 giây không có phản hồi");
         }
-    }, 45000); // 45 giây
+    }, 60000); // 60 giây
 
     // Thêm sự kiện click cho nút hủy
     cancelButton.addEventListener('click', function () {
@@ -250,6 +261,14 @@ function showSteamGuardPopup(profileId, callback) {
     // Thêm popup vào overlay và overlay vào body
     overlay.appendChild(popup);
     document.body.appendChild(overlay);
+
+    // Phát tiếng beep để thông báo
+    try {
+        const beep = new Audio("data:audio/wav;base64,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");
+        beep.play();
+    } catch (e) {
+        console.error("Không thể phát âm thanh thông báo", e);
+    }
 
     // Focus vào input field
     setTimeout(() => {

@@ -94,14 +94,21 @@
                                     const text = node.textContent;
                                     // Kiểm tra đây có phải là yêu cầu 2FA không
                                     const is2FARequest =
+                                        text.includes("STEAMGUARD_REQUEST_") ||
                                         text.includes("Steam Guard code:") ||
                                         text.includes("Two-factor code:") ||
                                         text.includes("Enter the current code") ||
                                         text.toLowerCase().includes("mobile authenticator") ||
+                                        text.toLowerCase().includes("email address") ||
                                         (text.toLowerCase().includes("steam guard") && !text.includes("thành công"));
 
                                     if (is2FARequest) {
-                                        const profileId = parseInt(logContainer.getAttribute("data-profile-id") || "1");
+                                        const profileIdMatch = text.match(/STEAMGUARD_REQUEST_(\d+)/);
+                                        let profileId = parseInt(logContainer.getAttribute("data-profile-id") || "1");
+
+                                        if (profileIdMatch && profileIdMatch[1]) {
+                                            profileId = parseInt(profileIdMatch[1]);
+                                        }
 
                                         // Kiểm tra nếu đã có yêu cầu cho profile này
                                         if (window.logHubHelpers && window.logHubHelpers.pendingAuthRequests &&
