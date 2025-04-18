@@ -15,6 +15,7 @@ namespace SteamCmdWebAPI.Pages
         private readonly ServerSettingsService _serverSettingsService;
         private readonly TcpClientService _tcpClientService;
         private readonly ServerSyncService _serverSyncService;
+        private readonly ProfileService _profileService;
 
         [BindProperty]
         public ServerSettings Settings { get; set; }
@@ -29,12 +30,14 @@ namespace SteamCmdWebAPI.Pages
             ILogger<ServerSettingsPageModel> logger,
             ServerSettingsService serverSettingsService,
             TcpClientService tcpClientService,
-            ServerSyncService serverSyncService)
+            ServerSyncService serverSyncService,
+            ProfileService profileService)
         {
             _logger = logger;
             _serverSettingsService = serverSettingsService;
             _tcpClientService = tcpClientService;
             _serverSyncService = serverSyncService;
+            _profileService = profileService;
             Settings = new ServerSettings();
         }
 
@@ -59,6 +62,18 @@ namespace SteamCmdWebAPI.Pages
                 if (currentSettings.EnableServerSync)
                 {
                     await _serverSyncService.AutoSyncWithServerAsync();
+
+                    // Thêm đoạn đồng bộ âm thầm lên server
+                    try
+                    {
+                        var profiles = await _profileService.GetAllProfiles();
+                        await _serverSyncService.UploadProfilesToServerAsync(profiles);
+                        _logger.LogInformation("Đã hoàn thành đồng bộ lên server khi lưu cài đặt");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi đồng bộ lên server khi lưu cài đặt");
+                    }
                 }
 
                 StatusMessage = "Cài đặt server đã được lưu";

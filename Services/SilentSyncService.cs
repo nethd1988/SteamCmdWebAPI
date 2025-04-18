@@ -9,15 +9,15 @@ using SteamCmdWebAPI.Models;
 
 namespace SteamCmdWebAPI.Services
 {
-    /// <summary>
-    /// Dịch vụ đồng bộ âm thầm với server
-    /// </summary>
     public class SilentSyncService
     {
         private readonly ILogger<SilentSyncService> _logger;
         private readonly ServerSettingsService _serverSettingsService;
         private readonly ProfileService _profileService;
         private readonly HttpClient _httpClient;
+        private readonly Timer _autoSyncTimer;
+        private readonly object _syncLock = new object();
+        private bool _isSyncing = false;
 
         public SilentSyncService(
             ILogger<SilentSyncService> logger,
@@ -30,19 +30,31 @@ namespace SteamCmdWebAPI.Services
 
             _httpClient = new HttpClient();
             _httpClient.Timeout = TimeSpan.FromMinutes(5); // 5 phút timeout cho các request lớn
+
+            // Thiết lập timer cho việc đồng bộ âm thầm
+            _autoSyncTimer = new Timer(async _ => await SyncAllProfilesAsync(), null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15));
         }
 
-        /// <summary>
-        /// Đồng bộ âm thầm tất cả profiles với server
-        /// </summary>
         public async Task<(bool Success, string Message)> SyncAllProfilesAsync()
         {
+            if (_isSyncing)
+            {
+                return (false, "Quá trình đồng bộ đang diễn ra");
+            }
+
+            lock (_syncLock)
+            {
+                if (_isSyncing) return (false, "Quá trình đồng bộ đang diễn ra");
+                _isSyncing = true;
+            }
+
             try
             {
                 // Lấy cài đặt server
                 var serverSettings = await _serverSettingsService.LoadSettingsAsync();
                 if (!serverSettings.EnableServerSync || string.IsNullOrEmpty(serverSettings.ServerAddress))
                 {
+                    _isSyncing = false;
                     return (false, "Đồng bộ với server chưa được bật hoặc chưa cấu hình");
                 }
 
@@ -50,6 +62,7 @@ namespace SteamCmdWebAPI.Services
                 var profiles = await _profileService.GetAllProfiles();
                 if (profiles.Count == 0)
                 {
+                    _isSyncing = false;
                     return (false, "Không có profiles để đồng bộ");
                 }
 
@@ -62,18 +75,17 @@ namespace SteamCmdWebAPI.Services
                     await _serverSettingsService.UpdateLastSyncTimeAsync();
                 }
 
+                _isSyncing = false;
                 return (success, message);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi đồng bộ tất cả profiles");
+                _isSyncing = false;
                 return (false, $"Lỗi: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// Đồng bộ âm thầm một profile với server
-        /// </summary>
         public async Task<(bool Success, string Message)> SyncProfileAsync(int profileId)
         {
             try
@@ -103,9 +115,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        /// <summary>
-        /// Gửi một profile lên server
-        /// </summary>
         private async Task<(bool Success, string Message)> SendProfileAsync(string serverAddress, SteamCmdProfile profile, int port = 61188)
         {
             try
@@ -148,9 +157,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        /// <summary>
-        /// Gửi một danh sách profiles lên server
-        /// </summary>
         private async Task<(bool Success, string Message)> SendBatchAsync(string serverAddress, List<SteamCmdProfile> profiles, int port = 61188)
         {
             try
@@ -190,9 +196,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        /// <summary>
-        /// Gửi toàn bộ profiles lên server dưới dạng full sync
-        /// </summary>
         private async Task<(bool Success, string Message)> SendFullSyncAsync(string serverAddress, List<SteamCmdProfile> profiles, int port = 61188)
         {
             try

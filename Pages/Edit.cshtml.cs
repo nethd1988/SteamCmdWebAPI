@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Models;
 using SteamCmdWebAPI.Services;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace SteamCmdWebAPI.Pages
@@ -13,6 +14,8 @@ namespace SteamCmdWebAPI.Pages
         private readonly ILogger<EditModel> _logger;
         private readonly ProfileService _profileService;
         private readonly EncryptionService _encryptionService;
+        private readonly ServerSettingsService _serverSettingsService;
+        private readonly ServerSyncService _serverSyncService;
 
         [BindProperty]
         public SteamCmdProfile Profile { get; set; }
@@ -32,11 +35,15 @@ namespace SteamCmdWebAPI.Pages
         public EditModel(
             ILogger<EditModel> logger,
             ProfileService profileService,
-            EncryptionService encryptionService)
+            EncryptionService encryptionService,
+            ServerSettingsService serverSettingsService,
+            ServerSyncService serverSyncService)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             _encryptionService = encryptionService ?? throw new ArgumentNullException(nameof(encryptionService));
+            _serverSettingsService = serverSettingsService ?? throw new ArgumentNullException(nameof(serverSettingsService));
+            _serverSyncService = serverSyncService ?? throw new ArgumentNullException(nameof(serverSyncService));
         }
 
         public async Task<IActionResult> OnGetAsync(int? id)
@@ -140,6 +147,26 @@ namespace SteamCmdWebAPI.Pages
 
                 _logger.LogInformation("Đã cập nhật profile thành công: {Id}", Profile.Id);
                 TempData["Success"] = "Cấu hình đã được cập nhật thành công!";
+
+                // Đồng bộ tự động sau khi cập nhật
+                _ = Task.Run(async () => {
+                    try
+                    {
+                        var serverSettings = await _serverSettingsService.LoadSettingsAsync();
+                        if (serverSettings.EnableServerSync)
+                        {
+                            // Đồng bộ profile vừa cập nhật lên server
+                            var profiles = await _profileService.GetAllProfiles();
+                            await _serverSyncService.UploadProfilesToServerAsync(profiles);
+                            _logger.LogInformation("Đã hoàn thành đồng bộ lên server sau khi cập nhật profile");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi đồng bộ tự động sau khi cập nhật profile");
+                    }
+                });
+
                 return RedirectToPage("/Index");
             }
             catch (Exception ex)
