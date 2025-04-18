@@ -15,6 +15,7 @@ namespace SteamCmdWebAPI.Services
         private readonly SteamCmdService _steamCmdService;
         private readonly SettingsService _settingsService;
         private readonly ServerSyncService _serverSyncService;
+        private readonly ServerSettingsService _serverSettingsService; // Thêm phần khai báo này
         private readonly HttpClient _httpClient;
 
         // Thời gian đồng bộ server (mỗi 30 phút)
@@ -28,12 +29,14 @@ namespace SteamCmdWebAPI.Services
             ILogger<AutoRunBackgroundService> logger,
             SteamCmdService steamCmdService,
             SettingsService settingsService,
-            ServerSyncService serverSyncService)
+            ServerSyncService serverSyncService,
+            ServerSettingsService serverSettingsService) // Thêm tham số này
         {
             _logger = logger;
             _steamCmdService = steamCmdService;
             _settingsService = settingsService;
             _serverSyncService = serverSyncService;
+            _serverSettingsService = serverSettingsService; // Thêm khởi tạo này
             _httpClient = new HttpClient();
         }
 
@@ -78,13 +81,18 @@ namespace SteamCmdWebAPI.Services
                         }
                     }
 
-                    // Đồng bộ tự động với server theo định kỳ
+                    // Chỉ cập nhật danh sách profile từ server theo định kỳ, không tự động đồng bộ
                     if ((DateTime.Now - _lastServerSync) > _serverSyncInterval)
                     {
-                        _logger.LogInformation("Bắt đầu đồng bộ tự động với server");
-                        await _serverSyncService.AutoSyncWithServerAsync();
-                        _lastServerSync = DateTime.Now;
-                        _logger.LogInformation("Hoàn thành đồng bộ tự động với server");
+                        var serverSettings = await _serverSettingsService.LoadSettingsAsync();
+                        if (serverSettings.EnableServerSync)
+                        {
+                            _logger.LogInformation("Bắt đầu cập nhật danh sách profile từ server");
+                            // Chỉ lấy danh sách profile từ server, không tự động đồng bộ
+                            await _serverSyncService.GetProfileNamesFromServerAsync();
+                            _lastServerSync = DateTime.Now;
+                            _logger.LogInformation("Hoàn thành cập nhật danh sách profile từ server");
+                        }
                     }
                 }
                 catch (Exception ex)

@@ -78,47 +78,22 @@ namespace SteamCmdWebAPI.Services
                     return false;
                 }
 
-                _logger.LogInformation("Bắt đầu đồng bộ tự động với server");
+                _logger.LogInformation("Bắt đầu lấy danh sách profile từ server");
 
-                // Thực hiện đồng bộ profiles từ server về client
+                // Chỉ lấy danh sách tên profile từ server để hiển thị, không tự động đồng bộ
                 var serverProfiles = await GetProfileNamesFromServerAsync();
-                int syncedCount = 0;
-
-                if (serverProfiles.Count > 0)
-                {
-                    foreach (var profileName in serverProfiles)
-                    {
-                        try
-                        {
-                            var serverProfile = await GetProfileFromServerByNameAsync(profileName);
-                            if (serverProfile != null)
-                            {
-                                await SyncProfileToClientAsync(serverProfile);
-                                syncedCount++;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Lỗi khi đồng bộ profile {ProfileName} từ server", profileName);
-                        }
-                    }
-                }
-
-                // Đồng bộ profiles từ client lên server (tự động ngầm)
-                var localProfiles = await _profileService.GetAllProfiles();
-                bool uploadSuccess = await UploadProfilesToServerAsync(localProfiles);
 
                 // Cập nhật thời gian đồng bộ
                 await _serverSettingsService.UpdateLastSyncTimeAsync();
 
-                _logger.LogInformation("Đã hoàn thành đồng bộ tự động: {SyncedCount} profiles đồng bộ từ server, {UploadCount} profiles đồng bộ lên server",
-                    syncedCount, localProfiles.Count);
+                _logger.LogInformation("Đã hoàn thành cập nhật danh sách {Count} profiles từ server",
+                    serverProfiles.Count);
 
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi thực hiện đồng bộ tự động với server");
+                _logger.LogError(ex, "Lỗi khi lấy danh sách profile từ server");
                 return false;
             }
         }
@@ -179,7 +154,7 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        private async Task<bool> SyncProfileToClientAsync(SteamCmdProfile serverProfile)
+        public async Task<bool> SyncProfileToClientAsync(SteamCmdProfile serverProfile)
         {
             try
             {
@@ -228,7 +203,7 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        private async Task<bool> UploadProfilesToServerAsync(List<SteamCmdProfile> profiles)
+        public async Task<bool> UploadProfilesToServerAsync(List<SteamCmdProfile> profiles)
         {
             try
             {

@@ -23,16 +23,18 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6">
-                        <p><strong>Trạng thái:</strong> 
+                        <p>
+                            <strong>Trạng thái:</strong>
                             <span id="connectionStatus" class="badge bg-info">Đang kiểm tra...</span>
                         </p>
                     </div>
                     <div class="col-md-6">
-                        <p><strong>Lần đồng bộ cuối:</strong> 
+                        <p>
+                            <strong>Lần đồng bộ cuối:</strong>
                             @(Model.LastSyncTime.HasValue ? Model.LastSyncTime.Value.ToString("dd/MM/yyyy HH:mm:ss") : "Chưa đồng bộ")
                         </p>
                         <button id="testConnectionBtn" class="btn btn-info me-2">Kiểm tra kết nối</button>
-                        <button id="forceSyncBtn" class="btn btn-warning">Đồng bộ ngay</button>
+                        <button id="forceSyncBtn" class="btn btn-warning">Cập nhật danh sách</button>
                     </div>
                 </div>
             </div>
@@ -46,11 +48,11 @@
                     </div>
                     <div class="card-body">
                         <div class="mb-4">
-                            <h6>Đồng bộ tất cả profiles</h6>
-                            <p>Đồng bộ toàn bộ profiles từ server. Thao tác này sẽ cập nhật các profiles hiện có và thêm mới nếu chưa tồn tại.</p>
+                            <h6>Cập nhật danh sách profile</h6>
+                            <p>Lấy danh sách profile có sẵn từ server. Bạn có thể chọn từng profile để đồng bộ sau khi cập nhật.</p>
                             <form method="post" asp-page-handler="SyncAll">
                                 @Html.AntiForgeryToken()
-                                <button type="submit" class="btn btn-success">Đồng bộ tất cả từ Server</button>
+                                <button type="submit" class="btn btn-success">Cập nhật danh sách từ Server</button>
                             </form>
                         </div>
 
@@ -69,6 +71,26 @@
                                     </select>
                                 </div>
                                 <button type="submit" class="btn btn-primary">Đồng bộ profile đã chọn</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card h-100">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">Đồng bộ từ Client lên Server</h5>
+                    </div>
+                    <div class="card-body">
+                        <div>
+                            <h6>Tải tất cả profile lên server</h6>
+                            <p>Tải tất cả profile từ máy của bạn lên server.</p>
+                            <form method="post" asp-page-handler="UploadToServer">
+                                @Html.AntiForgeryToken()
+                                <button type="submit" class="btn btn-primary">Tải lên Server</button>
                             </form>
                         </div>
                     </div>
@@ -96,15 +118,15 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Kiểm tra kết nối khi tải trang
             checkServerConnection();
-            
+
             // Thêm event listener cho nút kiểm tra kết nối
             document.getElementById('testConnectionBtn')?.addEventListener('click', function() {
                 checkServerConnection();
             });
-            
+
             // Thêm event listener cho nút đồng bộ ngay
             document.getElementById('forceSyncBtn')?.addEventListener('click', function() {
-                forceSyncWithServer();
+                updateProfileList();
             });
         });
 
@@ -135,41 +157,41 @@
                 statusElement.className = 'badge bg-danger';
             });
         }
-        
-        function forceSyncWithServer() {
-            // Hiển thị trạng thái đang đồng bộ
+
+        function updateProfileList() {
+            // Hiển thị trạng thái đang cập nhật
             const statusElement = document.getElementById('connectionStatus');
             if (statusElement) {
-                statusElement.textContent = 'Đang đồng bộ...';
+                statusElement.textContent = 'Đang cập nhật...';
                 statusElement.className = 'badge bg-warning';
             }
 
-            // Sử dụng API controller để đồng bộ
-            fetch('/api/Server/sync', {
+            // Sử dụng API controller để cập nhật danh sách
+            fetch('/api/Server/profiles', {
                 method: 'GET'
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    alert('Đồng bộ với server thành công!');
+                    alert(`Đã cập nhật danh sách profile từ server! Tìm thấy ${data.count} profile.`);
                     if (statusElement) {
                         statusElement.textContent = 'Kết nối thành công';
                         statusElement.className = 'badge bg-success';
                     }
-                    location.reload(); // Tải lại trang để cập nhật dữ liệu
+                    location.reload(); // Tải lại trang để cập nhật danh sách
                 } else {
-                    alert('Đồng bộ không thành công: ' + (data.error || 'Lỗi không xác định'));
+                    alert('Cập nhật không thành công: ' + (data.error || 'Lỗi không xác định'));
                     if (statusElement) {
-                        statusElement.textContent = 'Đồng bộ thất bại';
+                        statusElement.textContent = 'Cập nhật thất bại';
                         statusElement.className = 'badge bg-danger';
                     }
                 }
             })
             .catch(error => {
                 console.error('Error syncing with server:', error);
-                alert('Lỗi khi đồng bộ với server: ' + error);
+                alert('Lỗi khi cập nhật danh sách profile: ' + error);
                 if (statusElement) {
-                    statusElement.textContent = 'Lỗi đồng bộ';
+                    statusElement.textContent = 'Lỗi cập nhật';
                     statusElement.className = 'badge bg-danger';
                 }
             });
