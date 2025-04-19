@@ -203,6 +203,122 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        public async Task<bool> UploadProfileAsync(SteamCmdProfile profile)
+        {
+            try
+            {
+                if (profile == null)
+                {
+                    _logger.LogWarning("Không có profile để đồng bộ lên server");
+                    return false;
+                }
+
+                var settings = await _serverSettingsService.LoadSettingsAsync();
+                if (!settings.EnableServerSync)
+                {
+                    _logger.LogWarning("Đồng bộ server chưa được kích hoạt");
+                    return false;
+                }
+
+                // Luôn sử dụng địa chỉ mặc định
+                string serverAddress = DEFAULT_SERVER_ADDRESS;
+                int port = DEFAULT_SERVER_PORT;
+
+                _logger.LogInformation("Đang đồng bộ profile {ProfileName} lên server", profile.Name);
+
+                // Kiểm tra kết nối
+                bool isConnected = await _tcpClientService.TestConnectionAsync(serverAddress, port);
+                if (!isConnected)
+                {
+                    _logger.LogWarning("Không thể kết nối đến server {Server}:{Port} để upload profile", serverAddress, port);
+                    return false;
+                }
+
+                using (var tcpClient = new TcpClient())
+                {
+                    await tcpClient.ConnectAsync(serverAddress, port);
+
+                    using var stream = tcpClient.GetStream();
+
+                    // Gửi lệnh AUTH + SEND_PROFILE
+                    string command = $"AUTH:simple_auth_token SEND_PROFILE";
+                    byte[] commandBytes = Encoding.UTF8.GetBytes(command);
+                    byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
+
+                    await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length);
+                    await stream.WriteAsync(commandBytes, 0, commandBytes.Length);
+                    await stream.FlushAsync();
+
+                    // Đọc phản hồi "READY_TO_RECEIVE"
+                    byte[] responseHeaderBuffer = new byte[4];
+                    int bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4);
+
+                    if (bytesRead < 4)
+                    {
+                        _logger.LogWarning("Không đọc được phản hồi từ server");
+                        return false;
+                    }
+
+                    int responseLength = BitConverter.ToInt32(responseHeaderBuffer, 0);
+                    byte[] responseBuffer = new byte[responseLength];
+                    bytesRead = await stream.ReadAsync(responseBuffer, 0, responseLength);
+
+                    string response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
+
+                    if (response != "READY_TO_RECEIVE")
+                    {
+                        _logger.LogWarning("Server không sẵn sàng nhận profile: {Response}", response);
+                        return false;
+                    }
+
+                    // Chuyển profile thành JSON
+                    string json = JsonSerializer.Serialize(profile);
+                    byte[] profileBytes = Encoding.UTF8.GetBytes(json);
+
+                    // Gửi độ dài
+                    byte[] profileLengthBytes = BitConverter.GetBytes(profileBytes.Length);
+                    await stream.WriteAsync(profileLengthBytes, 0, profileLengthBytes.Length);
+
+                    // Gửi nội dung
+                    await stream.WriteAsync(profileBytes, 0, profileBytes.Length);
+                    await stream.FlushAsync();
+
+                    // Đọc phản hồi
+                    bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4);
+                    if (bytesRead < 4)
+                    {
+                        _logger.LogWarning("Không đọc được phản hồi sau khi gửi profile {ProfileName}", profile.Name);
+                        return false;
+                    }
+
+                    responseLength = BitConverter.ToInt32(responseHeaderBuffer, 0);
+                    responseBuffer = new byte[responseLength];
+                    bytesRead = await stream.ReadAsync(responseBuffer, 0, responseLength);
+
+                    response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
+
+                    if (response.StartsWith("SUCCESS:"))
+                    {
+                        _logger.LogInformation("Đã gửi profile {ProfileName} lên server thành công", profile.Name);
+                        return true;
+                    }
+                    else if (response.StartsWith("ERROR:"))
+                    {
+                        _logger.LogWarning("Lỗi khi gửi profile {ProfileName} lên server: {Error}",
+                            profile.Name, response.Substring(6));
+                        return false;
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đồng bộ profile {ProfileName} lên server", profile?.Name ?? "Unknown");
+                return false;
+            }
+        }
+
         public async Task<bool> UploadProfilesToServerAsync(List<SteamCmdProfile> profiles)
         {
             try

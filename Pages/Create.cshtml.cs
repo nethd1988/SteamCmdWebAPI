@@ -17,6 +17,7 @@ namespace SteamCmdWebAPI.Pages
         private readonly EncryptionService _encryptionService;
         private readonly ILogger<CreateModel> _logger;
         private readonly ServerSyncService _serverSyncService;
+        private readonly ServerSettingsService _serverSettingsService;
 
         [BindProperty]
         public SteamCmdProfile Profile { get; set; } = new SteamCmdProfile();
@@ -32,19 +33,21 @@ namespace SteamCmdWebAPI.Pages
 
         [TempData]
         public bool IsSuccess { get; set; }
-        
+
         public List<string> ServerProfiles { get; set; } = new List<string>();
 
         public CreateModel(
             ProfileService profileService,
             EncryptionService encryptionService,
             ILogger<CreateModel> logger,
-            ServerSyncService serverSyncService)
+            ServerSyncService serverSyncService,
+            ServerSettingsService serverSettingsService)
         {
             _profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             _encryptionService = encryptionService ?? throw new ArgumentNullException(nameof(encryptionService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _serverSyncService = serverSyncService ?? throw new ArgumentNullException(nameof(serverSyncService));
+            _serverSettingsService = serverSettingsService ?? throw new ArgumentNullException(nameof(serverSettingsService));
         }
 
         public async Task<IActionResult> OnGetAsync()
@@ -52,20 +55,22 @@ namespace SteamCmdWebAPI.Pages
             // Xóa StatusMessage để tránh hiển thị thông báo lỗi cũ
             StatusMessage = null;
             IsSuccess = false;
-            
+
             // Lấy danh sách profile từ server
-            try {
+            try
+            {
                 ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
                 _logger.LogInformation("Đã lấy {Count} profiles từ server", ServerProfiles.Count);
             }
-            catch (Exception ex) {
+            catch (Exception ex)
+            {
                 _logger.LogError(ex, "Lỗi khi lấy danh sách profiles từ server");
                 ServerProfiles = new List<string>();
             }
-            
+
             return Page();
         }
-        
+
         // Thêm handler để lấy profile từ server
         public async Task<IActionResult> OnGetProfileFromServerAsync(string profileName)
         {
@@ -73,7 +78,7 @@ namespace SteamCmdWebAPI.Pages
             {
                 return BadRequest(new { success = false, error = "Tên profile không được để trống" });
             }
-            
+
             try
             {
                 var profile = await _serverSyncService.GetProfileFromServerByNameAsync(profileName);
@@ -115,21 +120,23 @@ namespace SteamCmdWebAPI.Pages
                 _logger.LogWarning("Validation failed with errors: {Errors}", string.Join(", ", errors));
                 StatusMessage = "Vui lòng kiểm tra lại thông tin: " + string.Join(", ", errors);
                 IsSuccess = false;
-                
+
                 // Lấy lại danh sách profile từ server
-                try {
+                try
+                {
                     ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
                 }
-                catch {
+                catch
+                {
                     ServerProfiles = new List<string>();
                 }
-                
+
                 return Page();
             }
 
             try
             {
-                _logger.LogInformation("Bắt đầu lưu profile: {Name}, AppID: {AppID}, InstallDirectory: {InstallDirectory}", 
+                _logger.LogInformation("Bắt đầu lưu profile: {Name}, AppID: {AppID}, InstallDirectory: {InstallDirectory}",
                     Profile.Name, Profile.AppID, Profile.InstallDirectory);
 
                 if (!Profile.AnonymousLogin)
@@ -144,15 +151,17 @@ namespace SteamCmdWebAPI.Pages
                         _logger.LogError(ex, "Lỗi khi mã hóa thông tin đăng nhập");
                         StatusMessage = "Lỗi khi mã hóa thông tin đăng nhập: " + ex.Message;
                         IsSuccess = false;
-                        
+
                         // Lấy lại danh sách profile từ server
-                        try {
+                        try
+                        {
                             ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
                         }
-                        catch {
+                        catch
+                        {
                             ServerProfiles = new List<string>();
                         }
-                        
+
                         return Page();
                     }
                 }
@@ -166,7 +175,7 @@ namespace SteamCmdWebAPI.Pages
                 {
                     Profile.Arguments = string.Empty;
                 }
-                
+
                 // Đặt trạng thái ban đầu
                 Profile.Status = "Stopped";
                 Profile.StartTime = DateTime.Now;
@@ -178,17 +187,25 @@ namespace SteamCmdWebAPI.Pages
 
                 _logger.LogInformation("Đã lưu profile thành công: {Name}", Profile.Name);
                 TempData["Success"] = $"Đã thêm mới cấu hình {Profile.Name}";
-                
+
                 // Đồng bộ tự động sau khi thêm mới
                 _ = Task.Run(async () => {
-                    try {
-                        await _serverSyncService.AutoSyncWithServerAsync();
+                    try
+                    {
+                        var serverSettings = await _serverSettingsService.LoadSettingsAsync();
+                        if (serverSettings.EnableServerSync)
+                        {
+                            // Đồng bộ profile vừa cập nhật lên server
+                            await _serverSyncService.UploadProfileAsync(Profile);
+                            _logger.LogInformation("Đã hoàn thành đồng bộ profile {ProfileName} lên server sau khi cập nhật", Profile.Name);
+                        }
                     }
-                    catch (Exception ex) {
-                        _logger.LogError(ex, "Lỗi khi đồng bộ tự động sau khi thêm profile mới");
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi đồng bộ tự động sau khi cập nhật profile");
                     }
                 });
-                
+
                 return RedirectToPage("./Index");
             }
             catch (Exception ex)
@@ -196,19 +213,21 @@ namespace SteamCmdWebAPI.Pages
                 _logger.LogError(ex, "Lỗi khi lưu profile trong Create");
                 StatusMessage = $"Đã xảy ra lỗi khi lưu profile: {ex.Message}";
                 IsSuccess = false;
-                
+
                 // Lấy lại danh sách profile từ server
-                try {
+                try
+                {
                     ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
                 }
-                catch {
+                catch
+                {
                     ServerProfiles = new List<string>();
                 }
-                
+
                 return Page();
             }
         }
-        
+
         // Thêm handler để lưu profile từ server
         public async Task<IActionResult> OnPostImportFromServerAsync(string profileName)
         {
@@ -218,27 +237,28 @@ namespace SteamCmdWebAPI.Pages
                 {
                     return BadRequest(new { success = false, error = "Tên profile không được để trống" });
                 }
-                
+
                 var serverProfile = await _serverSyncService.GetProfileFromServerByNameAsync(profileName);
                 if (serverProfile == null)
                 {
                     return NotFound(new { success = false, error = $"Không tìm thấy profile '{profileName}' trên server" });
                 }
-                
+
                 // Kiểm tra xem profile đã tồn tại chưa
                 var existingProfile = (await _profileService.GetAllProfiles())
                     .FirstOrDefault(p => p.Name == serverProfile.Name);
-                
+
                 if (existingProfile != null)
                 {
                     return BadRequest(new { success = false, error = $"Profile '{profileName}' đã tồn tại trong hệ thống" });
                 }
-                
+
                 // Thêm profile mới
                 await _profileService.AddProfileAsync(serverProfile);
-                
-                return new JsonResult(new { 
-                    success = true, 
+
+                return new JsonResult(new
+                {
+                    success = true,
                     message = $"Đã nhập profile '{profileName}' từ server thành công",
                     redirectUrl = "./Index"
                 });
