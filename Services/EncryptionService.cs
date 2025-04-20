@@ -12,8 +12,13 @@ namespace SteamCmdWebAPI.Services
 
         public EncryptionService(IConfiguration configuration)
         {
-            _encryptionKey = configuration["Encryption:Key"] ?? "ThisIsASecretKey1234567890123456";
-            _encryptionIV = configuration["Encryption:IV"] ?? "ThisIsAnIV123456";
+            // Đọc từ User Secrets hoặc biến môi trường, với giá trị mặc định làm backup cuối cùng
+            _encryptionKey = configuration["Encryption:Key"] ??
+                             Environment.GetEnvironmentVariable("ENCRYPTION_KEY") ??
+                             "ThisIsASecretKey1234567890123456";
+            _encryptionIV = configuration["Encryption:IV"] ??
+                            Environment.GetEnvironmentVariable("ENCRYPTION_IV") ??
+                            "ThisIsAnIV123456";
         }
 
         public string Encrypt(string plainText)

@@ -15,6 +15,12 @@ namespace SteamCmdWebAPI
         {
             var builder = WebApplication.CreateBuilder(args);
 
+            // Thêm User Secrets trong môi trường phát triển
+            if (builder.Environment.IsDevelopment())
+            {
+                builder.Configuration.AddUserSecrets<Program>();
+            }
+
             // Thiết lập đường dẫn gốc của ứng dụng
             var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
             Directory.SetCurrentDirectory(baseDirectory);
@@ -77,7 +83,7 @@ namespace SteamCmdWebAPI
                 return Task.CompletedTask;
             });
 
-            // Địa chỉ truy cập
+            // Địa chỉ truy cập - đảm bảo khớp với cấu hình
             Console.WriteLine($"Ứng dụng khởi động tại: https://localhost:7288 và http://localhost:5288");
             Console.WriteLine($"Thư mục gốc: {baseDirectory}");
 
