@@ -1,4 +1,6 @@
-// SteamCMD Console Viewer - Tối ưu hiệu suất
+// Tệp: wwwroot/js/steamcmd-console.js
+// Cập nhật lớp SteamCmdConsole để xử lý Steam Guard tốt hơn
+
 class SteamCmdConsole {
     constructor(containerId, options = {}) {
         this.container = document.getElementById(containerId);
@@ -157,6 +159,7 @@ class SteamCmdConsole {
             // Nút gửi
             this.sendButton = document.createElement('button');
             this.sendButton.textContent = 'Gửi';
+            this.sendButton.classList.add('btn', 'btn-primary', 'btn-sm');
             this.sendButton.disabled = !this.options.inputEnabled;
             
             // Thêm sự kiện
@@ -214,6 +217,7 @@ class SteamCmdConsole {
         
         if (steamGuardPatterns.some(pattern => pattern.test(text))) {
             this.enableConsoleInput();
+            this.awaitingAuthCode = true;
         }
     }
 
@@ -239,6 +243,9 @@ class SteamCmdConsole {
         
         // Thêm lớp CSS để tăng độ ưu tiên
         this.container.classList.add('awaiting-input');
+
+        // Thông báo đặc biệt
+        this.addLine('STEAM GUARD: Vui lòng nhập mã xác thực vào ô bên dưới và nhấn Enter', 'steam-guard');
     }
     
     /**
@@ -297,6 +304,7 @@ class SteamCmdConsole {
         // Gửi mã xác thực đến callback nếu có
         if (typeof this.options.onSteamGuardSubmit === 'function') {
             this.options.onSteamGuardSubmit(code, this.profileId);
+            this.addLine('Đã gửi mã Steam Guard đến SteamCMD...', 'success');
         }
         
         // Hoặc gửi mã xác thực qua SignalR

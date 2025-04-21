@@ -1,3 +1,6 @@
+// Tệp: Hubs/LogHub.cs
+// Cập nhật phương thức xử lý Steam Guard
+
 using Microsoft.AspNetCore.SignalR;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
@@ -73,12 +76,9 @@ namespace SteamCmdWebAPI.Hubs
             _consoleInputTasks.TryRemove(profileId, out _); // Xóa task cũ nếu có
             _consoleInputTasks.TryAdd(profileId, tcs);
 
-            // Gửi yêu cầu bật chế độ nhập console
+            // Gửi yêu cầu bật chế độ nhập console và thông báo rõ ràng
             await hubContext.Clients.All.SendAsync("EnableConsoleInput", profileId);
-
-            // Gửi thông báo rõ ràng về yêu cầu 2FA
-            string requestMessage = $"=== STEAM GUARD: Vui lòng nhập mã xác thực trực tiếp vào console bên dưới cho profile ID {profileId} ===";
-            await hubContext.Clients.All.SendAsync("ReceiveLog", requestMessage);
+            await hubContext.Clients.All.SendAsync("ReceiveLog", $"=== STEAM GUARD: Vui lòng nhập mã xác thực cho profile ID {profileId} ===");
 
             // Timeout sau 5 phút với CancellationToken để giải phóng tài nguyên
             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
