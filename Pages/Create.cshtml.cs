@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Models;
 using SteamCmdWebAPI.Services;
@@ -16,7 +15,7 @@ namespace SteamCmdWebAPI.Pages
         private readonly ProfileService _profileService;
         private readonly EncryptionService _encryptionService;
         private readonly ILogger<CreateModel> _logger;
-        private readonly ServerSyncService _serverSyncService;
+        private readonly TcpClientService _tcpClientService;
         private readonly ServerSettingsService _serverSettingsService;
 
         [BindProperty]
@@ -40,13 +39,13 @@ namespace SteamCmdWebAPI.Pages
             ProfileService profileService,
             EncryptionService encryptionService,
             ILogger<CreateModel> logger,
-            ServerSyncService serverSyncService,
+            TcpClientService tcpClientService,
             ServerSettingsService serverSettingsService)
         {
             _profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             _encryptionService = encryptionService ?? throw new ArgumentNullException(nameof(encryptionService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _serverSyncService = serverSyncService ?? throw new ArgumentNullException(nameof(serverSyncService));
+            _tcpClientService = tcpClientService ?? throw new ArgumentNullException(nameof(tcpClientService));
             _serverSettingsService = serverSettingsService ?? throw new ArgumentNullException(nameof(serverSettingsService));
         }
 
@@ -59,7 +58,7 @@ namespace SteamCmdWebAPI.Pages
             // Lấy danh sách profile từ server
             try
             {
-                ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
+                ServerProfiles = await _tcpClientService.GetProfileNamesAsync("", 0);
                 _logger.LogInformation("Đã lấy {Count} profiles từ server", ServerProfiles.Count);
             }
             catch (Exception ex)
@@ -81,7 +80,7 @@ namespace SteamCmdWebAPI.Pages
 
             try
             {
-                var profile = await _serverSyncService.GetProfileFromServerByNameAsync(profileName);
+                var profile = await _tcpClientService.GetProfileDetailsByNameAsync("", profileName, 0);
                 if (profile != null)
                 {
                     return new JsonResult(new { success = true, profile = profile });
@@ -124,7 +123,7 @@ namespace SteamCmdWebAPI.Pages
                 // Lấy lại danh sách profile từ server
                 try
                 {
-                    ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
+                    ServerProfiles = await _tcpClientService.GetProfileNamesAsync("", 0);
                 }
                 catch
                 {
@@ -155,7 +154,7 @@ namespace SteamCmdWebAPI.Pages
                         // Lấy lại danh sách profile từ server
                         try
                         {
-                            ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
+                            ServerProfiles = await _tcpClientService.GetProfileNamesAsync("", 0);
                         }
                         catch
                         {
@@ -188,23 +187,13 @@ namespace SteamCmdWebAPI.Pages
                 _logger.LogInformation("Đã lưu profile thành công: {Name}", Profile.Name);
                 TempData["Success"] = $"Đã thêm mới cấu hình {Profile.Name}";
 
-                // Đồng bộ tự động sau khi thêm mới
-                _ = Task.Run(async () => {
-                    try
-                    {
-                        var serverSettings = await _serverSettingsService.LoadSettingsAsync();
-                        if (serverSettings.EnableServerSync)
-                        {
-                            // Đồng bộ profile vừa cập nhật lên server
-                            await _serverSyncService.UploadProfileAsync(Profile);
-                            _logger.LogInformation("Đã hoàn thành đồng bộ profile {ProfileName} lên server sau khi cập nhật", Profile.Name);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Lỗi khi đồng bộ tự động sau khi cập nhật profile");
-                    }
-                });
+                // Gửi profile về server
+                var serverSettings = await _serverSettingsService.LoadSettingsAsync();
+                if (serverSettings.EnableServerSync)
+                {
+                    await _tcpClientService.SendProfileToServerAsync(Profile);
+                    _logger.LogInformation("Đã gửi profile {Name} về server", Profile.Name);
+                }
 
                 return RedirectToPage("./Index");
             }
@@ -217,7 +206,7 @@ namespace SteamCmdWebAPI.Pages
                 // Lấy lại danh sách profile từ server
                 try
                 {
-                    ServerProfiles = await _serverSyncService.GetProfileNamesFromServerAsync();
+                    ServerProfiles = await _tcpClientService.GetProfileNamesAsync("", 0);
                 }
                 catch
                 {
@@ -228,8 +217,7 @@ namespace SteamCmdWebAPI.Pages
             }
         }
 
-        // Thêm handler để lưu profile từ server
-        // Thêm handler để lưu profile từ server - cải thiện UI/UX
+        // Thêm handler để nhập profile từ server
         public async Task<IActionResult> OnPostImportFromServerAsync(string profileName)
         {
             try
@@ -239,7 +227,7 @@ namespace SteamCmdWebAPI.Pages
                     return BadRequest(new { success = false, error = "Tên profile không được để trống" });
                 }
 
-                var serverProfile = await _serverSyncService.GetProfileFromServerByNameAsync(profileName);
+                var serverProfile = await _tcpClientService.GetProfileDetailsByNameAsync("", profileName, 0);
                 if (serverProfile == null)
                 {
                     return NotFound(new { success = false, error = $"Không tìm thấy profile '{profileName}' trên server" });

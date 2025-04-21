@@ -10,90 +10,47 @@ namespace SteamCmdWebAPI.Services
     public class AutoRunBackgroundService : BackgroundService
     {
         private readonly ILogger<AutoRunBackgroundService> _logger;
-        private readonly SilentSyncService _silentSyncService;
         private readonly ServerSettingsService _serverSettingsService;
         private readonly ProfileService _profileService;
         private readonly SteamCmdService _steamCmdService;
-        private readonly ServerSyncService _serverSyncService; // Thêm trường này
+        private readonly TcpClientService _tcpClientService;
 
-        // Thời gian đồng bộ server (mỗi 30 phút)
+        // Thời gian kiểm tra kết nối server (mỗi 30 phút)
         private readonly TimeSpan _serverSyncInterval = TimeSpan.FromMinutes(30);
         private DateTime _lastServerSync = DateTime.MinValue;
         private DateTime _lastAutoRunTime = DateTime.MinValue;
 
         public AutoRunBackgroundService(
             ILogger<AutoRunBackgroundService> logger,
-            SilentSyncService silentSyncService,
             ServerSettingsService serverSettingsService,
             ProfileService profileService,
             SteamCmdService steamCmdService,
-            ServerSyncService serverSyncService) // Thêm tham số này
+            TcpClientService tcpClientService)
         {
             _logger = logger;
-            _silentSyncService = silentSyncService;
             _serverSettingsService = serverSettingsService;
             _profileService = profileService;
             _steamCmdService = steamCmdService;
-            _serverSyncService = serverSyncService; // Khởi tạo giá trị
+            _tcpClientService = tcpClientService;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("AutoRunBackgroundService đã khởi động");
 
-            // Đồng bộ khi khởi động
-            await TrySyncWithServerAsync();
-
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    // Kiểm tra thời gian đồng bộ server
-                    if ((DateTime.Now - _lastServerSync) > _serverSyncInterval)
-                    {
-                        await TrySyncWithServerAsync();
-                    }
-
                     // Kiểm tra và chạy auto-run theo cấu hình
                     await CheckAndRunScheduledTasksAsync();
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Lỗi trong quá trình đồng bộ hoặc auto-run");
+                    _logger.LogError(ex, "Lỗi trong quá trình auto-run");
                 }
 
                 await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); // Kiểm tra mỗi phút
-            }
-        }
-
-        private async Task TrySyncWithServerAsync()
-        {
-            try
-            {
-                var serverSettings = await _serverSettingsService.LoadSettingsAsync();
-                if (serverSettings.EnableServerSync)
-                {
-                    _logger.LogInformation("Đang thực hiện đồng bộ tự động với server");
-
-                    // Lấy danh sách profile từ server
-                    var profileNames = await _serverSyncService.GetProfileNamesFromServerAsync();
-
-                    if (profileNames.Count > 0)
-                    {
-                        _logger.LogInformation("Đã cập nhật danh sách profile từ server: {Count} profile", profileNames.Count);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Không tìm thấy profile nào trên server");
-                    }
-
-                    _lastServerSync = DateTime.Now;
-                    await _serverSettingsService.UpdateLastSyncTimeAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi khi thử đồng bộ với server");
             }
         }
 

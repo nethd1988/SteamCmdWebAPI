@@ -67,10 +67,14 @@ namespace SteamCmdWebAPI
             builder.Services.AddSingleton<SettingsService>();
             builder.Services.AddSingleton<ServerSettingsService>();
             builder.Services.AddSingleton<TcpClientService>();
-            builder.Services.AddSingleton<ServerSyncService>();
-            builder.Services.AddSingleton<SilentSyncService>();
             builder.Services.AddSingleton<LogFileReader>();
             builder.Services.AddSingleton<SteamCmdService>();
+
+            // Loại bỏ ServerSyncService
+            // builder.Services.AddSingleton<ServerSyncService>();
+
+            // Loại bỏ SilentSyncService
+            // builder.Services.AddSingleton<SilentSyncService>();
 
             // Cấu hình AutoRun
             builder.Services.AddSingleton<AutoRunConfiguration>();
