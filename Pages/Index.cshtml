@@ -4,7 +4,7 @@
     ViewData["Title"] = "Quản lý cấu hình Steam AUTO";
 }
 
-<div class="container">
+<div class="container main-container">
     <h1>Quản lý cấu hình SteamAUTO</h1>
 
     @if (TempData["Success"] != null)
@@ -19,58 +19,96 @@
         @Html.AntiForgeryToken()
     </form>
 
-    <div class="mb-3">
-        <a asp-page="./Create" class="btn btn-primary">Tạo cấu hình mới</a>
-        <button id="runAllBtn" class="btn btn-success">Chạy tất cả</button>
-        <button id="stopAllBtn" class="btn btn-danger">Dừng tất cả</button>
-        <a asp-page="./Logs" class="btn btn-info">Xem Logs</a>
-        <a asp-page="./Settings" class="btn btn-warning">Cài đặt</a>
-        <a asp-page="./ServerSync" class="btn btn-primary">Đồng bộ Server</a>
-        <button id="test2FABtn" class="btn btn-info">Test 2FA Popup</button>
-    </div>
-
-    <div class="card mb-3">
-        <div class="card-body">
-            <h5>Logs</h5>
-            <div id="logContainer" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; background-color: black; color: limegreen;" data-profile-id="0"></div>
+    <div class="mb-3 control-panel">
+        <div>
+            <a asp-page="./Create" class="btn btn-primary">Tạo cấu hình mới</a>
+            <button id="runAllBtn" class="btn btn-success">Chạy tất cả</button>
+            <button id="stopAllBtn" class="btn btn-danger">Dừng tất cả</button>
+            <a asp-page="./Logs" class="btn btn-info">Xem Logs</a>
+            <a asp-page="./Settings" class="btn btn-warning">Cài đặt</a>
+            <a asp-page="./ServerSync" class="btn btn-primary">Đồng bộ Server</a>
+        </div>
+        <div>
+            <button id="toggleAutoScrollBtn" class="btn btn-outline-secondary" title="Bật/tắt tự động cuộn">
+                <i class="bi bi-arrow-down-square"></i> Tự động cuộn
+            </button>
+            <button id="clearConsoleBtn" class="btn btn-outline-danger" title="Xóa nội dung console">
+                <i class="bi bi-trash"></i> Xóa console
+            </button>
         </div>
     </div>
 
-    <div class="mt-3">
-        <table class="table table-bordered">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Tên</th>
-                    <th>App ID</th>
-                    <th>Thư mục cài đặt</th>
-                    <th>Thao tác</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var profile in Model.Profiles)
-                {
-                    <tr>
-                        <td>@profile.Id</td>
-                        <td>@profile.Name</td>
-                        <td>@profile.AppID</td>
-                        <td>@profile.InstallDirectory</td>
-                        <td>
-                            <button class="btn btn-sm btn-success run-btn" data-id="@profile.Id">Chạy</button>
-                            <button class="btn btn-sm btn-danger stop-btn" data-id="@profile.Id">Dừng</button>
-                            <a asp-page="./Edit" asp-route-id="@profile.Id" class="btn btn-sm btn-primary">Sửa</a>
-                            <button class="btn btn-sm btn-danger delete-btn" data-id="@profile.Id">Xóa</button>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+    <!-- Console SteamCMD thay thế cho LogContainer -->
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">SteamCMD Console</h5>
+            <div class="profile-badge" id="activeProfileBadge"></div>
+        </div>
+        <div class="card-body p-0">
+            <div id="steamcmd-console" data-profile-id="0"></div>
+        </div>
+    </div>
+
+    <div class="mt-3 profile-list">
+        <div class="card">
+            <div class="card-header">
+                <h5>Danh sách cấu hình</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>Tên</th>
+                                <th>App ID</th>
+                                <th>Thư mục cài đặt</th>
+                                <th>Trạng thái</th>
+                                <th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var profile in Model.Profiles)
+                            {
+                                <tr data-profile-id="@profile.Id" class="@(profile.Status == "Running" ? "table-success" : "")">
+                                    <td>@profile.Id</td>
+                                    <td>@profile.Name</td>
+                                    <td>@profile.AppID</td>
+                                    <td class="text-truncate" style="max-width: 200px;" title="@profile.InstallDirectory">@profile.InstallDirectory</td>
+                                    <td>
+                                        <span class="badge bg-@(profile.Status == "Running" ? "success" : "secondary")">
+                                            @profile.Status
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-sm btn-success run-btn" data-id="@profile.Id" title="Chạy">
+                                                <i class="bi bi-play-fill"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-danger stop-btn" data-id="@profile.Id" title="Dừng">
+                                                <i class="bi bi-stop-fill"></i>
+                                            </button>
+                                            <a asp-page="./Edit" asp-route-id="@profile.Id" class="btn btn-sm btn-primary" title="Sửa">
+                                                <i class="bi bi-pencil-fill"></i>
+                                            </a>
+                                            <button class="btn btn-sm btn-danger delete-btn" data-id="@profile.Id" title="Xóa">
+                                                <i class="bi bi-trash-fill"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
 @section Scripts {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
-    <script src="~/js/logHub.js"></script>
+    <script src="~/js/steamcmd-console.js"></script>
 
     <script>
         $(document).ready(function () {
@@ -82,99 +120,58 @@
                 console.log("Anti-Forgery Token đã được tải");
             }
 
-            // Khởi tạo theo dõi logContainer để phát hiện yêu cầu 2FA sớm
-            const logContainer = document.getElementById('logContainer');
-            if (logContainer) {
-                const observer = new MutationObserver(function(mutations) {
-                    mutations.forEach(function(mutation) {
-                        if (mutation.addedNodes && mutation.addedNodes.length > 0) {
-                            for (let i = 0; i < mutation.addedNodes.length; i++) {
-                                const node = mutation.addedNodes[i];
-                                if (node.textContent) {
-                                    const text = node.textContent;
-                                    // Kiểm tra đây có phải là yêu cầu 2FA không
-                                    const is2FARequest =
-                                        text.includes("STEAMGUARD_REQUEST_") ||
-                                        text.includes("Steam Guard code:") ||
-                                        text.includes("Two-factor code:") ||
-                                        text.includes("Enter the current code") ||
-                                        text.toLowerCase().includes("mobile authenticator") ||
-                                        text.toLowerCase().includes("email address") ||
-                                        (text.toLowerCase().includes("steam guard") && !text.includes("thành công"));
+            // Khởi tạo biến theo dõi cho Auto-scroll
+            let autoScrollEnabled = true;
 
-                                    if (is2FARequest) {
-                                        const profileIdMatch = text.match(/STEAMGUARD_REQUEST_(\d+)/);
-                                        let profileId = parseInt(logContainer.getAttribute("data-profile-id") || "1");
-
-                                        if (profileIdMatch && profileIdMatch[1]) {
-                                            profileId = parseInt(profileIdMatch[1]);
-                                        }
-
-                                        // Kiểm tra nếu đã có yêu cầu cho profile này
-                                        if (window.logHubHelpers && window.logHubHelpers.pendingAuthRequests &&
-                                            !window.logHubHelpers.pendingAuthRequests.has(profileId)) {
-
-                                            console.log("Phát hiện yêu cầu 2FA từ MutationObserver: " + text);
-
-                                            // Nếu showSteamGuardPopup đã được định nghĩa
-                                            if (typeof showSteamGuardPopup === 'function') {
-                                                window.logHubHelpers.pendingAuthRequests.add(profileId);
-
-                                                // Hiển thị popup
-                                                showSteamGuardPopup(profileId, function(code) {
-                                                    window.logHubHelpers.pendingAuthRequests.delete(profileId);
-
-                                                    if (code && typeof connection !== 'undefined') {
-                                                        connection.invoke("SubmitTwoFactorCode", profileId, code)
-                                                            .catch(function(err) {
-                                                                console.error("Lỗi khi gửi mã 2FA: " + err);
-                                                            });
-                                                    }
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    });
-                });
-
-                observer.observe(logContainer, {
-                    childList: true,
-                    subtree: true
-                });
-
-                console.log("Đã thiết lập theo dõi log container cho 2FA");
-            }
-
-            // Test 2FA Popup
-            $("#test2FABtn").click(function() {
-                // Lấy profile ID đầu tiên hoặc một ID cố định
-                const profileId = $(".run-btn").first().data("id") || 1;
-                $("#logContainer").attr("data-profile-id", profileId);
-
-                $.ajax({
-                    url: "/Index?handler=Test2FA",
-                    method: "POST",
-                    data: { profileId: profileId },
-                    headers: {
-                        "RequestVerificationToken": token
-                    },
-                    success: function(response) {
-                        console.log("Đã gửi yêu cầu test 2FA");
-                    },
-                    error: function(xhr, status, error) {
-                        console.error("Lỗi khi test 2FA:", error);
-                    }
-                });
+            // Xử lý nút bật/tắt tự động cuộn
+            $("#toggleAutoScrollBtn").click(function() {
+                autoScrollEnabled = !autoScrollEnabled;
+                if (window.steamConsole) {
+                    window.steamConsole.setAutoScroll(autoScrollEnabled);
+                }
+                $(this).toggleClass('btn-outline-secondary btn-secondary', autoScrollEnabled);
             });
+
+            // Xử lý nút xóa console
+            $("#clearConsoleBtn").click(function() {
+                if (window.steamConsole) {
+                    window.steamConsole.clear();
+                }
+            });
+
+            // Cập nhật badge khi chạy profile
+            function updateActiveProfileBadge(profileId, profileName) {
+                const badge = $('#activeProfileBadge');
+                if (profileId) {
+                    badge.html(`<span class="badge bg-primary">Profile đang chạy: ${profileName || profileId}</span>`);
+                    badge.show();
+                } else {
+                    badge.hide();
+                }
+            }
 
             $(".run-btn").click(function () {
                 const profileId = $(this).data("id");
+                const profileName = $(this).closest('tr').find('td:nth-child(2)').text();
+                
                 console.log("Gửi yêu cầu Run với profileId: " + profileId);
-                // Cập nhật data-profile-id cho logContainer
-                $("#logContainer").attr("data-profile-id", profileId);
+                
+                // Cập nhật data-profile-id cho steamcmd-console
+                $("#steamcmd-console").attr("data-profile-id", profileId);
+                
+                // Cập nhật UI để hiển thị profile đang chạy
+                updateActiveProfileBadge(profileId, profileName);
+                
+                // Thêm class để highlight hàng đang chạy
+                $("tr.table-success").removeClass('table-success');
+                $(`tr[data-profile-id="${profileId}"]`).addClass('table-success');
+                
+                // Xóa console trước khi chạy profile mới
+                if (window.steamConsole) {
+                    window.steamConsole.clear();
+                    window.steamConsole.setProfileId(profileId);
+                    window.steamConsole.addLine(`Đang chuẩn bị chạy profile: ${profileName} (ID: ${profileId})`, 'success');
+                }
 
                 $.ajax({
                     url: "/Index?handler=Run",
@@ -185,17 +182,20 @@
                     },
                     success: function (response) {
                         if (response.success) {
-                            // Bỏ alert thông báo thành công
                             console.log("Đã chạy cấu hình thành công");
                         } else {
                             console.error("Lỗi từ server: " + response.error);
-                            alert("Lỗi: " + response.error);
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Lỗi: " + response.error, 'error');
+                            }
                         }
                     },
                     error: function (xhr, status, error) {
                         console.error("Lỗi AJAX (Run): ", xhr, status, error);
                         console.log("Response Text: ", xhr.responseText);
-                        alert("Lỗi: " + (xhr.responseText || "Không thể gửi yêu cầu."));
+                        if (window.steamConsole) {
+                            window.steamConsole.addLine("Lỗi khi gửi yêu cầu: " + (xhr.responseText || error), 'error');
+                        }
                     }
                 });
             });
@@ -203,6 +203,17 @@
             $(".stop-btn").click(function () {
                 const profileId = $(this).data("id");
                 console.log("Gửi yêu cầu Stop với profileId: " + profileId);
+                
+                // Cập nhật UI
+                $(`tr[data-profile-id="${profileId}"]`).removeClass('table-success');
+                
+                if (window.steamConsole) {
+                    window.steamConsole.addLine(`Đang dừng profile ID: ${profileId}...`, 'warning');
+                }
+                
+                // Xóa badge profile đang chạy
+                updateActiveProfileBadge(null);
+
                 $.ajax({
                     url: "/Index?handler=Stop",
                     method: "POST",
@@ -213,15 +224,22 @@
                     success: function (response) {
                         if (response.success) {
                             console.log("Đã dừng cấu hình thành công");
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine(`Đã dừng profile ID: ${profileId} thành công`, 'success');
+                            }
                         } else {
                             console.error("Lỗi từ server: " + response.error);
-                            alert("Lỗi: " + response.error);
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Lỗi: " + response.error, 'error');
+                            }
                         }
                     },
                     error: function (xhr, status, error) {
                         console.error("Lỗi AJAX (Stop): ", xhr, status, error);
                         console.log("Response Text: ", xhr.responseText);
-                        alert("Lỗi: " + (xhr.responseText || "Không thể gửi yêu cầu."));
+                        if (window.steamConsole) {
+                            window.steamConsole.addLine("Lỗi khi gửi yêu cầu dừng: " + (xhr.responseText || error), 'error');
+                        }
                     }
                 });
             });
@@ -230,6 +248,11 @@
                 if (confirm("Bạn có chắc chắn muốn xóa cấu hình này?")) {
                     const profileId = $(this).data("id");
                     console.log("Gửi yêu cầu Delete với profileId: " + profileId);
+                    
+                    if (window.steamConsole) {
+                        window.steamConsole.addLine(`Đang xóa profile ID: ${profileId}...`, 'warning');
+                    }
+                    
                     $.ajax({
                         url: "/Index?handler=Delete",
                         method: "POST",
@@ -239,16 +262,23 @@
                         },
                         success: function (response) {
                             if (response.success) {
+                                if (window.steamConsole) {
+                                    window.steamConsole.addLine(`Đã xóa profile ID: ${profileId} thành công`, 'success');
+                                }
                                 location.reload();
                             } else {
                                 console.error("Lỗi từ server: " + response.error);
-                                alert("Lỗi: " + response.error);
+                                if (window.steamConsole) {
+                                    window.steamConsole.addLine("Lỗi khi xóa: " + response.error, 'error');
+                                }
                             }
                         },
                         error: function (xhr, status, error) {
                             console.error("Lỗi AJAX (Delete): ", xhr, status, error);
                             console.log("Response Text: ", xhr.responseText);
-                            alert("Lỗi: " + (xhr.responseText || "Không thể gửi yêu cầu."));
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Lỗi khi gửi yêu cầu xóa: " + (xhr.responseText || error), 'error');
+                            }
                         }
                     });
                 }
@@ -256,6 +286,13 @@
 
             $("#runAllBtn").click(function () {
                 console.log("Gửi yêu cầu RunAll");
+                
+                // Cập nhật UI
+                if (window.steamConsole) {
+                    window.steamConsole.clear();
+                    window.steamConsole.addLine("Đang chuẩn bị chạy tất cả các profile...", 'success');
+                }
+                
                 $.ajax({
                     url: "/Index?handler=RunAll",
                     method: "POST",
@@ -267,19 +304,32 @@
                             console.log("Đã chạy tất cả cấu hình thành công");
                         } else {
                             console.error("Lỗi từ server: " + response.error);
-                            alert("Lỗi: " + response.error);
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Lỗi: " + response.error, 'error');
+                            }
                         }
                     },
                     error: function (xhr, status, error) {
                         console.error("Lỗi AJAX (RunAll): ", xhr, status, error);
                         console.log("Response Text: ", xhr.responseText);
-                        alert("Lỗi: " + (xhr.responseText || "Không thể gửi yêu cầu."));
+                        if (window.steamConsole) {
+                            window.steamConsole.addLine("Lỗi khi gửi yêu cầu chạy tất cả: " + (xhr.responseText || error), 'error');
+                        }
                     }
                 });
             });
 
             $("#stopAllBtn").click(function () {
                 console.log("Gửi yêu cầu StopAll");
+                
+                // Cập nhật UI
+                $("tr.table-success").removeClass('table-success');
+                updateActiveProfileBadge(null);
+                
+                if (window.steamConsole) {
+                    window.steamConsole.addLine("Đang dừng tất cả các profile...", 'warning');
+                }
+                
                 $.ajax({
                     url: "/Index?handler=StopAll",
                     method: "POST",
@@ -289,15 +339,22 @@
                     success: function (response) {
                         if (response.success) {
                             console.log("Đã dừng tất cả tiến trình thành công");
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Đã dừng tất cả các profile thành công", 'success');
+                            }
                         } else {
                             console.error("Lỗi từ server: " + response.error);
-                            alert("Lỗi: " + response.error);
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Lỗi: " + response.error, 'error');
+                            }
                         }
                     },
                     error: function (xhr, status, error) {
                         console.error("Lỗi AJAX (StopAll): ", xhr, status, error);
                         console.log("Response Text: ", xhr.responseText);
-                        alert("Lỗi: " + (xhr.responseText || "Không thể gửi yêu cầu."));
+                        if (window.steamConsole) {
+                            window.steamConsole.addLine("Lỗi khi gửi yêu cầu dừng tất cả: " + (xhr.responseText || error), 'error');
+                        }
                     }
                 });
             });
@@ -308,6 +365,23 @@
                     $('#steam-guard-popup').remove();
                 }
             });
+
+            // Khởi tạo SteamConsole nếu chưa có
+            if (window.steamConsole === undefined && $('#steamcmd-console').length > 0) {
+                window.steamConsole = new SteamCmdConsole('steamcmd-console', {
+                    showInput: true,
+                    steamGuardDetection: true,
+                    onSteamGuardSubmit: function(code, profileId) {
+                        console.log(`Đã nhận mã 2FA: ${code} cho profile: ${profileId}`);
+                        if (typeof connection !== 'undefined') {
+                            connection.invoke("SubmitTwoFactorCode", parseInt(profileId || 1), code).catch(function(err) {
+                                console.error("Lỗi khi gửi mã 2FA: " + err);
+                                window.steamConsole.addLine("Lỗi khi gửi mã 2FA: " + err, 'error');
+                            });
+                        }
+                    }
+                });
+            }
         });
     </script>
 }

@@ -1,31 +1,137 @@
-html {
-  font-size: 14px;
+/* Thêm vào file wwwroot/css/site.css */
+
+.steamcmd-console {
+    font-family: 'Consolas', 'Courier New', monospace;
+    background-color: #000;
+    color: #ccc;
+    padding: 10px;
+    border-radius: 5px;
+    height: 400px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    scrollbar-width: thin;
+    scrollbar-color: #666 #333;
 }
 
-@media (min-width: 768px) {
-  html {
-    font-size: 16px;
-  }
+    .steamcmd-console::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    .steamcmd-console::-webkit-scrollbar-track {
+        background: #333;
+    }
+
+    .steamcmd-console::-webkit-scrollbar-thumb {
+        background-color: #666;
+        border-radius: 10px;
+    }
+
+.steamcmd-console-output {
+    flex-grow: 1;
+    overflow-y: auto;
 }
 
-.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+    .steamcmd-console-output.auto-scroll {
+        scroll-behavior: smooth;
+    }
+
+.console-line {
+    margin: 0;
+    padding: 1px 0;
+    animation: fadeIn 0.1s ease-in-out;
+    transition: all 0.2s ease;
 }
 
-html {
-  position: relative;
-  min-height: 100%;
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
-body {
-  margin-bottom: 60px;
+.console-line.error {
+    color: #ff5252;
+    font-weight: bold;
 }
 
-.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
-  color: var(--bs-secondary-color);
-  text-align: end;
+.console-line.warning {
+    color: #ffbc40;
 }
 
-.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
-  text-align: start;
+.console-line.success {
+    color: #4caf50;
+}
+
+.console-line.steam-guard {
+    color: #ff9800;
+    font-weight: bold;
+    background-color: rgba(255, 152, 0, 0.1);
+    padding: 5px;
+    border-radius: 3px;
+    margin: 5px 0;
+}
+
+.steamcmd-console-input {
+    display: flex;
+    margin-top: 10px;
+    background-color: #1a1a1a;
+    border-radius: 3px;
+    padding: 5px;
+}
+
+    .steamcmd-console-input input {
+        flex-grow: 1;
+        background-color: transparent;
+        border: none;
+        color: #fff;
+        font-family: 'Consolas', 'Courier New', monospace;
+        padding: 5px;
+        outline: none;
+    }
+
+    .steamcmd-console-input button {
+        background-color: #0078d4;
+        color: white;
+        border: none;
+        padding: 5px 15px;
+        margin-left: 5px;
+        border-radius: 3px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+
+        .steamcmd-console-input button:hover {
+            background-color: #0063b1;
+        }
+
+        .steamcmd-console-input button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+/* C?p nh?t style cho trang chính */
+.main-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.profile-list {
+    margin-top: 20px;
+}
+
+.control-panel {
+    margin-bottom: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
 }
