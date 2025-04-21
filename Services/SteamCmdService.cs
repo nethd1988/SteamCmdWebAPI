@@ -1057,6 +1057,8 @@ namespace SteamCmdWebAPI.Services
         // Cập nhật phương thức RunSteamCmdAsync trong SteamCmdService.cs
         // Cần thay đổi cách xử lý output để gửi qua SignalR trực tiếp đến console
 
+        // Cập nhật phương thức RunSteamCmdAsync trong SteamCmdService.cs
+
         private async Task RunSteamCmdAsync(string steamCmdPath, SteamCmdProfile profile, int profileId)
         {
             if (string.IsNullOrEmpty(steamCmdPath))
@@ -1139,7 +1141,7 @@ namespace SteamCmdWebAPI.Services
                 await SafeSendLogAsync(profile.Name, "Info", $"Đang chạy SteamCMD cho {profile.Name}...");
                 await SafeSendLogAsync(profile.Name, "Info", $"Lệnh: {safeArguments}");
 
-                // Khởi tạo Process
+                // Khởi tạo Process với cấu hình tối ưu
                 steamCmdProcess = new Process
                 {
                     StartInfo = new ProcessStartInfo
@@ -1157,22 +1159,36 @@ namespace SteamCmdWebAPI.Services
                     EnableRaisingEvents = true
                 };
 
-                // Theo dõi output
+                // Sử dụng buffer để tăng tốc hiển thị
                 var outputBuffer = new StringBuilder();
+                var outputTimer = new System.Timers.Timer(100); // Gửi output mỗi 100ms
+                outputTimer.Elapsed += async (sender, e) =>
+                {
+                    string output;
+                    lock (outputBuffer)
+                    {
+                        if (outputBuffer.Length == 0) return;
+                        output = outputBuffer.ToString();
+                        outputBuffer.Clear();
+                    }
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", output);
+                };
+                outputTimer.Start();
 
+                // Theo dõi output với hiệu suất tối ưu
                 steamCmdProcess.OutputDataReceived += async (sender, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
                     {
-                        _logger.LogInformation("SteamCMD Output: {Data}", e.Data);
+                        _logger.LogDebug("SteamCMD Output: {Data}", e.Data);
 
-                        // Gửi trực tiếp từng dòng đến client qua SignalR
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", e.Data);
+                        // Thêm vào buffer thay vì gửi ngay lập tức
+                        lock (outputBuffer)
+                        {
+                            outputBuffer.AppendLine(e.Data);
+                        }
 
-                        // Thêm vào buffer để xử lý Steam Guard
-                        outputBuffer.AppendLine(e.Data);
-
-                        // Kiểm tra yêu cầu Steam Guard - điều kiện chính xác và đầy đủ hơn
+                        // Kiểm tra yêu cầu Steam Guard - phải xử lý ngay không thể delay
                         if (e.Data.Contains("Steam Guard code:") ||
                             e.Data.Contains("Two-factor code:") ||
                             e.Data.Contains("Steam Guard Code:") ||
@@ -1182,7 +1198,7 @@ namespace SteamCmdWebAPI.Services
                             e.Data.Contains("email address") ||
                             (e.Data.ToLower().Contains("steam guard") && !e.Data.Contains("thành công")))
                         {
-                            // Xử lý tức thì 2FA trước khi ghi log thành công
+                            // Xử lý tức thì 2FA
                             await ProcessTwoFactorRequest(profileId, profile.Name, steamCmdProcess);
                         }
                     }
@@ -1195,7 +1211,7 @@ namespace SteamCmdWebAPI.Services
                     {
                         _logger.LogError("SteamCMD Error: {Data}", e.Data);
 
-                        // Gửi thông báo lỗi qua SignalR với trạng thái 'error'
+                        // Gửi thông báo lỗi ngay lập tức
                         await _hubContext.Clients.All.SendAsync("ReceiveLog", e.Data);
                     }
                 };
@@ -1216,6 +1232,19 @@ namespace SteamCmdWebAPI.Services
 
                 // Đợi process kết thúc
                 await steamCmdProcess.WaitForExitAsync();
+
+                // Dừng timer và gửi buffer còn lại
+                outputTimer.Stop();
+                string remainingOutput;
+                lock (outputBuffer)
+                {
+                    remainingOutput = outputBuffer.ToString();
+                    outputBuffer.Clear();
+                }
+                if (!string.IsNullOrEmpty(remainingOutput))
+                {
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", remainingOutput);
+                }
 
                 _logger.LogInformation("SteamCMD process đã kết thúc với exit code: {ExitCode}", steamCmdProcess.ExitCode);
 
@@ -1265,42 +1294,54 @@ namespace SteamCmdWebAPI.Services
         }
 
         // Phương thức xử lý yêu cầu 2FA được cập nhật
+        // Phương thức xử lý yêu cầu 2FA cập nhật trong file SteamCmdService.cs
         private async Task ProcessTwoFactorRequest(int profileId, string profileName, Process steamCmdProcess)
         {
             _logger.LogInformation("Phát hiện yêu cầu 2FA, gửi yêu cầu nhập mã");
 
             try
             {
-                // Gửi yêu cầu trực tiếp thông qua SignalR với cờ cảnh báo đặc biệt
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", $"[Steam Guard] Vui lòng nhập mã xác thực cho profile {profileName} (ID: {profileId})");
+                // Gửi thông báo rõ ràng về yêu cầu nhập mã xác thực
+                await SafeSendLogAsync(profileName, "Warning", $"===== YÊU CẦU MÃ XÁC THỰC STEAM GUARD =====");
+                await SafeSendLogAsync(profileName, "Warning", $"Vui lòng nhập mã xác thực cho profile {profileName} (ID: {profileId})");
+                await SafeSendLogAsync(profileName, "Warning", $"Nhập trực tiếp vào console bên dưới và nhấn Enter");
 
-                // Gửi yêu cầu rõ ràng với event riêng để kích hoạt giao diện nhập 2FA
-                await _hubContext.Clients.All.SendAsync("RequestTwoFactorCode", profileId);
+                // Thêm yêu cầu nhập dữ liệu từ console
+                await _hubContext.Clients.All.SendAsync("EnableConsoleInput", profileId);
 
-                // Đợi mã 2FA với thời gian ngắn hơn
-                string twoFactorCode = await LogHub.RequestTwoFactorCode(profileId, _hubContext);
+                // Đợi mã 2FA
+                string twoFactorCode = await LogHub.RequestTwoFactorCodeFromConsole(profileId, _hubContext);
 
                 // Nếu nhận được mã, gửi vào process
                 if (!string.IsNullOrEmpty(twoFactorCode))
                 {
-                    await SafeSendLogAsync(profileName, "Info", "Đã nhận mã 2FA, đang tiếp tục...");
+                    await SafeSendLogAsync(profileName, "Info", $"Đã nhận mã 2FA: {twoFactorCode}, đang tiếp tục...");
 
-                    // Đảm bảo thêm ký tự xuống dòng sau mã
+                    // Thêm các ký tự xuống dòng sau mã
                     await steamCmdProcess.StandardInput.WriteLineAsync(twoFactorCode);
                     await steamCmdProcess.StandardInput.FlushAsync();
 
                     _logger.LogInformation("Đã gửi mã 2FA cho Steam Guard: {Code}", twoFactorCode);
+
+                    // Vô hiệu hóa chế độ nhập console
+                    await _hubContext.Clients.All.SendAsync("DisableConsoleInput");
                 }
                 else
                 {
                     _logger.LogWarning("Không nhận được mã 2FA, quá trình có thể thất bại");
                     await SafeSendLogAsync(profileName, "Warning", "Không nhận được mã 2FA, quá trình có thể thất bại");
+
+                    // Vô hiệu hóa chế độ nhập console
+                    await _hubContext.Clients.All.SendAsync("DisableConsoleInput");
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi xử lý yêu cầu 2FA");
                 await SafeSendLogAsync(profileName, "Error", $"Lỗi khi xử lý 2FA: {ex.Message}");
+
+                // Vô hiệu hóa chế độ nhập console trong trường hợp lỗi
+                await _hubContext.Clients.All.SendAsync("DisableConsoleInput");
             }
         }
 

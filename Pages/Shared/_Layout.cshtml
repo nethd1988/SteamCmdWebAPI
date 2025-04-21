@@ -8,30 +8,26 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <script>
-        // Ghi đè các hàm thông báo mặc định để ngăn chặn tất cả các popup thông báo
+        // Tắt tất cả các popup mặc định
         window.originalAlert = window.alert;
         window.alert = function(message) {
-            // Ghi log thay vì hiển thị popup
             console.log("Alert đã bị chặn: " + message);
             return;
         };
 
-        // Chặn confirm mặc định
         window.originalConfirm = window.confirm;
         window.confirm = function(message) {
-            // Đối với các xác nhận liên quan đến xóa, vẫn hiển thị popup
+            // Chỉ giữ lại popup xác nhận xóa
             if (message && message.includes("chắc chắn") && message.includes("xóa")) {
                 return window.originalConfirm(message);
             }
-            // Chặn các popup khác và trả về true
             console.log("Confirm đã bị chặn: " + message);
             return true;
         };
 
-        // Mở rộng để chặn các popup error
         window.onerror = function(message, source, lineno, colno, error) {
             console.error("Lỗi được chặn:", message, source, lineno, colno, error);
-            return true; // Ngăn chặn hiển thị popup lỗi mặc định
+            return true;
         };
     </script>
 </head>
@@ -80,47 +76,49 @@
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
 
     <script type="text/javascript">
         $(document).ready(function() {
-            // Tự động đóng tất cả các modal
+            // Xóa tất cả các dialog mỗi 100ms để đảm bảo không có popup hiển thị
             setInterval(function() {
+                // Xóa các modal Bootstrap
                 $('.modal').modal('hide');
                 $('.modal-backdrop').remove();
                 $('body').removeClass('modal-open');
                 $('body').css('padding-right', '');
 
-                // Xóa các popup lỗi của trình duyệt
-                const errorElements = document.querySelectorAll('[role="dialog"], .alert-dialog');
-                errorElements.forEach(element => {
+                // Xóa các alert dialog
+                const dialogElements = document.querySelectorAll('[role="dialog"], .alert-dialog, [role="alertdialog"]');
+                dialogElements.forEach(element => {
                     element.remove();
                 });
             }, 100);
 
-            // Ngăn chặn các popup từ các sự kiện Ajax
+            // Xử lý lỗi Ajax
             $(document).ajaxError(function(event, jqXHR, settings, thrownError) {
                 console.error("Ajax error:", thrownError, jqXHR.responseText);
                 return false;
             });
 
-            // Quan sát DOM để xóa các popup mới xuất hiện
+            // Quan sát DOM để xóa popup khi xuất hiện
             const observer = new MutationObserver(function(mutations) {
                 mutations.forEach(function(mutation) {
                     if (mutation.addedNodes && mutation.addedNodes.length > 0) {
                         for (let i = 0; i < mutation.addedNodes.length; i++) {
                             const node = mutation.addedNodes[i];
                             if (node.nodeType === 1) {
-                                // Nếu là phần tử DOM có chứa lỗi hoặc popup
+                                // Xóa các popup dialog
                                 if (node.classList && (
                                     node.classList.contains('modal') ||
                                     node.classList.contains('alert-dialog') ||
-                                    (node.hasAttribute('role') && node.getAttribute('role') === 'dialog')
+                                    (node.hasAttribute('role') && 
+                                     (node.getAttribute('role') === 'dialog' || 
+                                      node.getAttribute('role') === 'alertdialog'))
                                 )) {
                                     node.remove();
                                 }
 
-                                // Tìm nút OK hoặc Close trong các popup và tự động click
+                                // Tự động click nút OK hoặc Close
                                 const closeButtons = node.querySelectorAll('button.ok, button.close, button[type="button"]');
                                 closeButtons.forEach(button => {
                                     if (button.innerText && (button.innerText.includes('OK') || button.innerText.includes('Close'))) {

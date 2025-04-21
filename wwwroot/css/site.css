@@ -1,55 +1,187 @@
-/* Thêm vào file wwwroot/css/site.css */
-
+/* SteamCMD Console Styles - T?i ?u hi?u su?t */
 .steamcmd-console {
-    font-family: 'Consolas', 'Courier New', monospace;
-    background-color: #000;
-    color: #ccc;
-    padding: 10px;
-    border-radius: 5px;
-    height: 400px;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    scrollbar-width: thin;
-    scrollbar-color: #666 #333;
+    height: 400px;
+    background-color: #0d0d0d;
+    color: #f0f0f0;
+    font-family: Consolas, 'Courier New', monospace;
+    border-radius: 4px;
+    overflow: hidden;
+    will-change: transform;
+    transform: translateZ(0);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
-
-    .steamcmd-console::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-
-    .steamcmd-console::-webkit-scrollbar-track {
-        background: #333;
-    }
-
-    .steamcmd-console::-webkit-scrollbar-thumb {
-        background-color: #666;
-        border-radius: 10px;
-    }
 
 .steamcmd-console-output {
-    flex-grow: 1;
+    flex: 1;
     overflow-y: auto;
+    padding: 10px;
+    font-size: 14px;
+    line-height: 1.4;
+    will-change: transform, contents;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-font-smoothing: subpixel-antialiased;
 }
 
+    /* T?i ?u hi?u su?t cu?n */
     .steamcmd-console-output.auto-scroll {
-        scroll-behavior: smooth;
+        scroll-behavior: auto !important; /* T?t smooth scroll ?? t?ng hi?u su?t */
+    }
+
+.steamcmd-console-input {
+    display: flex;
+    background-color: #1a1a1a;
+    padding: 8px;
+    border-top: 1px solid #333;
+    transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    will-change: transform;
+}
+
+.steamcmd-console.awaiting-input .steamcmd-console-input {
+    background-color: #2a2a2a;
+    animation: pulse-border 1.5s infinite alternate;
+}
+
+@keyframes pulse-border {
+    0% {
+        border-color: #ff9800;
+        box-shadow: 0 0 5px rgba(255, 152, 0, 0.5);
+    }
+
+    100% {
+        border-color: #ffcc00;
+        box-shadow: 0 0 10px rgba(255, 204, 0, 0.8);
+    }
+}
+
+.steamcmd-console-input input {
+    flex: 1;
+    background-color: #2a2a2a;
+    color: #fff;
+    border: none;
+    padding: 6px 10px;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 14px;
+}
+
+.steamcmd-console-input button {
+    background-color: #4a4a4a;
+    color: #fff;
+    border: none;
+    padding: 0 15px;
+    margin-left: 5px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+    .steamcmd-console-input button:hover {
+        background-color: #5a5a5a;
+    }
+
+    .steamcmd-console-input button:disabled {
+        background-color: #3a3a3a;
+        color: #aaa;
+        cursor: not-allowed;
     }
 
 .console-line {
-    margin: 0;
-    padding: 1px 0;
-    animation: fadeIn 0.1s ease-in-out;
-    transition: all 0.2s ease;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 1px 0;
+    line-height: 1.3;
+    contain: content; /* T?i ?u hi?u su?t c?a layout */
+    will-change: transform, opacity;
+    transform: translateZ(0);
 }
 
-@keyframes fadeIn {
+/* S? d?ng CSS Variables ?? hi?u su?t t?t h?n */
+:root {
+    --line-color-normal: #f0f0f0;
+    --line-color-error: #ff5555;
+    --line-color-warning: #ffaa00;
+    --line-color-success: #55ff55;
+    --line-color-steam-guard: #ffff00;
+    --line-color-user-input: #55aaff;
+}
+
+.console-line.error {
+    color: var(--line-color-error);
+}
+
+.console-line.warning {
+    color: var(--line-color-warning);
+}
+
+.console-line.success {
+    color: var(--line-color-success);
+}
+
+.console-line.steam-guard {
+    color: var(--line-color-steam-guard);
+    font-weight: bold;
+    animation: blink 1s infinite alternate;
+}
+
+@keyframes blink {
+    0% {
+        opacity: 0.8;
+    }
+
+    100% {
+        opacity: 1;
+    }
+}
+
+.console-line.user-input {
+    color: var(--line-color-user-input);
+    font-weight: bold;
+}
+
+.prompt-text {
+    color: var(--line-color-user-input);
+    margin-right: 5px;
+}
+
+/* T?i ?u hi?u su?t cho máy tính y?u */
+@media (max-width: 768px), (max-height: 600px) {
+    .steamcmd-console {
+        height: 300px; /* Gi?m chi?u cao trên thi?t b? nh? */
+    }
+
+    .console-line {
+        contain: strict; /* T?i ?u hi?u su?t t?i ?a, có th? gi?m ch?t l??ng hi?n th? */
+    }
+
+        /* T?t animation trên thi?t b? y?u */
+        .console-line.steam-guard {
+            animation: none;
+        }
+
+    .steamcmd-console.awaiting-input .steamcmd-console-input {
+        animation: none;
+        border-color: #ff9800;
+        box-shadow: 0 0 5px rgba(255, 152, 0, 0.5);
+    }
+}
+
+/* Thêm style cho badge hi?n th? profile ?ang ch?y */
+.profile-badge {
+    display: flex;
+    align-items: center;
+}
+
+    .profile-badge .badge {
+        display: inline-flex;
+        align-items: center;
+        animation: fade-in 0.3s ease;
+    }
+
+@keyframes fade-in {
     from {
         opacity: 0;
-        transform: translateY(10px);
+        transform: translateY(-5px);
     }
 
     to {
@@ -58,80 +190,21 @@
     }
 }
 
-.console-line.error {
-    color: #ff5252;
-    font-weight: bold;
-}
-
-.console-line.warning {
-    color: #ffbc40;
-}
-
-.console-line.success {
-    color: #4caf50;
-}
-
-.console-line.steam-guard {
-    color: #ff9800;
-    font-weight: bold;
-    background-color: rgba(255, 152, 0, 0.1);
-    padding: 5px;
-    border-radius: 3px;
-    margin: 5px 0;
-}
-
-.steamcmd-console-input {
-    display: flex;
-    margin-top: 10px;
-    background-color: #1a1a1a;
-    border-radius: 3px;
-    padding: 5px;
-}
-
-    .steamcmd-console-input input {
-        flex-grow: 1;
-        background-color: transparent;
-        border: none;
-        color: #fff;
-        font-family: 'Consolas', 'Courier New', monospace;
-        padding: 5px;
-        outline: none;
+/* T?o hi?u ?ng loading khi ?ang ch?y */
+@keyframes progress-bar {
+    0% {
+        background-position: 0% 50%;
     }
 
-    .steamcmd-console-input button {
-        background-color: #0078d4;
-        color: white;
-        border: none;
-        padding: 5px 15px;
-        margin-left: 5px;
-        border-radius: 3px;
-        cursor: pointer;
-        transition: background-color 0.2s;
+    100% {
+        background-position: 100% 50%;
     }
-
-        .steamcmd-console-input button:hover {
-            background-color: #0063b1;
-        }
-
-        .steamcmd-console-input button:disabled {
-            background-color: #555;
-            cursor: not-allowed;
-        }
-
-/* C?p nh?t style cho trang chính */
-.main-container {
-    max-width: 1200px;
-    margin: 0 auto;
 }
 
-.profile-list {
-    margin-top: 20px;
-}
-
-.control-panel {
-    margin-bottom: 15px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
+/* Thanh tiêu ?? console khi ?ang ch?y */
+.card-header.running {
+    background: linear-gradient(90deg, #1b2838, #66c0f4, #1b2838);
+    background-size: 200% 100%;
+    animation: progress-bar 2s linear infinite;
+    color: white;
 }
