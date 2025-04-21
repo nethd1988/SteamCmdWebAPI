@@ -1,3 +1,4 @@
+// Thêm các phương thức từ ProfileMigrationService vào ProfileService.cs
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -14,6 +15,7 @@ namespace SteamCmdWebAPI.Services
         private readonly string _profilesPath;
         private readonly ILogger<ProfileService> _logger;
         private readonly object _fileLock = new object(); // Khóa để xử lý đồng thời
+        private readonly string _backupFolder;
 
         public ProfileService(ILogger<ProfileService> logger)
         {
@@ -28,13 +30,16 @@ namespace SteamCmdWebAPI.Services
             }
 
             _profilesPath = Path.Combine(dataDir, "profiles.json");
+            _backupFolder = Path.Combine(dataDir, "Backup");
 
-#if DEBUG
-            Console.WriteLine($"Current dir : {currentDir} \nProfile file path : {_profilesPath}"); //pass
-#endif
+            if (!Directory.Exists(_backupFolder))
+            {
+                Directory.CreateDirectory(_backupFolder);
+            }
+
             if (!File.Exists(_profilesPath))
             {
-                _logger.LogError("File profiles not exist in :", _profilesPath);
+                _logger.LogInformation("File profiles chưa tồn tại, sẽ được tạo khi cần.");
             }
         }
 
@@ -310,5 +315,161 @@ namespace SteamCmdWebAPI.Services
             if (hours <= 168) return "weekly";
             return "monthly";
         }
+
+        // Phương thức từ ProfileMigrationService
+        public List<BackupFileInfo> GetBackupFiles()
+        {
+            try
+            {
+                var result = new List<BackupFileInfo>();
+                var directory = new DirectoryInfo(_backupFolder);
+
+                if (!directory.Exists)
+                {
+                    return result;
+                }
+
+                var files = directory.GetFiles("*.json").OrderByDescending(f => f.LastWriteTime);
+
+                foreach (var file in files)
+                {
+                    result.Add(new BackupFileInfo
+                    {
+                        FileName = file.Name,
+                        CreationTime = file.CreationTime,
+                        LastWriteTime = file.LastWriteTime,
+                        SizeBytes = file.Length,
+                        SizeMB = Math.Round(file.Length / 1024.0 / 1024.0, 2)
+                    });
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy danh sách file backup");
+                return new List<BackupFileInfo>();
+            }
+        }
+
+        public async Task<string> BackupProfiles(List<SteamCmdProfile> profiles)
+        {
+            try
+            {
+                if (profiles == null || profiles.Count == 0)
+                {
+                    return "Không có profile nào để backup";
+                }
+
+                if (!Directory.Exists(_backupFolder))
+                {
+                    Directory.CreateDirectory(_backupFolder);
+                }
+
+                string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                string fileName = $"backup_{timestamp}.json";
+                string filePath = Path.Combine(_backupFolder, fileName);
+
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                string json = JsonSerializer.Serialize(profiles, options);
+                await File.WriteAllTextAsync(filePath, json);
+
+                return $"Đã backup {profiles.Count} profile vào file {fileName}";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi backup profiles");
+                throw;
+            }
+        }
+
+        public async Task<List<SteamCmdProfile>> LoadProfilesFromBackup(string fileName)
+        {
+            try
+            {
+                string filePath = Path.Combine(_backupFolder, fileName);
+
+                if (!File.Exists(filePath))
+                {
+                    return new List<SteamCmdProfile>();
+                }
+
+                string json = await File.ReadAllTextAsync(filePath);
+                return JsonSerializer.Deserialize<List<SteamCmdProfile>>(json) ?? new List<SteamCmdProfile>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đọc profiles từ backup");
+                throw;
+            }
+        }
+
+        public async Task<(int Added, int Skipped)> MigrateProfilesToAppProfiles(List<SteamCmdProfile> profiles, bool skipDuplicateCheck = false)
+        {
+            try
+            {
+                if (profiles == null || profiles.Count == 0)
+                {
+                    return (0, 0);
+                }
+
+                int added = 0;
+                int skipped = 0;
+                var existingProfiles = await GetAllProfiles();
+
+                foreach (var profile in profiles)
+                {
+                    // Bỏ qua profile null
+                    if (profile == null) continue;
+
+                    // Kiểm tra trùng lặp nếu không bỏ qua
+                    if (!skipDuplicateCheck)
+                    {
+                        bool isDuplicate = existingProfiles.Any(p =>
+                            p.Name == profile.Name &&
+                            p.AppID == profile.AppID &&
+                            p.InstallDirectory == profile.InstallDirectory);
+
+                        if (isDuplicate)
+                        {
+                            skipped++;
+                            continue;
+                        }
+                    }
+
+                    // Đặt ID mới để tránh xung đột với ID hiện có
+                    int newId = existingProfiles.Count > 0 ? existingProfiles.Max(p => p.Id) + 1 : 1;
+                    profile.Id = newId;
+
+                    // Đặt trạng thái mặc định
+                    if (string.IsNullOrEmpty(profile.Status))
+                    {
+                        profile.Status = "Stopped";
+                    }
+
+                    // Thêm profile mới
+                    await AddProfileAsync(profile);
+                    existingProfiles.Add(profile); // Cập nhật danh sách local để tính ID mới chính xác
+                    added++;
+                }
+
+                return (added, skipped);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi di chuyển profiles");
+                throw;
+            }
+        }
+    }
+
+    // Class để lưu trữ thông tin file backup
+    public class BackupFileInfo
+    {
+        public string FileName { get; set; }
+        public DateTime CreationTime { get; set; }
+        public DateTime LastWriteTime { get; set; }
+        public long SizeBytes { get; set; }
+        public double SizeMB { get; set; }
     }
 }

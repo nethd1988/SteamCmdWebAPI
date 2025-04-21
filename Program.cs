@@ -61,8 +61,21 @@ namespace SteamCmdWebAPI
             builder.Logging.AddFilter("Microsoft.AspNetCore.SignalR", LogLevel.Warning);
             builder.Logging.AddFilter("Microsoft.AspNetCore.Http.Connections", LogLevel.Warning);
 
-            // Đăng ký tất cả dịch vụ thông qua phương thức mở rộng
-            builder.Services.AddSteamCmdServices();
+            // Đăng ký các dịch vụ
+            builder.Services.AddSingleton<EncryptionService>();
+            builder.Services.AddSingleton<ProfileService>();
+            builder.Services.AddSingleton<SettingsService>();
+            builder.Services.AddSingleton<ServerSettingsService>();
+            builder.Services.AddSingleton<TcpClientService>();
+            builder.Services.AddSingleton<ServerSyncService>();
+            builder.Services.AddSingleton<SilentSyncService>();
+            builder.Services.AddSingleton<LogFileReader>();
+            builder.Services.AddSingleton<SteamCmdService>();
+
+            // Cấu hình AutoRun
+            builder.Services.AddSingleton<AutoRunConfiguration>();
+            builder.Services.AddHostedService<AutoRunService>();
+            builder.Services.AddHostedService<AutoRunBackgroundService>();
 
             var app = builder.Build();
 

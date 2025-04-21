@@ -14,17 +14,20 @@ namespace SteamCmdWebAPI.Controllers
         private readonly ServerSettingsService _serverSettingsService;
         private readonly TcpClientService _tcpClientService;
         private readonly ServerSyncService _serverSyncService;
+        private readonly SilentSyncService _silentSyncService;
 
         public ServerController(
             ILogger<ServerController> logger,
             ServerSettingsService serverSettingsService,
             TcpClientService tcpClientService,
-            ServerSyncService serverSyncService)
+            ServerSyncService serverSyncService,
+            SilentSyncService silentSyncService)
         {
             _logger = logger;
             _serverSettingsService = serverSettingsService;
             _tcpClientService = tcpClientService;
             _serverSyncService = serverSyncService;
+            _silentSyncService = silentSyncService;
         }
 
         [HttpGet("test-connection")]
@@ -61,7 +64,6 @@ namespace SteamCmdWebAPI.Controllers
                 if (isConnected)
                 {
                     // Cập nhật trạng thái kết nối
-                    settings.ConnectionStatus = "Connected";
                     await _serverSettingsService.UpdateConnectionStatusAsync("Connected");
 
                     // Chỉ lấy danh sách profile từ server, không tự động đồng bộ
@@ -84,7 +86,6 @@ namespace SteamCmdWebAPI.Controllers
                 else
                 {
                     // Cập nhật trạng thái kết nối
-                    settings.ConnectionStatus = "Disconnected";
                     await _serverSettingsService.UpdateConnectionStatusAsync("Disconnected");
                     return Ok(new { success = false, error = "Không thể kết nối tới server sau nhiều lần thử" });
                 }
@@ -197,6 +198,44 @@ namespace SteamCmdWebAPI.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi lấy thông tin profile {ProfileName} từ server", profileName);
+                return StatusCode(500, new { success = false, error = ex.Message });
+            }
+        }
+
+        [HttpPost("silentsync")]
+        public async Task<IActionResult> SilentSync()
+        {
+            try
+            {
+                var (success, message) = await _silentSyncService.SyncAllProfilesAsync();
+
+                if (success)
+                {
+                    return Ok(new { success = true, message = message });
+                }
+                else
+                {
+                    return BadRequest(new { success = false, error = message });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi thực hiện đồng bộ âm thầm");
+                return StatusCode(500, new { success = false, error = ex.Message });
+            }
+        }
+
+        [HttpGet("syncstatus")]
+        public IActionResult GetSyncStatus()
+        {
+            try
+            {
+                var syncStatus = _silentSyncService.GetSyncStatus();
+                return Ok(syncStatus);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy trạng thái đồng bộ");
                 return StatusCode(500, new { success = false, error = ex.Message });
             }
         }
