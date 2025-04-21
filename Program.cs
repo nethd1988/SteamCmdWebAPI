@@ -62,6 +62,7 @@ namespace SteamCmdWebAPI
             builder.Logging.AddDebug();
             builder.Logging.AddEventSourceLogger();
 
+
             // Cấu hình bộ lọc chi tiết log
             builder.Logging.AddFilter("Microsoft.AspNetCore.SignalR", LogLevel.Warning);
             builder.Logging.AddFilter("Microsoft.AspNetCore.Http.Connections", LogLevel.Warning);
@@ -76,7 +77,7 @@ namespace SteamCmdWebAPI
             builder.Services.AddSingleton<ServerSyncService>();
             builder.Services.AddSingleton<SilentSyncService>();
             builder.Services.AddHostedService<AutoRunBackgroundService>();
-
+            builder.Services.AddSingleton<LogFileReader>();
             var app = builder.Build();
 
             // Configure the HTTP request pipeline.
