@@ -32,6 +32,7 @@ namespace SteamCmdWebAPI
             builder.Services.AddRazorPages();
 
             // Tối ưu hiệu suất SignalR
+            // Sửa đoạn code cấu hình SignalR ở dòng 40-53
             builder.Services.AddSignalR(options =>
             {
                 // Tăng kích thước buffer tối đa để giảm trễ
@@ -43,9 +44,9 @@ namespace SteamCmdWebAPI
                 options.HandshakeTimeout = TimeSpan.FromSeconds(10);
                 options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 
-                // Quản lý streaming
-                options.MaximumParallelInvocationsPerClient = 2;
-                options.MaximumParallelInvocations = 100;
+                // Xóa bỏ các dòng gây lỗi dưới đây
+                // options.MaximumParallelInvocationsPerClient = 2;
+                // options.MaximumParallelInvocations = 100;
             })
             .AddJsonProtocol(options =>
             {
