@@ -1002,7 +1002,14 @@ namespace SteamCmdWebAPI.Services
         private string GetSteamCmdLogPath(int profileId)
         {
             string steamCmdDir = Path.Combine(Directory.GetCurrentDirectory(), "steamcmd");
-            return Path.Combine(steamCmdDir, "logs", "console_log");
+            string logsDir = Path.Combine(steamCmdDir, "logs");
+
+            if (!Directory.Exists(logsDir))
+            {
+                Directory.CreateDirectory(logsDir);
+            }
+
+            return Path.Combine(logsDir, "console_log");
         }
 
         private async Task RunSteamCmdAsync(string steamCmdPath, SteamCmdProfile profile, int profileId)
@@ -1031,18 +1038,29 @@ namespace SteamCmdWebAPI.Services
 
             string logFilePath = GetSteamCmdLogPath(profileId);
 
-            _logFileReader.StartMonitoring(logFilePath, async (content) => {
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", content);
+            // Đảm bảo thư mục logs tồn tại
+            string logsDir = Path.GetDirectoryName(logFilePath);
+            if (!Directory.Exists(logsDir))
+            {
+                Directory.CreateDirectory(logsDir);
+            }
 
-                if (content.Contains("Steam Guard code:") ||
-                    content.Contains("Two-factor code:") ||
-                    content.Contains("Steam Guard Code:") ||
-                    content.Contains("Enter the current code") ||
-                    content.Contains("Mobile Authenticator") ||
-                    content.Contains("email address") ||
-                    (content.ToLower().Contains("steam guard") && !content.Contains("thành công")))
+            _logFileReader.StartMonitoring(logFilePath, async (content) => {
+                if (!string.IsNullOrEmpty(content))
                 {
-                    await ProcessTwoFactorRequest(profileId, profile.Name, steamCmdProcess);
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", content);
+
+                    // Phát hiện yêu cầu Steam Guard
+                    if (content.Contains("Steam Guard code:") ||
+                        content.Contains("Two-factor code:") ||
+                        content.Contains("Steam Guard Code:") ||
+                        content.Contains("Enter the current code") ||
+                        content.Contains("Mobile Authenticator") ||
+                        content.Contains("email address") ||
+                        (content.ToLower().Contains("steam guard") && !content.Contains("thành công")))
+                    {
+                        await ProcessTwoFactorRequest(profileId, profile.Name, steamCmdProcess);
+                    }
                 }
             });
 

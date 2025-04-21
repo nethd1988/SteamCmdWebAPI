@@ -104,23 +104,31 @@ namespace SteamCmdWebAPI.Services
 
         private string ReadNewContent()
         {
-            using (var fileStream = new FileStream(_logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            try
             {
-                if (fileStream.Length == _currentPosition)
-                    return null;
+                using (var fileStream = new FileStream(_logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    if (fileStream.Length == _currentPosition)
+                        return null;
 
-                // Nếu file bị tạo lại hoặc bị cắt ngắn
-                if (fileStream.Length < _currentPosition)
-                    _currentPosition = 0;
+                    // Nếu file bị tạo lại hoặc bị cắt ngắn
+                    if (fileStream.Length < _currentPosition)
+                        _currentPosition = 0;
 
-                fileStream.Seek(_currentPosition, SeekOrigin.Begin);
-                var bytesToRead = (int)(fileStream.Length - _currentPosition);
-                var buffer = new byte[bytesToRead];
-                var bytesRead = fileStream.Read(buffer, 0, bytesToRead);
-                _currentPosition = fileStream.Position;
+                    fileStream.Seek(_currentPosition, SeekOrigin.Begin);
+                    var bytesToRead = (int)(fileStream.Length - _currentPosition);
+                    var buffer = new byte[bytesToRead];
+                    var bytesRead = fileStream.Read(buffer, 0, bytesToRead);
+                    _currentPosition = fileStream.Position;
 
-                // Chuyển đổi bytes thành chuỗi
-                return Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                    // Chuyển đổi bytes thành chuỗi với encoding UTF-8
+                    return Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                }
+            }
+            catch (IOException ex)
+            {
+                _logger.LogWarning(ex, "Lỗi khi đọc file log: {Message}", ex.Message);
+                return null;
             }
         }
     }

@@ -17,7 +17,6 @@ connection.on("ReceiveLog", function (message) {
         // Thêm log mới
         appendLog(message);
 
-        // Di chuyển kiểm tra 2FA lên trước để phát hiện sớm hơn
         // Kiểm tra yêu cầu Steam Guard với điều kiện chính xác hơn
         const is2FARequest =
             message.includes("STEAMGUARD_REQUEST_") ||
@@ -42,8 +41,6 @@ connection.on("ReceiveLog", function (message) {
             // Tránh hiển thị nhiều popup cùng lúc cho cùng một profile
             if (!pendingAuthRequests.has(profileId)) {
                 pendingAuthRequests.add(profileId);
-                console.log("Phát hiện yêu cầu 2FA cho profile " + profileId + ": " + message);
-
                 showSteamGuardPopup(profileId, function (code) {
                     pendingAuthRequests.delete(profileId);
                     if (code !== '') {

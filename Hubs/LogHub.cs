@@ -1,6 +1,3 @@
-// Tệp: Hubs/LogHub.cs
-// Cập nhật phương thức xử lý Steam Guard
-
 using Microsoft.AspNetCore.SignalR;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
