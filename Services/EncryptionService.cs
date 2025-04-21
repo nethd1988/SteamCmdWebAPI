@@ -47,7 +47,7 @@ namespace SteamCmdWebAPI.Services
 
         public string Decrypt(string cipherText)
         {
-            if (string.IsNullOrEmpty(cipherText)) return "";
+            if (string.IsNullOrEmpty(cipherText) || cipherText == "encrypted") return "";
 
             try
             {
