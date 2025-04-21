@@ -1191,14 +1191,12 @@ namespace SteamCmdWebAPI.Services
                             outputBuffer.AppendLine(e.Data);
                         }
 
-                        if (e.Data.Contains("Steam Guard code:") ||
+                        // Kiểm tra Steam Guard nhưng chỉ xử lý nếu chưa đang xử lý 2FA
+                        if (!LogHub.IsProcessing2FA(profileId) &&
+                            (e.Data.Contains("Steam Guard code:") ||
                             e.Data.Contains("Two-factor code:") ||
-                            e.Data.Contains("Steam Guard Code:") ||
-                            e.Data.Contains("Enter the current code") ||
-                            e.Data.Contains("Mobile Authenticator") ||
-                            e.Data.Contains("your Steam account") ||
-                            e.Data.Contains("email address") ||
-                            (e.Data.ToLower().Contains("steam guard") && !e.Data.Contains("thành công")))
+                            (e.Data.Contains("Steam Guard Code:") && !e.Data.Contains("success")) ||
+                            e.Data.Contains("Enter the current code")))
                         {
                             await ProcessTwoFactorRequest(profileId, profile.Name, steamCmdProcess);
                         }
@@ -1284,15 +1282,21 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        // Sửa phương thức ProcessTwoFactorRequest 
         private async Task ProcessTwoFactorRequest(int profileId, string profileName, Process steamCmdProcess)
         {
+            // Kiểm tra nếu đã đang xử lý yêu cầu 2FA cho profile này
+            if (LogHub.IsProcessing2FA(profileId))
+            {
+                return; // Tránh hiện nhiều lần
+            }
+
             _logger.LogInformation("Phát hiện yêu cầu 2FA, gửi yêu cầu nhập mã");
 
             try
             {
                 await SafeSendLogAsync(profileName, "Warning", $"===== YÊU CẦU MÃ XÁC THỰC STEAM GUARD =====");
                 await SafeSendLogAsync(profileName, "Warning", $"Vui lòng nhập mã xác thực cho profile {profileName} (ID: {profileId})");
-                await SafeSendLogAsync(profileName, "Warning", $"Nhập trực tiếp vào console bên dưới và nhấn Enter");
 
                 await _hubContext.Clients.All.SendAsync("EnableConsoleInput", profileId);
 
@@ -1300,7 +1304,7 @@ namespace SteamCmdWebAPI.Services
 
                 if (!string.IsNullOrEmpty(twoFactorCode))
                 {
-                    await SafeSendLogAsync(profileName, "Info", $"Đã nhận mã 2FA: {twoFactorCode}, đang tiếp tục...");
+                    await SafeSendLogAsync(profileName, "Info", $"Đã nhận mã 2FA, đang tiếp tục...");
 
                     await steamCmdProcess.StandardInput.WriteLineAsync(twoFactorCode);
                     await steamCmdProcess.StandardInput.FlushAsync();

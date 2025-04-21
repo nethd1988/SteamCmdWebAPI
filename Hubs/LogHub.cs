@@ -17,6 +17,9 @@ namespace SteamCmdWebAPI.Hubs
         private static readonly ConcurrentDictionary<string, StringBuilder> _logBuffers = new ConcurrentDictionary<string, StringBuilder>();
         private static Timer _flushTimer;
 
+        // Thêm biến để theo dõi yêu cầu 2FA đang xử lý
+        private static readonly ConcurrentDictionary<int, bool> _processing2FARequests = new ConcurrentDictionary<int, bool>();
+
         static LogHub()
         {
             // Tạo timer để đẩy buffer log định kỳ
@@ -32,8 +35,7 @@ namespace SteamCmdWebAPI.Hubs
                     string content = buffer.ToString();
                     if (!string.IsNullOrEmpty(content))
                     {
-                        // Không thể gọi SendAsync từ static void method, nên sẽ không flush ở đây
-                        // Chỉ xóa buffer nếu có nội dung
+                        // Không thể gọi SendAsync từ static void method, cần cơ chế khác nếu muốn gửi log
                     }
                 }
             }
@@ -66,9 +68,18 @@ namespace SteamCmdWebAPI.Hubs
             return Task.CompletedTask;
         }
 
-        // Phương thức để yêu cầu mã 2FA trực tiếp từ console - tối ưu hiệu suất
+        // Phương thức để kiểm tra xem có đang xử lý 2FA cho profile không
+        public static bool IsProcessing2FA(int profileId)
+        {
+            return _processing2FARequests.ContainsKey(profileId) && _processing2FARequests[profileId];
+        }
+
+        // Phương thức để yêu cầu mã 2FA trực tiếp từ console
         public static async Task<string> RequestTwoFactorCodeFromConsole(int profileId, IHubContext<LogHub> hubContext)
         {
+            // Đánh dấu đang xử lý 2FA cho profile này
+            _processing2FARequests.TryAdd(profileId, true);
+
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             _consoleInputTasks.TryRemove(profileId, out _); // Xóa task cũ nếu có
             _consoleInputTasks.TryAdd(profileId, tcs);
@@ -90,22 +101,26 @@ namespace SteamCmdWebAPI.Hubs
                     _consoleInputTasks.TryRemove(profileId, out _);
                     await hubContext.Clients.All.SendAsync("ReceiveLog", $"Hết thời gian đợi mã 2FA cho profile ID {profileId}");
                     await hubContext.Clients.All.SendAsync("DisableConsoleInput");
+                    _processing2FARequests.TryRemove(profileId, out _);
                     return string.Empty;
                 }
 
                 // Vô hiệu hóa input sau khi đã nhận mã
                 await hubContext.Clients.All.SendAsync("DisableConsoleInput");
+                _processing2FARequests.TryRemove(profileId, out _);
                 return await tcs.Task;
             }
             catch
             {
                 _consoleInputTasks.TryRemove(profileId, out _);
                 await hubContext.Clients.All.SendAsync("DisableConsoleInput");
+                _processing2FARequests.TryRemove(profileId, out _);
                 return string.Empty;
             }
             finally
             {
                 try { cts.Cancel(); } catch { }
+                _processing2FARequests.TryRemove(profileId, out _);
             }
         }
 
