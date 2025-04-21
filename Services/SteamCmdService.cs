@@ -1045,9 +1045,35 @@ namespace SteamCmdWebAPI.Services
                 }
             });
 
+            // Khai báo biến steamCmdProcesses ở đầu phương thức
+            ConcurrentDictionary<int, Process> steamCmdProcesses = _steamCmdProcesses;
+
             Process steamCmdProcess = null;
             try
             {
+                // Kill các tiến trình SteamCMD thất lạc
+                try
+                {
+                    foreach (var process in Process.GetProcessesByName("steamcmd").Union(Process.GetProcessesByName("steamcmd.exe")))
+                    {
+                        try
+                        {
+                            _logger.LogWarning("Phát hiện tiến trình SteamCMD thất lạc với PID {Pid}, đang kill", process.Id);
+                            process.Kill(true);
+                            process.WaitForExit(2000);
+                            process.Dispose();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi kill tiến trình SteamCMD thất lạc với PID {Pid}", process.Id);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi tìm và kill các tiến trình SteamCMD thất lạc");
+                }
+
                 string loginCommand;
                 string usernameToUse = "anonymous";
                 string passwordToUse = "";
@@ -1170,7 +1196,7 @@ namespace SteamCmdWebAPI.Services
                     }
                 };
 
-                _steamCmdProcesses[profileId] = steamCmdProcess;
+                steamCmdProcesses[profileId] = steamCmdProcess;
 
                 steamCmdProcess.Start();
 
@@ -1213,7 +1239,7 @@ namespace SteamCmdWebAPI.Services
             {
                 _logFileReader.StopMonitoring();
 
-                _steamCmdProcesses.TryRemove(profileId, out _);
+                steamCmdProcesses.TryRemove(profileId, out _);
 
                 await RemoveSteamAppsSymLink();
 
