@@ -32,7 +32,6 @@ namespace SteamCmdWebAPI
             builder.Services.AddRazorPages();
 
             // Tối ưu hiệu suất SignalR
-            // Sửa đoạn code cấu hình SignalR ở dòng 40-53
             builder.Services.AddSignalR(options =>
             {
                 // Tăng kích thước buffer tối đa để giảm trễ
@@ -43,10 +42,6 @@ namespace SteamCmdWebAPI
                 options.EnableDetailedErrors = false;
                 options.HandshakeTimeout = TimeSpan.FromSeconds(10);
                 options.KeepAliveInterval = TimeSpan.FromSeconds(15);
-
-                // Xóa bỏ các dòng gây lỗi dưới đây
-                // options.MaximumParallelInvocationsPerClient = 2;
-                // options.MaximumParallelInvocations = 100;
             })
             .AddJsonProtocol(options =>
             {
@@ -62,22 +57,13 @@ namespace SteamCmdWebAPI
             builder.Logging.AddDebug();
             builder.Logging.AddEventSourceLogger();
 
-
             // Cấu hình bộ lọc chi tiết log
             builder.Logging.AddFilter("Microsoft.AspNetCore.SignalR", LogLevel.Warning);
             builder.Logging.AddFilter("Microsoft.AspNetCore.Http.Connections", LogLevel.Warning);
 
-            // Đăng ký các service cần thiết
-            builder.Services.AddSingleton<ProfileService>();
-            builder.Services.AddSingleton<SettingsService>();
-            builder.Services.AddSingleton<ServerSettingsService>();
-            builder.Services.AddSingleton<SteamCmdService>();
-            builder.Services.AddSingleton<EncryptionService>();
-            builder.Services.AddSingleton<TcpClientService>();
-            builder.Services.AddSingleton<ServerSyncService>();
-            builder.Services.AddSingleton<SilentSyncService>();
-            builder.Services.AddHostedService<AutoRunBackgroundService>();
-            builder.Services.AddSingleton<LogFileReader>();
+            // Đăng ký tất cả dịch vụ thông qua phương thức mở rộng
+            builder.Services.AddSteamCmdServices();
+
             var app = builder.Build();
 
             // Configure the HTTP request pipeline.

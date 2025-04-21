@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using SteamCmdWebAPI.Models;
 
 namespace SteamCmdWebAPI.Services
@@ -36,7 +36,6 @@ namespace SteamCmdWebAPI.Services
             {
                 _logger.LogError("File profiles not exist in :", _profilesPath);
             }
-        
         }
 
         public async Task<List<SteamCmdProfile>> GetAllProfiles()
@@ -51,7 +50,7 @@ namespace SteamCmdWebAPI.Services
             {
                 string json;
                 json = await File.ReadAllTextAsync(_profilesPath).ConfigureAwait(false);
-                var profiles = JsonConvert.DeserializeObject<List<SteamCmdProfile>>(json) ?? new List<SteamCmdProfile>();
+                var profiles = JsonSerializer.Deserialize<List<SteamCmdProfile>>(json) ?? new List<SteamCmdProfile>();
                 _logger.LogInformation("Đã đọc {0} profiles từ {1}", profiles.Count, _profilesPath);
                 return profiles;
             }
@@ -98,7 +97,7 @@ namespace SteamCmdWebAPI.Services
                         _logger.LogInformation("Đã tạo thư mục {0}", directory);
                     }
 
-                    string updatedJson = JsonConvert.SerializeObject(profiles, Formatting.Indented);
+                    string updatedJson = JsonSerializer.Serialize(profiles, new JsonSerializerOptions { WriteIndented = true });
 
                     // Sử dụng FileMode.Create để tạo mới file mỗi lần ghi
                     using (var fileStream = new FileStream(_profilesPath, FileMode.Create, FileAccess.Write, FileShare.None))
@@ -201,6 +200,115 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogError(ex, "Lỗi khi cập nhật profile với ID {0}", updatedProfile.Id);
                 throw;
             }
+        }
+
+        public async Task<AutoRunSettings> LoadAutoRunSettings()
+        {
+            try
+            {
+                string settingsFilePath = Path.Combine(Path.GetDirectoryName(_profilesPath), "settings.json");
+
+                if (!File.Exists(settingsFilePath))
+                {
+                    _logger.LogInformation("File settings.json không tồn tại. Trả về cài đặt mặc định.");
+                    return new AutoRunSettings
+                    {
+                        AutoRunEnabled = false,
+                        AutoRunIntervalHours = 12,
+                        AutoRunInterval = "daily"
+                    };
+                }
+
+                string json = await File.ReadAllTextAsync(settingsFilePath);
+                var settings = JsonSerializer.Deserialize<AutoRunSettings>(json);
+
+                if (settings == null)
+                {
+                    return new AutoRunSettings
+                    {
+                        AutoRunEnabled = false,
+                        AutoRunIntervalHours = 12,
+                        AutoRunInterval = "daily"
+                    };
+                }
+
+                // Chuyển đổi từ cài đặt cũ sang mới nếu cần
+                if (settings.AutoRunIntervalHours <= 0)
+                {
+                    // Nếu dùng cài đặt cũ, chuyển đổi sang giờ
+                    switch (settings.AutoRunInterval?.ToLower())
+                    {
+                        case "daily":
+                            settings.AutoRunIntervalHours = 24;
+                            break;
+                        case "weekly":
+                            settings.AutoRunIntervalHours = 168; // 7 * 24
+                            break;
+                        case "monthly":
+                            settings.AutoRunIntervalHours = 720; // 30 * 24 (gần đúng)
+                            break;
+                        default:
+                            settings.AutoRunIntervalHours = 12; // Mặc định
+                            break;
+                    }
+                }
+
+                // Giới hạn khoảng thời gian hợp lệ
+                if (settings.AutoRunIntervalHours < 1) settings.AutoRunIntervalHours = 1;
+                if (settings.AutoRunIntervalHours > 48) settings.AutoRunIntervalHours = 48;
+
+                return settings;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đọc cài đặt auto run");
+                return new AutoRunSettings
+                {
+                    AutoRunEnabled = false,
+                    AutoRunIntervalHours = 12,
+                    AutoRunInterval = "daily"
+                };
+            }
+        }
+
+        public async Task SaveAutoRunSettings(AutoRunSettings settings)
+        {
+            try
+            {
+                string settingsFilePath = Path.Combine(Path.GetDirectoryName(_profilesPath), "settings.json");
+
+                var directory = Path.GetDirectoryName(settingsFilePath);
+                if (!Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                    _logger.LogInformation("Đã tạo thư mục {0}", directory);
+                }
+
+                // Kiểm tra và điều chỉnh giá trị
+                if (settings.AutoRunIntervalHours < 1) settings.AutoRunIntervalHours = 1;
+                if (settings.AutoRunIntervalHours > 48) settings.AutoRunIntervalHours = 48;
+
+                // Cập nhật chuỗi AutoRunInterval cho tương thích ngược
+                settings.AutoRunInterval = ConvertIntervalHoursToString(settings.AutoRunIntervalHours);
+
+                string json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(settingsFilePath, json);
+
+                _logger.LogInformation("Đã lưu cài đặt auto run: Enabled={0}, IntervalHours={1}",
+                    settings.AutoRunEnabled, settings.AutoRunIntervalHours);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lưu cài đặt auto run");
+                throw;
+            }
+        }
+
+        private string ConvertIntervalHoursToString(int hours)
+        {
+            if (hours <= 24) return "daily";
+            if (hours <= 168) return "weekly";
+            return "monthly";
         }
     }
 }
