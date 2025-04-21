@@ -124,7 +124,17 @@ namespace SteamCmdWebAPI.Pages
             {
                 _logger.LogInformation("Nhận yêu cầu POST Stop với profileId: {ProfileId}", profileId);
 
-                // Dừng tất cả các tiến trình SteamCMD
+                // Cập nhật trạng thái trước khi dừng tiến trình
+                var profile = await _profileService.GetProfileById(profileId);
+                if (profile != null)
+                {
+                    profile.Status = "Stopped";
+                    profile.StopTime = DateTime.Now;
+                    profile.Pid = 0;
+                    await _profileService.UpdateProfile(profile);
+                }
+
+                // Dừng tiến trình SteamCMD
                 await _steamCmdService.StopAllProfilesAsync();
                 _logger.LogInformation("Dừng profile {ProfileId} thành công", profileId);
                 return new JsonResult(new { success = true, noAlert = true });

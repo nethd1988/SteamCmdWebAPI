@@ -407,16 +407,13 @@ namespace SteamCmdWebAPI.Services
                         await SafeSendLogAsync($"Profile {profileId}", "Info", $"Đang dừng tiến trình đang chạy (PID: {existingProcess.Id})");
 
                         existingProcess.Kill(true);
-                        if (!existingProcess.WaitForExit(5000))
-                        {
-                            _logger.LogWarning("Tiến trình không tự kết thúc, buộc phải kill (Profile: {ProfileId}, PID: {Pid})",
-                                profileId, existingProcess.Id);
-                        }
+                        existingProcess.WaitForExit(5000);
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Lỗi khi dừng tiến trình SteamCMD cho profile {ProfileId}", profileId);
+                    // Không gửi thông báo lỗi đến client
                 }
                 finally
                 {
@@ -425,7 +422,6 @@ namespace SteamCmdWebAPI.Services
             }
 
             await RemoveSteamAppsSymLink();
-
             await KillOrphanedSteamCmdProcesses();
         }
 
@@ -1053,7 +1049,7 @@ namespace SteamCmdWebAPI.Services
             // Khai báo biến steamCmdProcesses ở đầu phương thức
             ConcurrentDictionary<int, Process> steamCmdProcesses = _steamCmdProcesses;
 
-            Process steamCmdProcess = null;
+ 
             try
             {
                 // Kill các tiến trình SteamCMD thất lạc
