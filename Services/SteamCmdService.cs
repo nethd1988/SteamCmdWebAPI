@@ -300,7 +300,7 @@ namespace SteamCmdWebAPI.Services
                     {
                         try
                         {
-                            _Logger.LogWarning("Phát hiện tiến trình SteamCMD thất lạc với PID {Pid}, đang kill", process.Id);
+                            _logger.LogWarning("Phát hiện tiến trình SteamCMD thất lạc với PID {Pid}, đang kill", process.Id);
                             process.Kill(true);
                             process.WaitForExit(2000);
                             process.Dispose();
@@ -1011,6 +1011,11 @@ namespace SteamCmdWebAPI.Services
 
         private async Task RunSteamCmdAsync(string steamCmdPath, SteamCmdProfile profile, int profileId)
         {
+            // Loại bỏ dòng khai báo trùng lặp
+            // ConcurrentDictionary<int, Process> steamCmdProcesses = _steamCmdProcesses;
+
+            Process steamCmdProcess = null;
+
             if (string.IsNullOrEmpty(steamCmdPath))
                 throw new ArgumentNullException(nameof(steamCmdPath));
             if (profile == null)
