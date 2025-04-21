@@ -3,10 +3,6 @@
 // Biến toàn cục để theo dõi các yêu cầu 2FA đang xử lý
 let pendingAuthRequests = new Set();
 
-// Biến để theo dõi thông báo Steam Guard gần đây
-let lastSteamGuardTime = 0;
-let previousMessages = [];
-
 // Thiết lập kết nối SignalR
 const connection = new signalR.HubConnectionBuilder()
     .withUrl("/logHub")
@@ -18,30 +14,20 @@ connection.on("ReceiveLog", function (message) {
     const logContainer = document.getElementById("logContainer");
 
     if (logContainer) {
-        // Tránh hiển thị nhiều thông báo 2FA trùng lặp
-        if (isSteamGuardMessage(message) && isSimilarToPreviousMessage(message)) {
-            return;
-        }
-
         // Thêm log mới
         appendLog(message);
 
         // Kiểm tra yêu cầu Steam Guard với điều kiện chính xác hơn
         const is2FARequest =
             message.includes("STEAMGUARD_REQUEST_") ||
-            (message.includes("Steam Guard code:") && !message.includes("Đã gửi")) ||
-            (message.includes("Two-factor code:") && !message.includes("Đã gửi")) ||
-            (message.includes("Enter the current code") && !message.includes("Đã gửi"));
+            message.includes("Steam Guard code:") ||
+            message.includes("Two-factor code:") ||
+            message.includes("Enter the current code") ||
+            message.toLowerCase().includes("mobile authenticator") ||
+            message.toLowerCase().includes("email address") ||
+            (message.toLowerCase().includes("steam guard") && !message.includes("thành công"));
 
         if (is2FARequest) {
-            // Kiểm tra thời gian kể từ yêu cầu 2FA gần nhất
-            const now = Date.now();
-            if (now - lastSteamGuardTime < 5000) { // Nếu < 5 giây, không hiển thị
-                return;
-            }
-
-            lastSteamGuardTime = now;
-
             // Trích xuất profileId từ message nếu có
             let profileId = 1; // Mặc định là 1
             const profileIdMatch = message.match(/STEAMGUARD_REQUEST_(\d+)/);
@@ -81,100 +67,39 @@ function appendLog(message, type = "info") {
         const lines = message.split("\n");
         lines.forEach(line => {
             if (line.trim() !== "") {
-                appendSingleLine(line, type);
+                const span = document.createElement("div");
+                span.textContent = line;
+                if (type === "error") {
+                    span.style.color = "red";
+                } else if (type === "warning") {
+                    span.style.color = "yellow";
+                } else if (line.includes("Steam Guard") || line.includes("2FA") || line.includes("mã xác thực") ||
+                    line.includes("STEAMGUARD_REQUEST_") || line.includes("email")) {
+                    span.style.color = "#FF9900"; // Highlight 2FA messages
+                    span.style.fontWeight = "bold";
+                }
+                logContainer.appendChild(span);
             }
         });
     } else {
-        appendSingleLine(message, type);
-    }
-}
-
-// Hàm thêm một dòng log
-function appendSingleLine(line, type) {
-    const logContainer = document.getElementById("logContainer");
-    if (!logContainer) return;
-
-    const span = document.createElement("div");
-    span.textContent = line;
-
-    if (type === "error") {
-        span.style.color = "red";
-    } else if (type === "warning") {
-        span.style.color = "yellow";
-    } else if (line.includes("Steam Guard") || line.includes("2FA") || line.includes("mã xác thực") ||
-        line.includes("STEAMGUARD_REQUEST_") || line.includes("email")) {
-        span.style.color = "#FF9900"; // Highlight 2FA messages
-        span.style.fontWeight = "bold";
-    }
-
-    logContainer.appendChild(span);
-}
-
-// Hàm kiểm tra thông báo Steam Guard
-function isSteamGuardMessage(message) {
-    return message.includes("Steam Guard") ||
-        message.includes("mã xác thực") ||
-        message.includes("Two-factor") ||
-        message.includes("Mobile Authenticator");
-}
-
-// Hàm kiểm tra thông báo tương tự trước đó
-function isSimilarToPreviousMessage(message) {
-    for (let i = 0; i < previousMessages.length; i++) {
-        if (message === previousMessages[i] ||
-            levenshteinDistance(message, previousMessages[i]) < 5) {
-            return true;
+        const span = document.createElement("div");
+        span.textContent = message;
+        if (type === "error") {
+            span.style.color = "red";
+        } else if (type === "warning") {
+            span.style.color = "yellow";
+        } else if (message.includes("Steam Guard") || message.includes("2FA") || message.includes("mã xác thực") ||
+            message.includes("STEAMGUARD_REQUEST_") || message.includes("email")) {
+            span.style.color = "#FF9900"; // Highlight 2FA messages
+            span.style.fontWeight = "bold";
         }
+        logContainer.appendChild(span);
     }
-
-    // Thêm vào danh sách các tin nhắn đã hiển thị
-    previousMessages.push(message);
-    if (previousMessages.length > 10) {
-        previousMessages.shift(); // Chỉ giữ 10 tin nhắn gần nhất
-    }
-
-    return false;
-}
-
-// Hàm tính khoảng cách Levenshtein để so sánh độ tương đồng giữa các chuỗi
-function levenshteinDistance(a, b) {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
-
-    const matrix = [];
-    for (let i = 0; i <= b.length; i++) {
-        matrix[i] = [i];
-    }
-    for (let i = 0; i <= a.length; i++) {
-        matrix[0][i] = i;
-    }
-
-    for (let i = 1; i <= b.length; i++) {
-        for (let j = 1; j <= a.length; j++) {
-            const cost = a[j - 1] === b[i - 1] ? 0 : 1;
-            matrix[i][j] = Math.min(
-                matrix[i - 1][j] + 1,
-                matrix[i][j - 1] + 1,
-                matrix[i - 1][j - 1] + cost
-            );
-        }
-    }
-
-    return matrix[b.length][a.length];
 }
 
 // Xử lý yêu cầu mã xác thực hai lớp (2FA)
 connection.on("RequestTwoFactorCode", function (profileId) {
     console.log("Nhận yêu cầu 2FA trực tiếp cho profile ID: " + profileId);
-
-    // Kiểm tra thời gian từ yêu cầu 2FA gần nhất
-    const now = Date.now();
-    if (now - lastSteamGuardTime < 5000) {
-        console.log("Đã có yêu cầu 2FA gần đây, bỏ qua");
-        return;
-    }
-
-    lastSteamGuardTime = now;
 
     // Tránh nhiều popup cho cùng profile
     if (pendingAuthRequests.has(profileId)) {

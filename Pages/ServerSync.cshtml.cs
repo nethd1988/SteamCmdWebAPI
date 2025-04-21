@@ -108,6 +108,7 @@ namespace SteamCmdWebAPI.Pages
             }
         }
 
+        // Sửa phương thức OnPostSyncAllAsync
         public async Task<IActionResult> OnPostSyncAllAsync()
         {
             try

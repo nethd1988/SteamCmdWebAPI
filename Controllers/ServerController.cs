@@ -97,6 +97,7 @@ namespace SteamCmdWebAPI.Controllers
             }
         }
 
+        // Sửa phương thức SyncWithServer
         [HttpGet("sync")]
         public async Task<IActionResult> SyncWithServer()
         {

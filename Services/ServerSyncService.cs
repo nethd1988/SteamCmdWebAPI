@@ -67,6 +67,7 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        // Sửa phương thức AutoSyncWithServerAsync
         public async Task<bool> AutoSyncWithServerAsync()
         {
             try

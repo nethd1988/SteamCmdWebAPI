@@ -65,80 +65,31 @@ namespace SteamCmdWebAPI.Services
                     return (false, "Đồng bộ server chưa được kích hoạt");
                 }
 
-                // Lấy danh sách tên profile từ server
+                // Chỉ lấy danh sách tên profile từ server, không tự động thêm
                 var profileNames = await _serverSyncService.GetProfileNamesFromServerAsync();
                 if (profileNames.Count == 0)
                 {
                     return (false, "Không tìm thấy profile nào trên server");
                 }
 
-                int addedCount = 0;
-                int updatedCount = 0;
-                int errorCount = 0;
-
-                // Đồng bộ từng profile
-                foreach (var profileName in profileNames)
-                {
-                    try
-                    {
-                        var serverProfile = await _serverSyncService.GetProfileFromServerByNameAsync(profileName);
-                        if (serverProfile == null)
-                        {
-                            _logger.LogWarning("Không lấy được thông tin profile {ProfileName} từ server", profileName);
-                            errorCount++;
-                            continue;
-                        }
-
-                        var localProfiles = await _profileService.GetAllProfiles();
-                        var existingProfile = localProfiles.FirstOrDefault(p => p.Name == profileName);
-
-                        if (existingProfile != null)
-                        {
-                            // Cập nhật profile hiện có
-                            serverProfile.Id = existingProfile.Id;
-                            serverProfile.Status = existingProfile.Status;
-                            serverProfile.Pid = existingProfile.Pid;
-                            serverProfile.StartTime = existingProfile.StartTime;
-                            serverProfile.StopTime = existingProfile.StopTime;
-                            serverProfile.LastRun = existingProfile.LastRun;
-
-                            await _profileService.UpdateProfile(serverProfile);
-                            updatedCount++;
-                            _logger.LogInformation("Đã cập nhật profile từ server: {ProfileName}", profileName);
-                        }
-                        else
-                        {
-                            // Thêm profile mới
-                            await _profileService.AddProfileAsync(serverProfile);
-                            addedCount++;
-                            _logger.LogInformation("Đã thêm profile mới từ server: {ProfileName}", profileName);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Lỗi khi đồng bộ profile {ProfileName}", profileName);
-                        errorCount++;
-                    }
-                }
-
-                // Cập nhật thống kê và lưu vào file
+                // Cập nhật thống kê đồng bộ
                 _lastSyncStatus.LastSyncTime = DateTime.Now;
                 _lastSyncStatus.TotalSyncCount++;
                 _lastSyncStatus.SuccessSyncCount++;
-                _lastSyncStatus.LastSyncAddedCount = addedCount;
-                _lastSyncStatus.LastSyncUpdatedCount = updatedCount;
-                _lastSyncStatus.LastSyncErrorCount = errorCount;
+                _lastSyncStatus.LastSyncAddedCount = 0; // Không tự động thêm profile mới
+                _lastSyncStatus.LastSyncUpdatedCount = 0;
+                _lastSyncStatus.LastSyncErrorCount = 0;
                 _lastSyncStatus.SyncEnabled = true;
                 await SaveSyncStats();
 
                 // Cập nhật thời gian đồng bộ trong cài đặt server
                 await _serverSettingsService.UpdateLastSyncTimeAsync();
 
-                return (true, $"Đồng bộ hoàn tất. Thêm mới: {addedCount}, Cập nhật: {updatedCount}, Lỗi: {errorCount}");
+                return (true, $"Đã cập nhật danh sách profile. Tìm thấy: {profileNames.Count} profile trên server");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi đồng bộ tất cả profiles từ server");
+                _logger.LogError(ex, "Lỗi khi đồng bộ với server");
                 _lastSyncStatus.FailedSyncCount++;
                 await SaveSyncStats();
                 return (false, $"Lỗi: {ex.Message}");
@@ -185,10 +136,8 @@ namespace SteamCmdWebAPI.Services
                         }
                         else
                         {
-                            // Thêm mới profile
-                            await _profileService.AddProfileAsync(profile);
-                            added++;
-                            _logger.LogInformation("Đã thêm profile mới '{ProfileName}' từ IP {ClientIp}", profile.Name, clientIp);
+                            // Không tự động thêm profile mới, chỉ ghi log
+                            _logger.LogInformation("Bỏ qua profile mới '{ProfileName}' từ IP {ClientIp} - Cần thêm thủ công", profile.Name, clientIp);
                         }
                     }
                     catch (Exception ex)
@@ -201,7 +150,7 @@ namespace SteamCmdWebAPI.Services
                 // Cập nhật thống kê
                 await LogSyncActivity(clientIp, "full", added, updated, errors);
 
-                string message = $"Đã xử lý {profiles.Count} profile. Thêm mới: {added}, Cập nhật: {updated}, Lỗi: {errors}";
+                string message = $"Đã xử lý {profiles.Count} profile. Cập nhật: {updated}, Bỏ qua: {profiles.Count - updated - errors}, Lỗi: {errors}";
                 return (true, message, added, updated, errors);
             }
             catch (Exception ex)

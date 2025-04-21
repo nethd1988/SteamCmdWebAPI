@@ -229,6 +229,7 @@ namespace SteamCmdWebAPI.Pages
         }
 
         // Thêm handler để lưu profile từ server
+        // Thêm handler để lưu profile từ server - cải thiện UI/UX
         public async Task<IActionResult> OnPostImportFromServerAsync(string profileName)
         {
             try

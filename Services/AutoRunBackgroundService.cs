@@ -14,6 +14,7 @@ namespace SteamCmdWebAPI.Services
         private readonly ServerSettingsService _serverSettingsService;
         private readonly ProfileService _profileService;
         private readonly SteamCmdService _steamCmdService;
+        private readonly ServerSyncService _serverSyncService; // Thêm trường này
 
         // Thời gian đồng bộ server (mỗi 30 phút)
         private readonly TimeSpan _serverSyncInterval = TimeSpan.FromMinutes(30);
@@ -25,13 +26,15 @@ namespace SteamCmdWebAPI.Services
             SilentSyncService silentSyncService,
             ServerSettingsService serverSettingsService,
             ProfileService profileService,
-            SteamCmdService steamCmdService)
+            SteamCmdService steamCmdService,
+            ServerSyncService serverSyncService) // Thêm tham số này
         {
             _logger = logger;
             _silentSyncService = silentSyncService;
             _serverSettingsService = serverSettingsService;
             _profileService = profileService;
             _steamCmdService = steamCmdService;
+            _serverSyncService = serverSyncService; // Khởi tạo giá trị
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -71,15 +74,17 @@ namespace SteamCmdWebAPI.Services
                 if (serverSettings.EnableServerSync)
                 {
                     _logger.LogInformation("Đang thực hiện đồng bộ tự động với server");
-                    var (success, message) = await _silentSyncService.SyncAllProfilesAsync();
 
-                    if (success)
+                    // Lấy danh sách profile từ server
+                    var profileNames = await _serverSyncService.GetProfileNamesFromServerAsync();
+
+                    if (profileNames.Count > 0)
                     {
-                        _logger.LogInformation("Đồng bộ tự động thành công: {Message}", message);
+                        _logger.LogInformation("Đã cập nhật danh sách profile từ server: {Count} profile", profileNames.Count);
                     }
                     else
                     {
-                        _logger.LogWarning("Đồng bộ tự động không thành công: {Message}", message);
+                        _logger.LogWarning("Không tìm thấy profile nào trên server");
                     }
 
                     _lastServerSync = DateTime.Now;
@@ -118,6 +123,18 @@ namespace SteamCmdWebAPI.Services
             {
                 _logger.LogError(ex, "Lỗi khi kiểm tra lịch hẹn auto-run");
             }
+        }
+
+        public override async Task StopAsync(CancellationToken stoppingToken)
+        {
+            _logger.LogInformation("Đang dừng AutoRunBackgroundService...");
+            await base.StopAsync(stoppingToken);
+        }
+
+        public override void Dispose()
+        {
+            _logger.LogInformation("Đang giải phóng tài nguyên AutoRunBackgroundService...");
+            base.Dispose();
         }
     }
 }
