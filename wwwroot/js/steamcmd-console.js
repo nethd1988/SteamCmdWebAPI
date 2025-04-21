@@ -16,7 +16,6 @@ class SteamCmdConsole {
             showInput: true,          // Hiển thị ô nhập liệu 
             inputEnabled: false,      // Cho phép nhập dữ liệu
             promptText: ">",          // Ký tự hiển thị ở đầu dòng nhập
-            steamGuardDetection: true, // Tự động phát hiện yêu cầu Steam Guard
             bufferSize: 20,           // Số lượng dòng đệm trước khi render
             renderDelay: 16           // Thời gian chờ giữa các lần render (ms)
         }, options);
@@ -26,7 +25,6 @@ class SteamCmdConsole {
         this.lineElements = [];
         this.pendingLines = [];
         this.awaitingInput = false;
-        this.awaitingAuthCode = false;
         this.profileId = null;
         this.outputLocked = false;
         this.pendingRender = false;
@@ -82,11 +80,6 @@ class SteamCmdConsole {
             this.lines.push({ text, type });
             this.lineElements.push(lineElement);
             outputFragment.appendChild(lineElement);
-            
-            // Phát hiện yêu cầu Steam Guard
-            if (this.options.steamGuardDetection) {
-                this.detectSteamGuardPrompt(text);
-            }
         }
         
         // Thêm tất cả dòng vào DOM trong một thao tác duy nhất
@@ -184,7 +177,7 @@ class SteamCmdConsole {
     /**
      * Thêm một dòng mới vào console
      * @param {string} text - Nội dung dòng
-     * @param {string} type - Loại dòng (normal, error, warning, success, steam-guard)
+     * @param {string} type - Loại dòng (normal, error, warning, success)
      */
     addLine(text, type = 'normal') {
         if (!text) return;
@@ -200,28 +193,6 @@ class SteamCmdConsole {
     }
 
     /**
-     * Phát hiện yêu cầu Steam Guard từ nội dung văn bản
-     * @param {string} text - Nội dung dòng văn bản
-     */
-    detectSteamGuardPrompt(text) {
-        // Kiểm tra các mẫu văn bản có thể là yêu cầu Steam Guard
-        const steamGuardPatterns = [
-            /steam guard code/i,
-            /enter the current code/i,
-            /two-factor code/i,
-            /mobile authenticator/i,
-            /đã gửi mã xác thực/i,
-            /steam guard/i,
-            /nhập mã xác thực/i
-        ];
-        
-        if (steamGuardPatterns.some(pattern => pattern.test(text))) {
-            this.enableConsoleInput();
-            this.awaitingAuthCode = true;
-        }
-    }
-
-    /**
      * Bật chế độ nhập cho console
      */
     enableConsoleInput() {
@@ -230,7 +201,7 @@ class SteamCmdConsole {
         this.awaitingInput = true;
         this.inputElement.disabled = false;
         this.sendButton.disabled = false;
-        this.inputElement.placeholder = 'Nhập mã xác thực Steam Guard...';
+        this.inputElement.placeholder = 'Nhập dữ liệu...';
         this.inputElement.focus();
         
         // Thay đổi giao diện để làm nổi bật
@@ -243,9 +214,6 @@ class SteamCmdConsole {
         
         // Thêm lớp CSS để tăng độ ưu tiên
         this.container.classList.add('awaiting-input');
-
-        // Thông báo đặc biệt
-        this.addLine('STEAM GUARD: Vui lòng nhập mã xác thực vào ô bên dưới và nhấn Enter', 'steam-guard');
     }
     
     /**
@@ -255,7 +223,6 @@ class SteamCmdConsole {
         if (!this.options.showInput) return;
         
         this.awaitingInput = false;
-        this.awaitingAuthCode = false;
         
         if (!this.options.inputEnabled) {
             this.inputElement.disabled = true;
@@ -283,43 +250,12 @@ class SteamCmdConsole {
         this.addLine(`${this.options.promptText} ${input}`, 'user-input');
         
         // Xử lý theo loại đầu vào
-        if (this.awaitingAuthCode) {
-            this.handleSteamGuardInput(input);
-        } else if (this.awaitingInput) {
+        if (this.awaitingInput) {
             this.handleConsoleInput(input);
         }
         
         // Xóa dữ liệu đã nhập
         this.inputElement.value = '';
-    }
-
-    /**
-     * Xử lý khi người dùng nhập mã Steam Guard
-     * @param {string} code - Mã xác thực người dùng nhập vào
-     */
-    handleSteamGuardInput(code) {
-        // Reset trạng thái
-        this.awaitingAuthCode = false;
-        
-        // Gửi mã xác thực đến callback nếu có
-        if (typeof this.options.onSteamGuardSubmit === 'function') {
-            this.options.onSteamGuardSubmit(code, this.profileId);
-            this.addLine('Đã gửi mã Steam Guard đến SteamCMD...', 'success');
-        }
-        
-        // Hoặc gửi mã xác thực qua SignalR
-        if (window.connection) {
-            try {
-                window.connection.invoke("SubmitTwoFactorCode", this.profileId || 1, code);
-                this.addLine('Đã gửi mã Steam Guard đến SteamCMD...', 'success');
-            } catch (err) {
-                console.error('Lỗi khi gửi mã 2FA qua SignalR:', err);
-                this.addLine('Lỗi khi gửi mã xác thực: ' + err, 'error');
-            }
-        }
-        
-        // Vô hiệu hóa chế độ nhập console
-        this.disableConsoleInput();
     }
 
     /**
@@ -445,23 +381,11 @@ function setupConsoleSignalRConnection() {
                     type = 'warning';
                 } else if (line.includes("Success") || line.includes("thành công") || line.includes("successfully")) {
                     type = 'success';
-                } else if (line.includes("Steam Guard") || line.includes("2FA") || line.includes("mã xác thực")) {
-                    type = 'steam-guard';
                 }
                 
                 // Thêm vào console
                 window.steamConsole.addLine(line, type);
             }
-        });
-        
-        // Đăng ký sự kiện yêu cầu nhập mã xác thực
-        connection.on("RequestTwoFactorCode", function(profileId) {
-            if (!window.steamConsole) return;
-            
-            window.steamConsole.setProfileId(profileId);
-            window.steamConsole.addLine(`Đang yêu cầu mã xác thực cho profile ID: ${profileId}`, 'steam-guard');
-            window.steamConsole.awaitingAuthCode = true;
-            window.steamConsole.enableConsoleInput();
         });
         
         // Thêm sự kiện bật chế độ nhập console
@@ -612,17 +536,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 color: #55ff55;
             }
             
-            .console-line.steam-guard {
-                color: #ffff00;
-                font-weight: bold;
-                animation: blink 1s infinite alternate;
-            }
-            
-            @keyframes blink {
-                0% { opacity: 0.8; }
-                100% { opacity: 1; }
-            }
-            
             .console-line.user-input {
                 color: #55aaff;
                 font-weight: bold;
@@ -641,20 +554,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Khởi tạo global instance để các phần khác có thể truy cập
         window.steamConsole = new SteamCmdConsole('steamcmd-console', {
             showInput: true,
-            steamGuardDetection: true,
             bufferSize: 30,  // Số lượng dòng xử lý mỗi lần
             renderDelay: 16, // Giữ FPS ổn định ở 60fps
-            onSteamGuardSubmit: function(code, profileId) {
-                console.log(`Đã nhận mã 2FA: ${code} cho profile: ${profileId}`);
-                
-                // Không cần popup để xác nhận
-                if (window.connection) {
-                    window.connection.invoke("SubmitTwoFactorCode", profileId || 1, code)
-                        .catch(function(err) {
-                            console.error("Lỗi khi gửi mã 2FA:", err);
-                        });
-                }
-            },
             onInputSubmit: function(input, profileId) {
                 console.log(`Đã nhận dữ liệu nhập: ${input} cho profile: ${profileId}`);
                 

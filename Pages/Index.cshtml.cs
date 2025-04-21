@@ -169,29 +169,5 @@ namespace SteamCmdWebAPI.Pages
                 return new JsonResult(new { success = false, error = $"Lỗi khi xóa cấu hình: {ex.Message}" }) { StatusCode = 500 };
             }
         }
-
-        /// <summary>
-        /// Phương thức test để kiểm tra popup 2FA
-        /// </summary>
-        public async Task<IActionResult> OnPostTest2FAAsync(int profileId)
-        {
-            try
-            {
-                _logger.LogInformation("Đang test yêu cầu 2FA cho profile ID: {0}", profileId);
-
-                // Gửi log thông báo
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", "Steam Guard code: Vui lòng nhập mã xác thực");
-
-                // Gửi yêu cầu 2FA test trực tiếp
-                await _hubContext.Clients.All.SendAsync("RequestTwoFactorCode", profileId);
-
-                return new JsonResult(new { success = true });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi khi test 2FA");
-                return new JsonResult(new { success = false, error = ex.Message });
-            }
-        }
     }
 }

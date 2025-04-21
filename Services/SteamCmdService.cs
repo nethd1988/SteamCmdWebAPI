@@ -1014,9 +1014,6 @@ namespace SteamCmdWebAPI.Services
 
         private async Task RunSteamCmdAsync(string steamCmdPath, SteamCmdProfile profile, int profileId)
         {
-            // Loại bỏ dòng khai báo trùng lặp
-            // ConcurrentDictionary<int, Process> steamCmdProcesses = _steamCmdProcesses;
-
             Process steamCmdProcess = null;
 
             if (string.IsNullOrEmpty(steamCmdPath))
@@ -1049,25 +1046,13 @@ namespace SteamCmdWebAPI.Services
                 if (!string.IsNullOrEmpty(content))
                 {
                     await _hubContext.Clients.All.SendAsync("ReceiveLog", content);
-
-                    // Phát hiện yêu cầu Steam Guard
-                    if (content.Contains("Steam Guard code:") ||
-                        content.Contains("Two-factor code:") ||
-                        content.Contains("Steam Guard Code:") ||
-                        content.Contains("Enter the current code") ||
-                        content.Contains("Mobile Authenticator") ||
-                        content.Contains("email address") ||
-                        (content.ToLower().Contains("steam guard") && !content.Contains("thành công")))
-                    {
-                        await ProcessTwoFactorRequest(profileId, profile.Name, steamCmdProcess);
-                    }
                 }
             });
 
             // Khai báo biến steamCmdProcesses ở đầu phương thức
             ConcurrentDictionary<int, Process> steamCmdProcesses = _steamCmdProcesses;
 
- 
+
             try
             {
                 // Kill các tiến trình SteamCMD thất lạc
@@ -1190,18 +1175,6 @@ namespace SteamCmdWebAPI.Services
                         {
                             outputBuffer.AppendLine(e.Data);
                         }
-
-                        if (e.Data.Contains("Steam Guard code:") ||
-                            e.Data.Contains("Two-factor code:") ||
-                            e.Data.Contains("Steam Guard Code:") ||
-                            e.Data.Contains("Enter the current code") ||
-                            e.Data.Contains("Mobile Authenticator") ||
-                            e.Data.Contains("your Steam account") ||
-                            e.Data.Contains("email address") ||
-                            (e.Data.ToLower().Contains("steam guard") && !e.Data.Contains("thành công")))
-                        {
-                            await ProcessTwoFactorRequest(profileId, profile.Name, steamCmdProcess);
-                        }
                     }
                 };
 
@@ -1284,67 +1257,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        private async Task ProcessTwoFactorRequest(int profileId, string profileName, Process steamCmdProcess)
-        {
-            _logger.LogInformation("Phát hiện yêu cầu 2FA, gửi yêu cầu nhập mã");
-
-            try
-            {
-                await SafeSendLogAsync(profileName, "Warning", $"===== YÊU CẦU MÃ XÁC THỰC STEAM GUARD =====");
-                await SafeSendLogAsync(profileName, "Warning", $"Vui lòng nhập mã xác thực cho profile {profileName} (ID: {profileId})");
-                await SafeSendLogAsync(profileName, "Warning", $"Nhập trực tiếp vào console bên dưới và nhấn Enter");
-
-                await _hubContext.Clients.All.SendAsync("EnableConsoleInput", profileId);
-
-                string twoFactorCode = await LogHub.RequestTwoFactorCodeFromConsole(profileId, _hubContext);
-
-                if (!string.IsNullOrEmpty(twoFactorCode))
-                {
-                    await SafeSendLogAsync(profileName, "Info", $"Đã nhận mã 2FA: {twoFactorCode}, đang tiếp tục...");
-
-                    await steamCmdProcess.StandardInput.WriteLineAsync(twoFactorCode);
-                    await steamCmdProcess.StandardInput.FlushAsync();
-
-                    _logger.LogInformation("Đã gửi mã 2FA cho Steam Guard: {Code}", twoFactorCode);
-
-                    await _hubContext.Clients.All.SendAsync("DisableConsoleInput");
-                }
-                else
-                {
-                    _logger.LogWarning("Không nhận được mã 2FA, quá trình có thể thất bại");
-                    await SafeSendLogAsync(profileName, "Warning", "Không nhận được mã 2FA, quá trình có thể thất bại");
-
-                    await _hubContext.Clients.All.SendAsync("DisableConsoleInput");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi khi xử lý yêu cầu 2FA");
-                await SafeSendLogAsync(profileName, "Error", $"Lỗi khi xử lý 2FA: {ex.Message}");
-
-                await _hubContext.Clients.All.SendAsync("DisableConsoleInput");
-            }
-        }
-
-        public List<LogEntry> GetLogs()
-        {
-            lock (_logs)
-            {
-                return new List<LogEntry>(_logs);
-            }
-        }
-
-        public void ClearOldLogs(int retainCount = 1000)
-        {
-            lock (_logs)
-            {
-                if (_logs.Count > retainCount)
-                {
-                    _logs.RemoveRange(0, _logs.Count - retainCount);
-                }
-            }
-        }
-
         #endregion
 
         #region Helper Classes and Methods
@@ -1404,6 +1316,25 @@ namespace SteamCmdWebAPI.Services
             }
 
             await SafeSendLogAsync("System", "Success", "Hoàn tất khởi động các profile Auto Run");
+        }
+
+        public List<LogEntry> GetLogs()
+        {
+            lock (_logs)
+            {
+                return new List<LogEntry>(_logs);
+            }
+        }
+
+        public void ClearOldLogs(int retainCount = 1000)
+        {
+            lock (_logs)
+            {
+                if (_logs.Count > retainCount)
+                {
+                    _logs.RemoveRange(0, _logs.Count - retainCount);
+                }
+            }
         }
 
         #endregion

@@ -128,30 +128,11 @@
             .withUrl("/steamHub") // Đảm bảo URL này khớp với Hub của bạn
             .build();
 
-        // Định nghĩa hàm steamGuardDetector
-        const steamGuardDetector = function(message) {
-            if (message.includes("Steam Guard code:") ||
-                message.includes("Two-factor code:") ||
-                message.includes("Mobile Authenticator") ||
-                message.includes("email address") ||
-                (message.toLowerCase().includes("steam guard") && !message.includes("thành công"))) {
-
-                // Hiển thị thông báo
-                if (window.steamConsole) {
-                    window.steamConsole.addLine("==== YÊU CẦU NHẬP MÃ XÁC THỰC STEAM GUARD ====", "steam-guard");
-                    window.steamConsole.addLine("Vui lòng kiểm tra email hoặc ứng dụng Steam Mobile để lấy mã", "steam-guard");
-                    window.steamConsole.enableConsoleInput();
-                }
-            }
-        };
-
         // Xử lý nhận log từ SignalR
         connection.on("ReceiveLog", function(message) {
             if (window.steamConsole) {
                 window.steamConsole.addLine(message); // Hiển thị log lên console
             }
-            // Kiểm tra Steam Guard
-            steamGuardDetector(message);
         });
 
         // Khởi động connection
@@ -260,7 +241,7 @@
                             }
                         } else if (response.error) {
                             if (window.steamConsole) {
-                                window.steamConsole.addLine("Lỗi: " + response.error, 'error');
+                                windowincs.steamConsole.addLine("Lỗi: " + response.error, 'error');
                             }
                         }
                     },
@@ -372,14 +353,8 @@
             if (window.steamConsole === undefined && $('#steamcmd-console').length > 0) {
                 window.steamConsole = new SteamCmdConsole('steamcmd-console', {
                     showInput: true,
-                    steamGuardDetection: true,
                     bufferSize: 30,
                     renderDelay: 16,
-                    onSteamGuardSubmit: function(code, profileId) {
-                        connection.invoke("SubmitTwoFactorCode", parseInt(profileId || 1), code).catch(function(err) {
-                            window.steamConsole.addLine("Lỗi khi gửi mã 2FA: " + err, 'error');
-                        });
-                    },
                     onInputSubmit: function(input, profileId) {
                         connection.invoke("SubmitConsoleInput", parseInt(profileId || 1), input).catch(function(err) {
                             window.steamConsole.addLine("Lỗi khi gửi dữ liệu: " + err, 'error');
