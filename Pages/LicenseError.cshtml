@@ -1,0 +1,24 @@
+@page
+@model SteamCmdWebAPI.Pages.LicenseErrorModel
+@{
+    ViewData["Title"] = "Lỗi giấy phép";
+}
+
+<div class="container text-center mt-5">
+    <div class="alert alert-danger" role="alert">
+        <h2><i class="bi bi-exclamation-triangle-fill me-2"></i> Lỗi giấy phép</h2>
+        <p class="lead">Ứng dụng không thể khởi động vì giấy phép không hợp lệ hoặc đã hết hạn.</p>
+    </div>
+    
+    <div class="card mt-4">
+        <div class="card-body">
+            <h5 class="card-title">Thông tin lỗi</h5>
+            <p>@Model.ErrorMessage</p>
+            
+            @if(Model.ContactEmail != null)
+            {
+                <p>Vui lòng liên hệ với chúng tôi để gia hạn giấy phép: <a href="mailto:@Model.ContactEmail">@Model.ContactEmail</a></p>
+            }
+        </div>
+    </div>
+</div>

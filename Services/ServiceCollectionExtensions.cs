@@ -7,6 +7,7 @@ namespace SteamCmdWebAPI.Services
         public static IServiceCollection AddSteamCmdServices(this IServiceCollection services)
         {
             // Đăng ký các service theo thứ tự phụ thuộc
+            services.AddSingleton<LicenseService>();
             services.AddSingleton<EncryptionService>();
             services.AddSingleton<ProfileService>();
             services.AddSingleton<SettingsService>();
