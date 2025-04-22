@@ -137,7 +137,7 @@ namespace SteamCmdWebAPI
             // Thêm dịch vụ cơ bản
             builder.Services.AddRazorPages(options => {
                 options.Conventions.AddFolderApplicationModelConvention("/", model => {
-                    model.Filters.Add<RequireFirstUserSetupFilter>();
+                    model.Filters.Add(new RequireFirstUserSetupFilter(tempProvider.GetRequiredService<UserService>()));
                 });
             });
             builder.Services.AddControllers();

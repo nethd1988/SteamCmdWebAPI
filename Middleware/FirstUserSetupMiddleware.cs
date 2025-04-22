@@ -7,22 +7,34 @@ namespace SteamCmdWebAPI.Middleware
     public class FirstUserSetupMiddleware
     {
         private readonly RequestDelegate _next;
+        private readonly ILogger<FirstUserSetupMiddleware> _logger;
 
-        public FirstUserSetupMiddleware(RequestDelegate next)
+        public FirstUserSetupMiddleware(RequestDelegate next, ILogger<FirstUserSetupMiddleware> logger)
         {
             _next = next;
+            _logger = logger;
         }
 
         public async Task InvokeAsync(HttpContext context, UserService userService)
         {
-            // Nếu không có người dùng nào và không phải đang ở trang Register
-            if (!userService.AnyUsers() && 
-                !context.Request.Path.StartsWithSegments("/Register") &&
-                !context.Request.Path.StartsWithSegments("/Login") &&
-                !context.Request.Path.StartsWithSegments("/css") &&
-                !context.Request.Path.StartsWithSegments("/js") &&
-                !context.Request.Path.StartsWithSegments("/images"))
+            string path = context.Request.Path.Value.ToLower();
+
+            // Bỏ qua middleware này nếu đường dẫn nằm trong danh sách cho phép
+            if (path.Contains("/register") ||
+                path.Contains("/login") ||
+                path.StartsWith("/css") ||
+                path.StartsWith("/js") ||
+                path.StartsWith("/images") ||
+                path.StartsWith("/lib"))
             {
+                await _next(context);
+                return;
+            }
+
+            // Kiểm tra xem đã có người dùng nào chưa
+            if (!userService.AnyUsers())
+            {
+                _logger.LogInformation("Chưa có người dùng nào, chuyển hướng đến trang đăng ký");
                 context.Response.Redirect("/Register");
                 return;
             }

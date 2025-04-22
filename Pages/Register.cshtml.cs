@@ -35,12 +35,13 @@ namespace SteamCmdWebAPI.Pages
 
         public async Task<IActionResult> OnGetAsync()
         {
-            // Kiểm tra nếu đã đăng nhập rồi
+            // Nếu đã đăng nhập, chuyển hướng đến trang chủ
             if (User.Identity.IsAuthenticated)
             {
                 return RedirectToPage("/Index");
             }
 
+            // Không tự động chuyển hướng nếu đã ở trang Register
             return Page();
         }
 

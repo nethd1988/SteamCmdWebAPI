@@ -33,20 +33,22 @@ namespace SteamCmdWebAPI.Pages
 
         public async Task<IActionResult> OnGetAsync()
         {
-            // Kiểm tra nếu đã đăng nhập rồi
+            // Nếu đã đăng nhập, chuyển hướng đến trang chủ
             if (User.Identity.IsAuthenticated)
             {
                 return RedirectToPage("/Index");
             }
 
-            // Kiểm tra nếu không có người dùng nào, chuyển hướng sang trang Register
+            // Kiểm tra nếu không có người dùng nào, hiển thị thông báo đăng ký
             if (!_userService.AnyUsers())
             {
                 ShowRegister = true;
-                return Page();
+            }
+            else
+            {
+                ShowRegister = false; // Không hiển thị tùy chọn đăng ký nếu đã có người dùng
             }
 
-            ShowRegister = true; // Luôn hiển thị tùy chọn đăng ký
             return Page();
         }
 
