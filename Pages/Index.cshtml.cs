@@ -43,35 +43,23 @@ namespace SteamCmdWebAPI.Pages
         {
             try
             {
-                _logger.LogInformation("Nhận yêu cầu POST Run với profileId: {ProfileId}", profileId);
-
-                if (profileId <= 0)
-                {
-                    _logger.LogWarning("profileId không hợp lệ: {ProfileId}", profileId);
-                    return new JsonResult(new { success = false, error = "profileId không hợp lệ" }) { StatusCode = 400 };
-                }
+                // Bỏ qua log chi tiết
+                _logger.LogInformation("Nhận yêu cầu chạy profile với ID: {ProfileId}", profileId);
 
                 var profile = await _profileService.GetProfileById(profileId);
                 if (profile == null)
                 {
-                    _logger.LogWarning("Không tìm thấy profile với ID {0}", profileId);
-                    return new JsonResult(new { success = false, error = $"Không tìm thấy profile với ID {profileId}" }) { StatusCode = 404 };
+                    return new JsonResult(new { success = false }) { StatusCode = 404 };
                 }
 
                 bool success = await _steamCmdService.RunProfileAsync(profileId);
-                if (!success)
-                {
-                    _logger.LogWarning("Không thể chạy cấu hình với ID {0}", profileId);
-                    return new JsonResult(new { success = false, error = $"Không thể chạy cấu hình với ID {profileId}. Kiểm tra log để biết thêm chi tiết." }) { StatusCode = 500 };
-                }
-
-                _logger.LogInformation("Chạy profile {ProfileId} thành công", profileId);
-                return new JsonResult(new { success = true, noAlert = true });
+                return new JsonResult(new { success = success, noAlert = true });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi chạy SteamCMD cho profile ID {0}", profileId);
-                return new JsonResult(new { success = false, error = $"Lỗi khi chạy SteamCMD: {ex.Message}" }) { StatusCode = 500 };
+                // Ghi log lỗi ở mức Debug để giảm thiểu thông báo
+                _logger.LogDebug(ex, "Lỗi khi chạy profile ID {ProfileId}", profileId);
+                return new JsonResult(new { success = false }) { StatusCode = 500 };
             }
         }
 

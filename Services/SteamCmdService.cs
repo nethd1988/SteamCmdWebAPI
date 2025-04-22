@@ -26,10 +26,8 @@ namespace SteamCmdWebAPI.Services
         private readonly EncryptionService _encryptionService;
         private readonly LogFileReader _logFileReader;
 
-        // Giới hạn số lượng log để tránh tràn bộ nhớ
         private const int MaxLogEntries = 5000;
 
-        // Danh sách các tiến trình SteamCMD đang chạy, theo dõi theo profile ID
         private readonly ConcurrentDictionary<int, Process> _steamCmdProcesses = new ConcurrentDictionary<int, Process>();
         private SemaphoreSlim _profileSemaphore = new SemaphoreSlim(1, 1);
         private readonly object _processLock = new object();
@@ -39,18 +37,15 @@ namespace SteamCmdWebAPI.Services
         private int _currentProfileIndex = 0;
         private volatile bool _cancelAutoRun = false;
 
-        // Thêm biến class member
         private DateTime _lastAutoRunTime = DateTime.MinValue;
 
-        // Danh sách để lưu trữ log chi tiết
         private readonly List<LogEntry> _logs = new List<LogEntry>(MaxLogEntries);
 
-        // Class để lưu trữ log chi tiết
         public class LogEntry
         {
             public DateTime Timestamp { get; set; }
             public string ProfileName { get; set; }
-            public string Status { get; set; } // "Success", "Error", hoặc "Info"
+            public string Status { get; set; }
             public string Message { get; set; }
 
             public LogEntry(DateTime timestamp, string profileName, string status, string message)
@@ -77,21 +72,18 @@ namespace SteamCmdWebAPI.Services
             _encryptionService = encryptionService;
             _logFileReader = logFileReader;
 
-            // Khởi tạo timer để kiểm tra lịch hẹn
-            _scheduleTimer = new System.Timers.Timer(60000); // Kiểm tra mỗi phút
+            _scheduleTimer = new System.Timers.Timer(60000);
             _scheduleTimer.Elapsed += async (s, e) => await CheckScheduleAsync();
             _scheduleTimer.AutoReset = true;
             _scheduleTimer.Start();
             _logger.LogInformation("Schedule timer started.");
         }
 
-        // Phương thức thêm log với giới hạn kích thước
         private void AddLog(LogEntry entry)
         {
             lock (_logs)
             {
                 _logs.Add(entry);
-                // Xóa log cũ nếu vượt quá giới hạn
                 if (_logs.Count > MaxLogEntries)
                 {
                     _logs.RemoveRange(0, _logs.Count - MaxLogEntries);
@@ -99,7 +91,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        // Cập nhật lại phương thức CheckScheduleAsync
         private async Task CheckScheduleAsync()
         {
             try
@@ -111,7 +102,6 @@ namespace SteamCmdWebAPI.Services
                 }
 
                 var now = DateTime.Now;
-                // Kiểm tra dựa theo khoảng thời gian
                 TimeSpan timeSinceLastRun = now - _lastAutoRunTime;
                 int intervalHours = settings.AutoRunIntervalHours;
 
@@ -129,7 +119,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        // Hàm hỗ trợ gửi log an toàn
         private async Task SafeSendLogAsync(string profileName, string status, string message)
         {
             try
@@ -145,7 +134,6 @@ namespace SteamCmdWebAPI.Services
 
         #region Process Management
 
-        // Sửa lại phương thức StartProfileAsync
         public async Task<bool> StartProfileAsync(int profileId)
         {
             try
@@ -160,23 +148,21 @@ namespace SteamCmdWebAPI.Services
 
                 await SafeSendLogAsync(profile.Name, "Info", $"Đang chuẩn bị chạy {profile.Name}...");
 
-                // Đảm bảo không có tiến trình cũ đang chạy
                 KillAllSteamCmdProcessesImmediate();
+                await Task.Delay(1000);
 
-                // Xóa symlink cũ nếu có
                 await RemoveSteamAppsSymLink();
+                await Task.Delay(1000);
 
-                // Chờ lấy semaphore để tránh chạy đồng thời
-                if (!await _profileSemaphore.WaitAsync(TimeSpan.FromSeconds(60)))
+                if (!await _profileSemaphore.WaitAsync(TimeSpan.FromSeconds(30)))
                 {
-                    _logger.LogError("Không thể lấy semaphore sau 60 giây, hủy thao tác");
+                    _logger.LogError("Không thể lấy semaphore sau 30 giây, hủy thao tác");
                     await SafeSendLogAsync(profile.Name, "Error", "Không thể khởi động profile (timeout)");
                     return false;
                 }
 
                 try
                 {
-                    // Cập nhật trạng thái profile
                     profile.Status = "Running";
                     profile.StartTime = DateTime.Now;
                     profile.Pid = 0;
@@ -184,54 +170,79 @@ namespace SteamCmdWebAPI.Services
 
                     await SafeSendLogAsync(profile.Name, "Info", $"Đang khởi động {profile.Name}...");
 
-                    // Kiểm tra và cài đặt SteamCMD nếu cần
                     bool steamCmdInstalled = await IsSteamCmdInstalled();
                     if (!steamCmdInstalled)
                     {
                         await SafeSendLogAsync(profile.Name, "Info", "SteamCMD chưa được cài đặt. Đang tải về...");
                         await InstallSteamCmd();
+
+                        steamCmdInstalled = await IsSteamCmdInstalled();
+                        if (!steamCmdInstalled)
+                        {
+                            string errorMsg = "Không thể cài đặt hoặc tìm thấy SteamCMD";
+                            _logger.LogError(errorMsg);
+                            await SafeSendLogAsync(profile.Name, "Error", errorMsg);
+
+                            profile.Status = "Stopped";
+                            profile.StopTime = DateTime.Now;
+                            await _profileService.UpdateProfile(profile);
+                            return false;
+                        }
                     }
 
-                    if (!await IsSteamCmdInstalled())
+                    if (!string.IsNullOrEmpty(profile.InstallDirectory))
                     {
-                        string errorMsg = "Không thể cài đặt hoặc tìm thấy SteamCMD";
-                        _logger.LogError(errorMsg);
-                        await SafeSendLogAsync(profile.Name, "Error", errorMsg);
+                        if (!Directory.Exists(profile.InstallDirectory))
+                        {
+                            try
+                            {
+                                Directory.CreateDirectory(profile.InstallDirectory);
+                                _logger.LogInformation("Đã tạo thư mục cài đặt: {Directory}", profile.InstallDirectory);
+                                await SafeSendLogAsync(profile.Name, "Info", $"Đã tạo thư mục cài đặt: {profile.InstallDirectory}");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Không thể tạo thư mục cài đặt: {Directory}", profile.InstallDirectory);
+                                throw new Exception($"Không thể tạo thư mục cài đặt {profile.InstallDirectory}: {ex.Message}");
+                            }
+                        }
 
-                        profile.Status = "Stopped";
-                        profile.StopTime = DateTime.Now;
-                        await _profileService.UpdateProfile(profile);
-                        return false;
-                    }
-
-                    // Tạo thư mục cài đặt nếu cần
-                    if (!string.IsNullOrEmpty(profile.InstallDirectory) && !Directory.Exists(profile.InstallDirectory))
-                    {
                         try
                         {
-                            Directory.CreateDirectory(profile.InstallDirectory);
-                            _logger.LogInformation("Đã tạo thư mục cài đặt: {Directory}", profile.InstallDirectory);
-                            await SafeSendLogAsync(profile.Name, "Info", $"Đã tạo thư mục cài đặt: {profile.InstallDirectory}");
+                            string testFilePath = Path.Combine(profile.InstallDirectory, "writetest.tmp");
+                            File.WriteAllText(testFilePath, "test");
+                            File.Delete(testFilePath);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Không thể tạo thư mục cài đặt: {Directory}", profile.InstallDirectory);
-                            throw new Exception($"Không thể tạo thư mục cài đặt {profile.InstallDirectory}: {ex.Message}");
+                            _logger.LogError(ex, "Không có quyền ghi vào thư mục cài đặt: {Directory}", profile.InstallDirectory);
+                            await SafeSendLogAsync(profile.Name, "Error", $"Không có quyền ghi vào thư mục cài đặt: {ex.Message}");
+
+                            profile.Status = "Stopped";
+                            profile.StopTime = DateTime.Now;
+                            await _profileService.UpdateProfile(profile);
+                            return false;
                         }
                     }
 
-                    // Chạy SteamCMD
-                    await RunSteamCmdAsync(GetSteamCmdPath(), profile, profileId);
+                    bool success = await RunSteamCmdAndWaitAsync(GetSteamCmdPath(), profile, profileId);
 
-                    // Cập nhật trạng thái khi hoàn thành
                     profile.Status = "Stopped";
                     profile.StopTime = DateTime.Now;
                     profile.Pid = 0;
                     profile.LastRun = DateTime.UtcNow;
                     await _profileService.UpdateProfile(profile);
 
-                    await SafeSendLogAsync(profile.Name, "Success", $"Đã chạy {profile.Name} thành công");
-                    return true;
+                    if (success)
+                    {
+                        await SafeSendLogAsync(profile.Name, "Success", $"Đã chạy {profile.Name} thành công");
+                    }
+                    else
+                    {
+                        await SafeSendLogAsync(profile.Name, "Error", $"Chạy {profile.Name} không thành công");
+                    }
+
+                    return success;
                 }
                 finally
                 {
@@ -256,7 +267,6 @@ namespace SteamCmdWebAPI.Services
                 }
                 catch { }
 
-                // Dọn dẹp tài nguyên
                 await RemoveSteamAppsSymLink();
                 KillAllSteamCmdProcessesImmediate();
                 _steamCmdProcesses.TryRemove(profileId, out _);
@@ -269,11 +279,7 @@ namespace SteamCmdWebAPI.Services
         {
             try
             {
-                // Đảm bảo clear dictionary _steamCmdProcesses trước
-                var currentProcesses = _steamCmdProcesses.ToArray();
-                _steamCmdProcesses.Clear();
-
-                foreach (var kvp in currentProcesses)
+                foreach (var kvp in _steamCmdProcesses.ToArray())
                 {
                     var profileId = kvp.Key;
                     var process = kvp.Value;
@@ -300,6 +306,7 @@ namespace SteamCmdWebAPI.Services
                     finally
                     {
                         process?.Dispose();
+                        _steamCmdProcesses.TryRemove(profileId, out _);
                     }
                 }
 
@@ -347,13 +354,9 @@ namespace SteamCmdWebAPI.Services
 
             await KillOrphanedSteamCmdProcesses();
 
-            // Đảm bảo cập nhật tất cả trạng thái trong database
             var profiles = await _profileService.GetAllProfiles();
             foreach (var profile in profiles.Where(p => p.Status == "Running"))
             {
-                _logger.LogInformation("Cập nhật trạng thái profile {ProfileName} (ID: {ProfileId}) từ Running thành Stopped",
-                    profile.Name, profile.Id);
-
                 profile.Status = "Stopped";
                 profile.StopTime = DateTime.Now;
                 profile.Pid = 0;
@@ -362,52 +365,7 @@ namespace SteamCmdWebAPI.Services
 
             await RemoveSteamAppsSymLink();
 
-            // Xóa mọi quy chiếu tới processes trong dictionary
-            _steamCmdProcesses.Clear();
-
             await SafeSendLogAsync("System", "Success", "Đã dừng tất cả các profiles");
-        }
-
-        private void KillAllSteamCmdProcesses()
-        {
-            try
-            {
-                foreach (var kvp in _steamCmdProcesses)
-                {
-                    var process = kvp.Value;
-                    try
-                    {
-                        if (process != null && !process.HasExited)
-                        {
-                            process.Kill();
-                            if (!process.WaitForExit(10000))
-                            {
-                                _logger.LogWarning("Tiến trình không kết thúc sau 10s cho profile {0}", kvp.Key);
-                            }
-                            _logger.LogInformation("Đã kill tiến trình steamcmd với PID {0} cho profile {1}", process.Id, kvp.Key);
-                            _ = SafeSendLogAsync("System", "Info", $"Đã kill tiến trình steamcmd với PID {process.Id} cho profile {kvp.Key}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Lỗi khi kill tiến trình steamcmd với PID {0} cho profile {1}",
-                            process?.Id ?? 0, kvp.Key);
-                    }
-                    finally
-                    {
-                        process?.Dispose();
-                    }
-                }
-
-                _steamCmdProcesses.Clear();
-
-                KillOrphanedSteamCmdProcesses().Wait();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi khi kill tất cả tiến trình steamcmd");
-                throw new Exception($"Lỗi khi kill tất cả tiến trình steamcmd: {ex.Message}");
-            }
         }
 
         private async Task StopAndCleanupProfileAsync(int profileId)
@@ -429,7 +387,6 @@ namespace SteamCmdWebAPI.Services
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Lỗi khi dừng tiến trình SteamCMD cho profile {ProfileId}", profileId);
-                    // Không gửi thông báo lỗi đến client
                 }
                 finally
                 {
@@ -490,8 +447,7 @@ namespace SteamCmdWebAPI.Services
                 var profile = await _profileService.GetProfileById(id);
                 if (profile == null)
                 {
-                    await SafeSendLogAsync($"Profile {id}", "Error", $"Không tìm thấy cấu hình với ID {id}");
-                    _logger.LogWarning("Không tìm thấy cấu hình với ID {Id}", id);
+                    // Giảm thiểu log
                     return false;
                 }
 
@@ -499,16 +455,12 @@ namespace SteamCmdWebAPI.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi chạy SteamCMD cho profile ID {Id}", id);
-                await SafeSendLogAsync($"Profile {id}", "Error", $"Lỗi: {ex.Message}");
-
-                await StopAndCleanupProfileAsync(id);
+                // Ghi log ở mức Debug
+                _logger.LogDebug(ex, "Lỗi khi chạy SteamCMD cho profile ID {Id}", id);
                 throw;
             }
         }
 
-        // Sửa phương thức RunAllProfilesAsync
-        // Sửa phương thức RunAllProfilesAsync
         public async Task RunAllProfilesAsync()
         {
             if (!await _profileSemaphore.WaitAsync(TimeSpan.FromSeconds(10)))
@@ -533,94 +485,47 @@ namespace SteamCmdWebAPI.Services
 
                 await SafeSendLogAsync("System", "Info", "Bắt đầu chạy tất cả các profile...");
 
-                // Đảm bảo dừng tất cả tiến trình và cập nhật trạng thái trước
                 await StopAllProfilesAsync();
+                await Task.Delay(3000);
 
-                // Đảm bảo trạng thái cập nhật trong database
-                foreach (var profile in profiles)
-                {
-                    if (profile.Status == "Running")
-                    {
-                        profile.Status = "Stopped";
-                        profile.StopTime = DateTime.Now;
-                        profile.Pid = 0;
-                        await _profileService.UpdateProfile(profile);
-                    }
-                }
-
-                await Task.Delay(3000); // Chờ đợi đủ lâu để đảm bảo tất cả đã dừng
-
-                // Khởi động lại SteamCMD nếu cần
                 KillAllSteamCmdProcessesImmediate();
                 await RemoveSteamAppsSymLink();
 
-                // Lấy lại danh sách cấu hình sau khi dừng tất cả
-                profiles = await _profileService.GetAllProfiles();
-
-                // Chạy từng profile một
-                for (int i = 0; i < profiles.Count && !_cancelAutoRun; i++)
+                foreach (var profile in profiles)
                 {
-                    _currentProfileIndex = i;
-                    var profile = profiles[i];
+                    if (_cancelAutoRun) break;
 
-                    await SafeSendLogAsync(profile.Name, "Info", $"Đang chạy profile ({i + 1}/{profiles.Count}): {profile.Name}");
+                    _currentProfileIndex++;
+                    await SafeSendLogAsync(profile.Name, "Info",
+                        $"Đang chạy profile ({_currentProfileIndex}/{profiles.Count}): {profile.Name}");
 
                     try
                     {
-                        await StartProfileAsync(profile.Id);
+                        bool success = await StartProfileAsync(profile.Id);
+                        if (!success)
+                        {
+                            await SafeSendLogAsync(profile.Name, "Warning",
+                                $"Chạy profile {profile.Name} không thành công");
+                        }
+
+                        if (_currentProfileIndex < profiles.Count)
+                        {
+                            await Task.Delay(5000);
+                        }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Lỗi khi chạy profile {ProfileName} (ID: {ProfileId})",
-                            profile.Name, profile.Id);
-                        await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi chạy profile: {ex.Message}");
-
-                        // Đảm bảo cập nhật trạng thái khi có lỗi
-                        try
-                        {
-                            var failedProfile = await _profileService.GetProfileById(profile.Id);
-                            if (failedProfile != null && failedProfile.Status == "Running")
-                            {
-                                failedProfile.Status = "Stopped";
-                                failedProfile.StopTime = DateTime.Now;
-                                failedProfile.Pid = 0;
-                                await _profileService.UpdateProfile(failedProfile);
-                            }
-                        }
-                        catch { }
-                    }
-
-                    // Đợi một chút trước khi chạy profile tiếp theo
-                    if (i < profiles.Count - 1)
-                    {
-                        await Task.Delay(5000);
+                        _logger.LogError(ex, "Lỗi khi chạy profile {ProfileName}", profile.Name);
+                        await SafeSendLogAsync(profile.Name, "Error", $"Lỗi: {ex.Message}");
                     }
                 }
 
-                _isRunningAllProfiles = false;
                 await SafeSendLogAsync("System", "Success", "Đã hoàn thành chạy tất cả các profile");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi chạy tất cả các profile");
                 await SafeSendLogAsync("System", "Error", $"Lỗi khi chạy tất cả các profile: {ex.Message}");
-
-                // Đảm bảo cập nhật trạng thái tất cả profile
-                try
-                {
-                    var profiles = await _profileService.GetAllProfiles();
-                    foreach (var profile in profiles)
-                    {
-                        if (profile.Status == "Running")
-                        {
-                            profile.Status = "Stopped";
-                            profile.StopTime = DateTime.Now;
-                            profile.Pid = 0;
-                            await _profileService.UpdateProfile(profile);
-                        }
-                    }
-                }
-                catch { }
             }
             finally
             {
@@ -629,6 +534,7 @@ namespace SteamCmdWebAPI.Services
                 _profileSemaphore.Release();
             }
         }
+
         private async Task RunNextProfileAsync()
         {
             if (!_isRunningAllProfiles || _cancelAutoRun)
@@ -773,7 +679,7 @@ namespace SteamCmdWebAPI.Services
                             Arguments = $"-xzf \"{zipPath}\" -C \"{destinationFolder}\"",
                             UseShellExecute = false,
                             RedirectStandardOutput = true,
-                            RedirectStandardError = true,
+                            RedirectStandardError = false,
                             CreateNoWindow = true
                         };
 
@@ -862,16 +768,35 @@ namespace SteamCmdWebAPI.Services
 
             try
             {
-                await RemoveSteamAppsSymLink();
+                // Xóa thư mục steamapps tại localSteamAppsPath nếu tồn tại
+                if (Directory.Exists(localSteamAppsPath))
+                {
+                    //_logger.LogInformation("Thư mục steamapps đã tồn tại tại {Path}, đang xóa...", localSteamAppsPath);
+                    //await SafeSendLogAsync("System", "Info", $"Thư mục steamapps đã tồn tại tại {localSteamAppsPath}, đang xóa...");
 
+                    try
+                    {
+                        Directory.Delete(localSteamAppsPath, true); // Xóa mạnh mẽ, bao gồm tất cả tệp và thư mục con
+                        //_logger.LogInformation("Đã xóa thư mục steamapps tại {Path}", localSteamAppsPath);
+                        await SafeSendLogAsync("System", "Info", $"Đã xóa thư mục steamapps tại {localSteamAppsPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        //_logger.LogError(ex, "Không thể xóa thư mục steamapps tại {Path}: {Message}", localSteamAppsPath, ex.Message);
+                        await SafeSendLogAsync("System", "Error", $"Không thể xóa thư mục steamapps tại {localSteamAppsPath}: {ex.Message}");
+                        throw; // Ném lỗi để dừng quá trình nếu không xóa được
+                    }
+                }
+
+                // Tạo thư mục steamapps trong thư mục cài đặt game nếu chưa tồn tại
                 if (!Directory.Exists(gameSteamAppsPath))
                 {
                     Directory.CreateDirectory(gameSteamAppsPath);
-                    _logger.LogInformation("Đã tạo thư mục steamapps tại {Path}", gameSteamAppsPath);
+                    //_logger.LogInformation("Đã tạo thư mục steamapps tại {Path}", gameSteamAppsPath);
                     await SafeSendLogAsync("System", "Info", $"Đã tạo thư mục steamapps tại {gameSteamAppsPath}");
                 }
 
-                _logger.LogInformation("Tạo symbolic link từ {Source} đến {Target}", gameSteamAppsPath, localSteamAppsPath);
+               // _logger.LogInformation("Tạo symbolic link từ {Source} đến {Target}", localSteamAppsPath, gameSteamAppsPath);
 
                 bool success = false;
 
@@ -882,7 +807,7 @@ namespace SteamCmdWebAPI.Services
                         if (Directory.CreateSymbolicLink(localSteamAppsPath, gameSteamAppsPath) != null)
                         {
                             success = true;
-                            _logger.LogInformation("Đã tạo symbolic link từ {Source} đến {Target} bằng API .NET", gameSteamAppsPath, localSteamAppsPath);
+                            //_logger.LogInformation("Đã tạo symbolic link từ {Source} đến {Target} bằng API .NET", localSteamAppsPath, gameSteamAppsPath);
                         }
                     }
                     catch (Exception ex)
@@ -897,16 +822,16 @@ namespace SteamCmdWebAPI.Services
 
                     if (success)
                     {
-                        _logger.LogInformation("Đã tạo symbolic link từ {Source} đến {Target} bằng process", gameSteamAppsPath, localSteamAppsPath);
+                        //_logger.LogInformation("Đã tạo symbolic link từ {Source} đến {Target} bằng process", localSteamAppsPath, gameSteamAppsPath);
                     }
                     else
                     {
-                        _logger.LogError("Không thể tạo symbolic link sau nhiều lần thử");
+                        //_logger.LogError("Không thể tạo symbolic link sau nhiều lần thử");
                         throw new Exception("Không thể tạo symbolic link sau nhiều lần thử");
                     }
                 }
 
-                await SafeSendLogAsync("System", "Info", $"Đã tạo symbolic link từ {gameSteamAppsPath} đến {localSteamAppsPath}");
+                //await SafeSendLogAsync("System", "Info", $"Đã tạo symbolic link từ {localSteamAppsPath} đến {gameSteamAppsPath}");
             }
             catch (Exception ex)
             {
@@ -1053,17 +978,19 @@ namespace SteamCmdWebAPI.Services
                         {
                             _logger.LogInformation("Đang xóa symbolic link tại {Path}", localSteamAppsPath);
                             DeleteSymbolicLink(localSteamAppsPath);
-                            _logger.LogInformation("Đã xóa symbolic link tại {Path}", localSteamAppsPath);
+                            //_logger.LogInformation("Đã xóa symbolic link tại {Path}", localSteamAppsPath);
                         }
                         else
                         {
-                            _logger.LogInformation("Đường dẫn {Path} không phải là symbolic link, bỏ qua", localSteamAppsPath);
+                            //_logger.LogInformation("Đường dẫn {Path} không phải là symbolic link, đang xóa thư mục...", localSteamAppsPath);
+                            Directory.Delete(localSteamAppsPath, true);
+                           // _logger.LogInformation("Đã xóa thư mục tại {Path}", localSteamAppsPath);
                         }
-                        await SafeSendLogAsync("System", "Info", $"Đã xóa symbolic link tại {localSteamAppsPath}");
+                        //await SafeSendLogAsync("System", "Info", $"Đã xóa symbolic link hoặc thư mục tại {localSteamAppsPath}");
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Không thể xóa symbolic link theo cách thông thường, thử phương pháp thay thế");
+                        //_logger.LogWarning(ex, "Không thể xóa symbolic link/thư mục theo cách thông thường, thử phương pháp thay thế");
                         try
                         {
                             if (OperatingSystem.IsWindows())
@@ -1072,21 +999,22 @@ namespace SteamCmdWebAPI.Services
                             }
                             else
                             {
-                                RunProcessWithTimeout("rm", $"-f \"{localSteamAppsPath}\"", 10000);
+                                RunProcessWithTimeout("rm", $"-rf \"{localSteamAppsPath}\"", 10000);
                             }
-                            await SafeSendLogAsync("System", "Info", $"Đã xóa symbolic link tại {localSteamAppsPath}");
+                            //await SafeSendLogAsync("System", "Info", $"Đã xóa symbolic link hoặc thư mục tại {localSteamAppsPath} bằng phương pháp thay thế");
                         }
                         catch (Exception innerEx)
                         {
-                            _logger.LogError(innerEx, "Không thể xóa symbolic link bằng phương pháp thay thế");
+                            //_logger.LogError(innerEx, "Không thể xóa symbolic link/thư mục bằng phương pháp thay thế tại {Path}", localSteamAppsPath);
+                            await SafeSendLogAsync("System", "Error", $"Không thể xóa tại {localSteamAppsPath}: {innerEx.Message}");
                         }
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi xóa symbolic link tại {Path}: {Message}", localSteamAppsPath, ex.Message);
-                await SafeSendLogAsync("System", "Error", $"Lỗi khi xóa symbolic link tại {localSteamAppsPath}: {ex.Message}");
+                //_logger.LogError(ex, "Lỗi khi xóa symbolic link/thư mục tại {Path}: {Message}", localSteamAppsPath, ex.Message);
+                await SafeSendLogAsync("System", "Error", $"Lỗi khi xóa tại {localSteamAppsPath}: {ex.Message}");
             }
         }
 
@@ -1100,252 +1028,225 @@ namespace SteamCmdWebAPI.Services
                 Directory.CreateDirectory(logsDir);
             }
 
-            return Path.Combine(logsDir, "console_log");
+            return Path.Combine(logsDir, $"console_log_{profileId}.txt");
         }
 
-        private async Task RunSteamCmdAsync(string steamCmdPath, SteamCmdProfile profile, int profileId)
+        private async Task<bool> RunSteamCmdAndWaitAsync(string steamCmdPath, SteamCmdProfile profile, int profileId)
         {
             Process steamCmdProcess = null;
-
-            if (string.IsNullOrEmpty(steamCmdPath))
-                throw new ArgumentNullException(nameof(steamCmdPath));
-            if (profile == null)
-                throw new ArgumentNullException(nameof(profile));
-            if (string.IsNullOrEmpty(profile.InstallDirectory))
-                throw new ArgumentNullException(nameof(profile.InstallDirectory));
-            if (string.IsNullOrEmpty(profile.Name))
-                throw new ArgumentNullException(nameof(profile.Name));
-
-            if (!File.Exists(steamCmdPath))
-            {
-                _logger.LogError("File SteamCMD không tồn tại tại {Path}", steamCmdPath);
-                throw new FileNotFoundException($"File SteamCMD không tồn tại tại {steamCmdPath}");
-            }
-
-            await CreateSteamAppsSymLink(profile.InstallDirectory);
-
-            string logFilePath = GetSteamCmdLogPath(profileId);
-
-            // Đảm bảo thư mục logs tồn tại
-            string logsDir = Path.GetDirectoryName(logFilePath);
-            if (!Directory.Exists(logsDir))
-            {
-                Directory.CreateDirectory(logsDir);
-            }
-
-            _logFileReader.StartMonitoring(logFilePath, async (content) => {
-                if (!string.IsNullOrEmpty(content))
-                {
-                    await _hubContext.Clients.All.SendAsync("ReceiveLog", content);
-                }
-            });
-
-            // Khai báo biến steamCmdProcesses ở đầu phương thức
-            ConcurrentDictionary<int, Process> steamCmdProcesses = _steamCmdProcesses;
-
+            bool success = false;
 
             try
             {
-                // Kill các tiến trình SteamCMD thất lạc
+                if (string.IsNullOrEmpty(steamCmdPath) || !File.Exists(steamCmdPath))
+                {
+                    _logger.LogError("File SteamCMD không tồn tại tại {Path}", steamCmdPath);
+                    await SafeSendLogAsync(profile.Name, "Error", $"File SteamCMD không tồn tại tại {steamCmdPath}");
+                    return false;
+                }
+
+                await CreateSteamAppsSymLink(profile.InstallDirectory);
+                await Task.Delay(1000);
+
+                string logFilePath = GetSteamCmdLogPath(profileId);
+
+                string logsDir = Path.GetDirectoryName(logFilePath);
+                if (!Directory.Exists(logsDir))
+                {
+                    Directory.CreateDirectory(logsDir);
+                }
+
+                _logFileReader.StartMonitoring(logFilePath, async (content) =>
+                {
+                    if (!string.IsNullOrEmpty(content))
+                    {
+                        await _hubContext.Clients.All.SendAsync("ReceiveLog", content);
+                    }
+                });
+
                 try
                 {
-                    foreach (var process in Process.GetProcessesByName("steamcmd").Union(Process.GetProcessesByName("steamcmd.exe")))
+                    string loginCommand;
+                    string usernameToUse = "anonymous";
+                    string passwordToUse = "";
+
+                    if (profile.AnonymousLogin)
                     {
-                        try
-                        {
-                            _logger.LogWarning("Phát hiện tiến trình SteamCMD thất lạc với PID {Pid}, đang kill", process.Id);
-                            process.Kill(true);
-                            process.WaitForExit(2000);
-                            process.Dispose();
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Lỗi khi kill tiến trình SteamCMD thất lạc với PID {Pid}", process.Id);
-                        }
+                        loginCommand = "+login anonymous";
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Lỗi khi tìm và kill các tiến trình SteamCMD thất lạc");
-                }
-
-                string loginCommand;
-                string usernameToUse = "anonymous";
-                string passwordToUse = "";
-
-                if (profile.AnonymousLogin)
-                {
-                    loginCommand = "+login anonymous";
-                }
-                else
-                {
-                    if (!string.IsNullOrEmpty(profile.SteamUsername))
+                    else
                     {
-                        try
+                        if (!string.IsNullOrEmpty(profile.SteamUsername))
                         {
-                            usernameToUse = _encryptionService.Decrypt(profile.SteamUsername);
+                            try
+                            {
+                                usernameToUse = _encryptionService.Decrypt(profile.SteamUsername);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Lỗi khi giải mã SteamUsername cho profile {ProfileName}", profile.Name);
+                                await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi giải mã tên đăng nhập: {ex.Message}");
+                                usernameToUse = "anonymous";
+                            }
                         }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Lỗi khi giải mã SteamUsername cho profile {ProfileName}", profile.Name);
-                            await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi giải mã tên đăng nhập: {ex.Message}");
-                            usernameToUse = "anonymous";
-                        }
-                    }
 
-                    if (!string.IsNullOrEmpty(profile.SteamPassword))
-                    {
-                        try
+                        if (!string.IsNullOrEmpty(profile.SteamPassword))
                         {
-                            passwordToUse = _encryptionService.Decrypt(profile.SteamPassword);
+                            try
+                            {
+                                passwordToUse = _encryptionService.Decrypt(profile.SteamPassword);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Lỗi khi giải mã SteamPassword cho profile {ProfileName}", profile.Name);
+                                await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi giải mã mật khẩu: {ex.Message}");
+                                passwordToUse = "";
+                            }
                         }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Lỗi khi giải mã SteamPassword cho profile {ProfileName}", profile.Name);
-                            await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi giải mã mật khẩu: {ex.Message}");
-                            passwordToUse = "";
-                        }
+
+                        loginCommand = string.IsNullOrEmpty(passwordToUse)
+                            ? $"+login {usernameToUse}"
+                            : $"+login {usernameToUse} {passwordToUse}";
                     }
 
-                    loginCommand = string.IsNullOrEmpty(passwordToUse)
-                        ? $"+login {usernameToUse}"
-                        : $"+login {usernameToUse} {passwordToUse}";
-                }
+                    string validateArg = profile.ValidateFiles ? "validate" : "";
+                    string argumentsArg = string.IsNullOrEmpty(profile.Arguments) ? "" : profile.Arguments.Trim();
+                    string arguments = $"{loginCommand} +app_update {profile.AppID} {validateArg} {argumentsArg} +quit".Trim();
 
-                string validateArg = profile.ValidateFiles ? "validate" : "";
-                string argumentsArg = string.IsNullOrEmpty(profile.Arguments) ? "" : profile.Arguments.Trim();
-                string arguments = $"{loginCommand} +app_update {profile.AppID} {validateArg} {argumentsArg} +quit".Trim();
+                    string safeArguments = !string.IsNullOrEmpty(passwordToUse) && !profile.AnonymousLogin
+                        ? arguments.Replace(passwordToUse, "********")
+                        : arguments;
 
-                string safeArguments = !string.IsNullOrEmpty(passwordToUse) && !profile.AnonymousLogin
-                    ? arguments.Replace(passwordToUse, "********")
-                    : arguments;
+                    _logger.LogInformation("Chạy SteamCMD với tham số: {SafeArguments}", safeArguments);
+                    await SafeSendLogAsync(profile.Name, "Info", $"Đang chạy SteamCMD cho {profile.Name}...");
+                    //await SafeSendLogAsync(profile.Name, "Info", $"Lệnh: {safeArguments}");
 
-                _logger.LogInformation("Chạy SteamCMD với tham số: {SafeArguments}", safeArguments);
-                await SafeSendLogAsync(profile.Name, "Info", $"Đang chạy SteamCMD cho {profile.Name}...");
-                await SafeSendLogAsync(profile.Name, "Info", $"Lệnh: {safeArguments}");
-
-                steamCmdProcess = new Process
-                {
-                    StartInfo = new ProcessStartInfo
+                    steamCmdProcess = new Process
                     {
-                        FileName = steamCmdPath,
-                        Arguments = arguments,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        RedirectStandardInput = true,
-                        CreateNoWindow = true,
-                        StandardOutputEncoding = Encoding.UTF8,
-                        StandardErrorEncoding = Encoding.UTF8
-                    },
-                    EnableRaisingEvents = true
-                };
+                        StartInfo = new ProcessStartInfo
+                        {
+                            FileName = steamCmdPath,
+                            Arguments = arguments,
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            RedirectStandardInput = true,
+                            CreateNoWindow = true,
+                            StandardOutputEncoding = Encoding.UTF8,
+                            StandardErrorEncoding = Encoding.UTF8
+                        },
+                        EnableRaisingEvents = true
+                    };
 
-                var outputBuffer = new StringBuilder();
-                var outputTimer = new System.Timers.Timer(100);
-                outputTimer.Elapsed += async (sender, e) =>
-                {
-                    string output;
-                    lock (outputBuffer)
+                    var outputBuffer = new StringBuilder();
+                    var outputTimer = new System.Timers.Timer(100);
+                    outputTimer.Elapsed += async (sender, e) =>
                     {
-                        if (outputBuffer.Length == 0) return;
-                        output = outputBuffer.ToString();
-                        outputBuffer.Clear();
-                    }
-                    await _hubContext.Clients.All.SendAsync("ReceiveLog", output);
-                };
-                outputTimer.Start();
-
-                steamCmdProcess.OutputDataReceived += async (sender, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                    {
-                        _logger.LogDebug("SteamCMD Output: {Data}", e.Data);
-
+                        string output;
                         lock (outputBuffer)
                         {
-                            outputBuffer.AppendLine(e.Data);
+                            if (outputBuffer.Length == 0) return;
+                            output = outputBuffer.ToString();
+                            outputBuffer.Clear();
+                        }
+                        await _hubContext.Clients.All.SendAsync("ReceiveLog", output);
+                    };
+                    outputTimer.Start();
+
+                    steamCmdProcess.OutputDataReceived += (sender, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                        {
+                            _logger.LogDebug("SteamCMD Output: {Data}", e.Data);
+                            lock (outputBuffer)
+                            {
+                                outputBuffer.AppendLine(e.Data);
+                            }
+                        }
+                    };
+
+                    steamCmdProcess.ErrorDataReceived += async (sender, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                        {
+                            _logger.LogError("SteamCMD Error: {Data}", e.Data);
+                            await _hubContext.Clients.All.SendAsync("ReceiveLog", e.Data);
+                        }
+                    };
+
+                    _steamCmdProcesses[profileId] = steamCmdProcess;
+
+                    steamCmdProcess.Start();
+
+                    profile.Pid = steamCmdProcess.Id;
+                    await _profileService.UpdateProfile(profile);
+
+                    steamCmdProcess.BeginOutputReadLine();
+                    steamCmdProcess.BeginErrorReadLine();
+
+                    await Task.Run(() => steamCmdProcess.WaitForExit());
+
+                    outputTimer.Stop();
+                    string remainingOutput;
+                    lock (outputBuffer)
+                    {
+                        remainingOutput = outputBuffer.ToString();
+                        outputBuffer.Clear();
+                    }
+                    if (!string.IsNullOrEmpty(remainingOutput))
+                    {
+                        await _hubContext.Clients.All.SendAsync("ReceiveLog", remainingOutput);
+                    }
+
+                    int exitCode = steamCmdProcess.ExitCode;
+                    _logger.LogInformation("SteamCMD process đã kết thúc với exit code: {ExitCode}", exitCode);
+
+                    string exitMessage = $"SteamCMD đã kết thúc với mã: {exitCode} ({(exitCode == 0 ? "Thành công" : "Lỗi")})";
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", exitMessage);
+
+                    AddLog(new LogEntry(DateTime.Now, profile.Name,
+                        exitCode == 0 ? "Success" : "Error",
+                        exitMessage));
+
+                    success = (exitCode == 0);
+                }
+                finally
+                {
+                    _logFileReader.StopMonitoring();
+
+                    _steamCmdProcesses.TryRemove(profileId, out _);
+
+                    await RemoveSteamAppsSymLink();
+
+                    if (steamCmdProcess != null)
+                    {
+                        try
+                        {
+                            if (!steamCmdProcess.HasExited)
+                            {
+                                steamCmdProcess.Kill();
+                                steamCmdProcess.WaitForExit(10000);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Lỗi khi dừng tiến trình SteamCMD cho profile {ProfileId}", profileId);
+                        }
+                        finally
+                        {
+                            steamCmdProcess.Dispose();
                         }
                     }
-                };
-
-                steamCmdProcess.ErrorDataReceived += async (sender, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                    {
-                        _logger.LogError("SteamCMD Error: {Data}", e.Data);
-
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", e.Data);
-                    }
-                };
-
-                steamCmdProcesses[profileId] = steamCmdProcess;
-
-                steamCmdProcess.Start();
-
-                profile.Pid = steamCmdProcess.Id;
-                await _profileService.UpdateProfile(profile);
-
-                steamCmdProcess.BeginOutputReadLine();
-                steamCmdProcess.BeginErrorReadLine();
-
-                await steamCmdProcess.WaitForExitAsync();
-
-                outputTimer.Stop();
-                string remainingOutput;
-                lock (outputBuffer)
-                {
-                    remainingOutput = outputBuffer.ToString();
-                    outputBuffer.Clear();
                 }
-                if (!string.IsNullOrEmpty(remainingOutput))
-                {
-                    await _hubContext.Clients.All.SendAsync("ReceiveLog", remainingOutput);
-                }
-
-                _logger.LogInformation("SteamCMD process đã kết thúc với exit code: {ExitCode}", steamCmdProcess.ExitCode);
-
-                string exitMessage = $"SteamCMD đã kết thúc với mã: {steamCmdProcess.ExitCode} ({(steamCmdProcess.ExitCode == 0 ? "Thành công" : "Lỗi")})";
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", exitMessage);
-
-                AddLog(new LogEntry(DateTime.Now, profile.Name,
-                    steamCmdProcess.ExitCode == 0 ? "Success" : "Error",
-                    exitMessage));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi chạy SteamCMD: {Message}", ex.Message);
                 await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi chạy SteamCMD: {ex.Message}");
-                throw;
+                success = false;
             }
-            finally
-            {
-                _logFileReader.StopMonitoring();
 
-                steamCmdProcesses.TryRemove(profileId, out _);
-
-                await RemoveSteamAppsSymLink();
-
-                if (steamCmdProcess != null)
-                {
-                    try
-                    {
-                        if (!steamCmdProcess.HasExited)
-                        {
-                            steamCmdProcess.Kill();
-                            steamCmdProcess.WaitForExit(10000);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Lỗi khi dừng tiến trình SteamCMD cho profile {ProfileId}", profileId);
-                    }
-                    finally
-                    {
-                        steamCmdProcess.Dispose();
-                    }
-                }
-            }
+            return success;
         }
 
         #endregion
