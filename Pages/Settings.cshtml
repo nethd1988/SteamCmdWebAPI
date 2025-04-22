@@ -44,11 +44,10 @@
                 <div class="alert alert-danger">@TempData["ErrorMessage"]</div>
             }
 
-            <!-- Form AJAX hiện tại -->
-            <form id="autoRunForm">
+            <form method="post" asp-page-handler="SaveDirect">
                 @Html.AntiForgeryToken()
                 <div class="form-check mb-3">
-                    <input type="checkbox" class="form-check-input" id="autoRunEnabled" name="autoRunEnabled" @(Model.AutoRunEnabled ? "checked" : "") />
+                    <input type="checkbox" class="form-check-input" id="autoRunEnabled" name="autoRunEnabled" value="true" @(Model.AutoRunEnabled ? "checked" : "") />
                     <label class="form-check-label" for="autoRunEnabled">Kích hoạt tự động chạy</label>
                 </div>
                 <div class="form-group mb-3">
@@ -67,66 +66,8 @@
                         }
                     </select>
                 </div>
-                <button type="submit" class="btn btn-primary">Lưu (AJAX)</button>
-            </form>
-
-            <hr />
-
-            <!-- Form không dùng AJAX (phương án dự phòng) -->
-            <form method="post" asp-page-handler="SaveDirect">
-                @Html.AntiForgeryToken()
-                <div class="form-check mb-3">
-                    <input type="checkbox" class="form-check-input" id="directAutoRunEnabled" name="autoRunEnabled" value="true" @(Model.AutoRunEnabled ? "checked" : "") />
-                    <label class="form-check-label" for="directAutoRunEnabled">Kích hoạt tự động chạy</label>
-                </div>
-                <div class="form-group mb-3">
-                    <label for="directAutoRunInterval">Khoảng thời gian chạy (tiếng)</label>
-                    <select class="form-control" id="directAutoRunInterval" name="autoRunInterval">
-                        @for (int hour = 1; hour <= 48; hour++)
-                        {
-                            if (Model.AutoRunIntervalHours == hour)
-                            {
-                                <option value="@hour" selected>@hour tiếng</option>
-                            }
-                            else
-                            {
-                                <option value="@hour">@hour tiếng</option>
-                            }
-                        }
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-success">Lưu trực tiếp</button>
+                <button type="submit" class="btn btn-success">Lưu</button>
             </form>
         </div>
     </div>
-
-@section Scripts {
-    <script>
-        $(document).ready(function () {
-            // Lấy Anti-Forgery Token từ form
-            var token = $('input[name="__RequestVerificationToken"]').val();
-
-                    $("#autoRunForm").submit(function (e) {
-            e.preventDefault();
-            $.ajax({
-                url: "/Settings?handler=AutoRun",
-                method: "POST",
-                data: $(this).serialize(),
-                headers: {
-                    "RequestVerificationToken": token
-                },
-                success: function (response) {
-                    if (response.success) {
-                        alert("Cập nhật cấu hình tự động chạy thành công!");
-                        // Tải lại trang sau khi lưu thành công
-                        location.reload();
-                    }
-                },
-                error: function (err) {
-                    alert("Lỗi: " + err.responseText);
-                }
-            });
-        });
-        });
-    </script>
-}
+</div>

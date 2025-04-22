@@ -96,7 +96,6 @@ namespace SteamCmdWebAPI.Pages
                 return RedirectToPage();
             }
         }
-        
 
         // Helper method để chuyển đổi giờ thành chuỗi tương thích ngược
         private string ConvertIntervalHoursToString(int hours)
