@@ -145,6 +145,7 @@ namespace SteamCmdWebAPI.Services
 
         #region Process Management
 
+        // Sửa lại phương thức StartProfileAsync
         public async Task<bool> StartProfileAsync(int profileId)
         {
             try
@@ -159,26 +160,23 @@ namespace SteamCmdWebAPI.Services
 
                 await SafeSendLogAsync(profile.Name, "Info", $"Đang chuẩn bị chạy {profile.Name}...");
 
+                // Đảm bảo không có tiến trình cũ đang chạy
                 KillAllSteamCmdProcessesImmediate();
 
+                // Xóa symlink cũ nếu có
                 await RemoveSteamAppsSymLink();
 
-                if (!await _profileSemaphore.WaitAsync(TimeSpan.FromSeconds(30)))
+                // Chờ lấy semaphore để tránh chạy đồng thời
+                if (!await _profileSemaphore.WaitAsync(TimeSpan.FromSeconds(60)))
                 {
-                    _logger.LogError("Không thể lấy semaphore sau 30 giây, thử khởi tạo lại semaphore");
-                    _profileSemaphore.Dispose();
-                    _profileSemaphore = new SemaphoreSlim(1, 1);
-                    await _profileSemaphore.WaitAsync(TimeSpan.FromSeconds(5));
+                    _logger.LogError("Không thể lấy semaphore sau 60 giây, hủy thao tác");
+                    await SafeSendLogAsync(profile.Name, "Error", "Không thể khởi động profile (timeout)");
+                    return false;
                 }
 
                 try
                 {
-                    KillAllSteamCmdProcessesImmediate();
-
-                    await Task.Delay(500);
-
-                    await RemoveSteamAppsSymLink();
-
+                    // Cập nhật trạng thái profile
                     profile.Status = "Running";
                     profile.StartTime = DateTime.Now;
                     profile.Pid = 0;
@@ -186,6 +184,7 @@ namespace SteamCmdWebAPI.Services
 
                     await SafeSendLogAsync(profile.Name, "Info", $"Đang khởi động {profile.Name}...");
 
+                    // Kiểm tra và cài đặt SteamCMD nếu cần
                     bool steamCmdInstalled = await IsSteamCmdInstalled();
                     if (!steamCmdInstalled)
                     {
@@ -205,6 +204,7 @@ namespace SteamCmdWebAPI.Services
                         return false;
                     }
 
+                    // Tạo thư mục cài đặt nếu cần
                     if (!string.IsNullOrEmpty(profile.InstallDirectory) && !Directory.Exists(profile.InstallDirectory))
                     {
                         try
@@ -220,8 +220,10 @@ namespace SteamCmdWebAPI.Services
                         }
                     }
 
+                    // Chạy SteamCMD
                     await RunSteamCmdAsync(GetSteamCmdPath(), profile, profileId);
 
+                    // Cập nhật trạng thái khi hoàn thành
                     profile.Status = "Stopped";
                     profile.StopTime = DateTime.Now;
                     profile.Pid = 0;
@@ -240,21 +242,25 @@ namespace SteamCmdWebAPI.Services
             {
                 _logger.LogError(ex, "Lỗi khi chạy profile {ProfileId}: {Message}", profileId, ex.Message);
 
-                var profile = await _profileService.GetProfileById(profileId);
-                if (profile != null)
+                try
                 {
-                    await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi chạy {profile.Name}: {ex.Message}");
-                    profile.Status = "Stopped";
-                    profile.StopTime = DateTime.Now;
-                    profile.Pid = 0;
-                    await _profileService.UpdateProfile(profile);
+                    var profile = await _profileService.GetProfileById(profileId);
+                    if (profile != null)
+                    {
+                        await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi chạy {profile.Name}: {ex.Message}");
+                        profile.Status = "Stopped";
+                        profile.StopTime = DateTime.Now;
+                        profile.Pid = 0;
+                        await _profileService.UpdateProfile(profile);
+                    }
                 }
+                catch { }
 
+                // Dọn dẹp tài nguyên
                 await RemoveSteamAppsSymLink();
-
                 KillAllSteamCmdProcessesImmediate();
-
                 _steamCmdProcesses.TryRemove(profileId, out _);
+
                 return false;
             }
         }
@@ -263,7 +269,11 @@ namespace SteamCmdWebAPI.Services
         {
             try
             {
-                foreach (var kvp in _steamCmdProcesses.ToArray())
+                // Đảm bảo clear dictionary _steamCmdProcesses trước
+                var currentProcesses = _steamCmdProcesses.ToArray();
+                _steamCmdProcesses.Clear();
+
+                foreach (var kvp in currentProcesses)
                 {
                     var profileId = kvp.Key;
                     var process = kvp.Value;
@@ -290,7 +300,6 @@ namespace SteamCmdWebAPI.Services
                     finally
                     {
                         process?.Dispose();
-                        _steamCmdProcesses.TryRemove(profileId, out _);
                     }
                 }
 
@@ -338,9 +347,13 @@ namespace SteamCmdWebAPI.Services
 
             await KillOrphanedSteamCmdProcesses();
 
+            // Đảm bảo cập nhật tất cả trạng thái trong database
             var profiles = await _profileService.GetAllProfiles();
             foreach (var profile in profiles.Where(p => p.Status == "Running"))
             {
+                _logger.LogInformation("Cập nhật trạng thái profile {ProfileName} (ID: {ProfileId}) từ Running thành Stopped",
+                    profile.Name, profile.Id);
+
                 profile.Status = "Stopped";
                 profile.StopTime = DateTime.Now;
                 profile.Pid = 0;
@@ -348,6 +361,9 @@ namespace SteamCmdWebAPI.Services
             }
 
             await RemoveSteamAppsSymLink();
+
+            // Xóa mọi quy chiếu tới processes trong dictionary
+            _steamCmdProcesses.Clear();
 
             await SafeSendLogAsync("System", "Success", "Đã dừng tất cả các profiles");
         }
@@ -491,9 +507,16 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        // Sửa phương thức RunAllProfilesAsync
+        // Sửa phương thức RunAllProfilesAsync
         public async Task RunAllProfilesAsync()
         {
-            await _profileSemaphore.WaitAsync();
+            if (!await _profileSemaphore.WaitAsync(TimeSpan.FromSeconds(10)))
+            {
+                await SafeSendLogAsync("System", "Error", "Không thể khởi động tất cả profile (hệ thống đang bận)");
+                return;
+            }
+
             try
             {
                 var profiles = await _profileService.GetAllProfiles();
@@ -510,34 +533,102 @@ namespace SteamCmdWebAPI.Services
 
                 await SafeSendLogAsync("System", "Info", "Bắt đầu chạy tất cả các profile...");
 
+                // Đảm bảo dừng tất cả tiến trình và cập nhật trạng thái trước
                 await StopAllProfilesAsync();
 
-                while (_currentProfileIndex < profiles.Count && !_cancelAutoRun)
+                // Đảm bảo trạng thái cập nhật trong database
+                foreach (var profile in profiles)
                 {
-                    var profile = profiles[_currentProfileIndex];
-                    await SafeSendLogAsync(profile.Name, "Info", $"Đang chạy profile ({_currentProfileIndex + 1}/{profiles.Count}): {profile.Name}");
-                    await StartProfileAsync(profile.Id);
-                    _currentProfileIndex++;
-                    await Task.Delay(2000);
+                    if (profile.Status == "Running")
+                    {
+                        profile.Status = "Stopped";
+                        profile.StopTime = DateTime.Now;
+                        profile.Pid = 0;
+                        await _profileService.UpdateProfile(profile);
+                    }
+                }
+
+                await Task.Delay(3000); // Chờ đợi đủ lâu để đảm bảo tất cả đã dừng
+
+                // Khởi động lại SteamCMD nếu cần
+                KillAllSteamCmdProcessesImmediate();
+                await RemoveSteamAppsSymLink();
+
+                // Lấy lại danh sách cấu hình sau khi dừng tất cả
+                profiles = await _profileService.GetAllProfiles();
+
+                // Chạy từng profile một
+                for (int i = 0; i < profiles.Count && !_cancelAutoRun; i++)
+                {
+                    _currentProfileIndex = i;
+                    var profile = profiles[i];
+
+                    await SafeSendLogAsync(profile.Name, "Info", $"Đang chạy profile ({i + 1}/{profiles.Count}): {profile.Name}");
+
+                    try
+                    {
+                        await StartProfileAsync(profile.Id);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi chạy profile {ProfileName} (ID: {ProfileId})",
+                            profile.Name, profile.Id);
+                        await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi chạy profile: {ex.Message}");
+
+                        // Đảm bảo cập nhật trạng thái khi có lỗi
+                        try
+                        {
+                            var failedProfile = await _profileService.GetProfileById(profile.Id);
+                            if (failedProfile != null && failedProfile.Status == "Running")
+                            {
+                                failedProfile.Status = "Stopped";
+                                failedProfile.StopTime = DateTime.Now;
+                                failedProfile.Pid = 0;
+                                await _profileService.UpdateProfile(failedProfile);
+                            }
+                        }
+                        catch { }
+                    }
+
+                    // Đợi một chút trước khi chạy profile tiếp theo
+                    if (i < profiles.Count - 1)
+                    {
+                        await Task.Delay(5000);
+                    }
                 }
 
                 _isRunningAllProfiles = false;
-                _cancelAutoRun = false;
                 await SafeSendLogAsync("System", "Success", "Đã hoàn thành chạy tất cả các profile");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi chạy tất cả các profile");
                 await SafeSendLogAsync("System", "Error", $"Lỗi khi chạy tất cả các profile: {ex.Message}");
-                _isRunningAllProfiles = false;
-                _cancelAutoRun = false;
+
+                // Đảm bảo cập nhật trạng thái tất cả profile
+                try
+                {
+                    var profiles = await _profileService.GetAllProfiles();
+                    foreach (var profile in profiles)
+                    {
+                        if (profile.Status == "Running")
+                        {
+                            profile.Status = "Stopped";
+                            profile.StopTime = DateTime.Now;
+                            profile.Pid = 0;
+                            await _profileService.UpdateProfile(profile);
+                        }
+                    }
+                }
+                catch { }
             }
             finally
             {
+                _isRunningAllProfiles = false;
+                _cancelAutoRun = false;
                 _profileSemaphore.Release();
             }
         }
-
         private async Task RunNextProfileAsync()
         {
             if (!_isRunningAllProfiles || _cancelAutoRun)

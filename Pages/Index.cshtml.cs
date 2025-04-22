@@ -75,6 +75,7 @@ namespace SteamCmdWebAPI.Pages
             }
         }
 
+        // Sửa OnPostRunAllAsync
         public async Task<IActionResult> OnPostRunAllAsync()
         {
             try
@@ -85,19 +86,28 @@ namespace SteamCmdWebAPI.Pages
                 if (!profiles.Any())
                 {
                     _logger.LogWarning("Không có cấu hình nào để chạy");
-                    return new JsonResult(new { success = false, error = "Không có cấu hình nào để chạy" }) { StatusCode = 404 };
+                    return new JsonResult(new { success = false, error = "Không có cấu hình nào để chạy" });
                 }
 
-                await _steamCmdService.RunAllProfilesAsync();
+                // Chạy không đồng bộ để không chặn request
+                _ = Task.Run(async () => {
+                    try
+                    {
+                        await _steamCmdService.RunAllProfilesAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi chạy tất cả profile trong background task");
+                    }
+                });
 
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", "Đã chạy tất cả cấu hình thành công");
-                _logger.LogInformation("Chạy tất cả profile thành công");
-                return new JsonResult(new { success = true, noAlert = true });
+                await _hubContext.Clients.All.SendAsync("ReceiveLog", "Đang chuẩn bị chạy tất cả các profile...");
+                return new JsonResult(new { success = true });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi chạy tất cả cấu hình");
-                return new JsonResult(new { success = false, error = $"Lỗi khi chạy tất cả cấu hình: {ex.Message}" }) { StatusCode = 500 };
+                return new JsonResult(new { success = false, error = $"Lỗi khi chạy tất cả cấu hình: {ex.Message}" });
             }
         }
 

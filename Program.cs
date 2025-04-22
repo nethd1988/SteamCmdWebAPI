@@ -50,9 +50,19 @@ namespace SteamCmdWebAPI
                 var errorFilePath = Path.Combine(baseDirectory, "license_error.txt");
                 await File.WriteAllTextAsync(errorFilePath, licenseResult.Message);
 
-                // Dừng ứng dụng
-                Environment.Exit(1);
-                return;
+                // Kiểm tra xem có sử dụng cache hay không
+                if (licenseResult.UsingCache)
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("Đang sử dụng license cache. Ứng dụng vẫn hoạt động trong thời gian grace period.");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    // Dừng ứng dụng nếu không có cache hợp lệ
+                    Environment.Exit(1);
+                    return;
+                }
             }
 
             // Cấu hình để chạy như một Windows Service
@@ -128,6 +138,9 @@ namespace SteamCmdWebAPI
             // Cấu hình log levels
             builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
 
+            // Thêm background service kiểm tra license định kỳ
+            builder.Services.AddHostedService<LicenseValidationService>();
+
             // Xây dựng ứng dụng
             var app = builder.Build();
 
@@ -169,6 +182,55 @@ namespace SteamCmdWebAPI
 
             // Chạy ứng dụng
             await app.RunAsync();
+        }
+    }
+
+    // Dịch vụ kiểm tra license trong nền
+    public class LicenseValidationService : BackgroundService
+    {
+        private readonly ILogger<LicenseValidationService> _logger;
+        private readonly LicenseService _licenseService;
+        private readonly TimeSpan _checkInterval = TimeSpan.FromHours(6); // Kiểm tra mỗi 6 giờ
+
+        public LicenseValidationService(ILogger<LicenseValidationService> logger, LicenseService licenseService)
+        {
+            _logger = logger;
+            _licenseService = licenseService;
+        }
+
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            _logger.LogInformation("Dịch vụ kiểm tra license đã khởi động");
+
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    // Chờ trước khi kiểm tra lần đầu
+                    await Task.Delay(_checkInterval, stoppingToken);
+
+                    _logger.LogInformation("Đang thực hiện kiểm tra license định kỳ");
+                    var licenseResult = await _licenseService.ValidateLicenseAsync();
+
+                    if (licenseResult.IsValid)
+                    {
+                        _logger.LogInformation("Kiểm tra license định kỳ thành công: {Message}", licenseResult.Message);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Kiểm tra license định kỳ thất bại: {Message}", licenseResult.Message);
+
+                        if (licenseResult.UsingCache)
+                        {
+                            _logger.LogWarning("Đang sử dụng license cache. Ứng dụng vẫn hoạt động trong thời gian grace period.");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi kiểm tra license định kỳ");
+                }
+            }
         }
     }
 }

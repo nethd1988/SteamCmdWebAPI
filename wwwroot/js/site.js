@@ -272,6 +272,7 @@
     });
 
     // Hàm xử lý click nút "Chạy tất cả"
+    // Xử lý nút "Chạy tất cả"
     $(document).on('click', '#runAllBtn', function () {
         const token = $('input[name="__RequestVerificationToken"]').val();
 
