@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Authorization;
 
 namespace SteamCmdWebAPI.Pages
 {
+    [Authorize] // Thêm thuộc tính Authorize để đảm bảo cần đăng nhập
     public class IndexModel : PageModel
     {
         private readonly ILogger<IndexModel> _logger;
@@ -72,7 +73,7 @@ namespace SteamCmdWebAPI.Pages
                 _logger.LogInformation("Nhận yêu cầu POST RunAll");
 
                 var profiles = await _profileService.GetAllProfiles();
-                if (!profiles.Any())
+                if (profiles == null || !profiles.Any())
                 {
                     _logger.LogWarning("Không có cấu hình nào để chạy");
                     return new JsonResult(new { success = false, error = "Không có cấu hình nào để chạy" });

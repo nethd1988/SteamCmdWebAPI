@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Mvc.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -14,6 +16,7 @@ using System.Net;
 using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authentication;
 
 namespace SteamCmdWebAPI
 {
@@ -121,26 +124,73 @@ namespace SteamCmdWebAPI
                 .AddCookie(options =>
                 {
                     options.Cookie.HttpOnly = true;
+                    options.Cookie.SecurePolicy = Microsoft.AspNetCore.Http.CookieSecurePolicy.None; // Cho phép HTTP
                     options.ExpireTimeSpan = TimeSpan.FromDays(7);
                     options.LoginPath = "/Login";
                     options.LogoutPath = "/Logout";
                     options.AccessDeniedPath = "/Login";
                     options.SlidingExpiration = true;
+                    options.ReturnUrlParameter = "ReturnUrl";
+
+                    // Xử lý cookie validation lỗi
+                    options.Events = new CookieAuthenticationEvents
+                    {
+                        OnValidatePrincipal = async context =>
+                        {
+                            var userService = context.HttpContext.RequestServices.GetRequiredService<UserService>();
+                            var userIdClaim = context.Principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+
+                            if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
+                            {
+                                var user = userService.GetUserById(userId);
+                                if (user == null)
+                                {
+                                    context.RejectPrincipal();
+                                    await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                                }
+                            }
+                        }
+                    };
                 });
 
             // Cấu hình authorization
-            builder.Services.AddAuthorization();
+            builder.Services.AddAuthorization(options =>
+            {
+                // Cấu hình policy mặc định yêu cầu xác thực
+                options.FallbackPolicy = new AuthorizationPolicyBuilder()
+                    .RequireAuthenticatedUser()
+                    .Build();
+
+                // Thêm policy khác nếu cần
+                options.AddPolicy("AdminOnly", policy =>
+                    policy.RequireRole("Admin"));
+            });
 
             // Đăng ký filters
             builder.Services.AddScoped<RequireFirstUserSetupFilter>();
 
-            // Thêm dịch vụ cơ bản
+            // Thêm dịch vụ cơ bản - bắt buộc authorize cho tất cả Razor Pages
             builder.Services.AddRazorPages(options => {
+                // Áp dụng filter để kiểm tra người dùng đầu tiên
                 options.Conventions.AddFolderApplicationModelConvention("/", model => {
-                    model.Filters.Add(new RequireFirstUserSetupFilter(tempProvider.GetRequiredService<UserService>()));
+                    model.Filters.Add(new RequireFirstUserSetupFilter(
+                        tempProvider.GetRequiredService<UserService>(),
+                        tempProvider.GetRequiredService<ILogger<RequireFirstUserSetupFilter>>()
+                    ));
                 });
+
+                // Áp dụng filter Authorize cho tất cả các trang trừ Login/Register/Error
+                options.Conventions.AuthorizeFolder("/");
+                options.Conventions.AllowAnonymousToPage("/Login");
+                options.Conventions.AllowAnonymousToPage("/Register");
+                options.Conventions.AllowAnonymousToPage("/Error");
+                options.Conventions.AllowAnonymousToPage("/LicenseError");
             });
-            builder.Services.AddControllers();
+
+            // Áp dụng authorize cho controllers
+            builder.Services.AddControllers(options => {
+                options.Filters.Add(new AuthorizeFilter());
+            });
 
             // Cấu hình SignalR
             builder.Services.AddSignalR(options =>
@@ -167,6 +217,9 @@ namespace SteamCmdWebAPI
             // Thêm background service kiểm tra license định kỳ
             builder.Services.AddHostedService<LicenseValidationService>();
 
+            // Thêm endpoint cho kiểm tra session
+            builder.Services.AddControllers().AddApplicationPart(typeof(Program).Assembly);
+
             // Xây dựng ứng dụng
             var app = builder.Build();
 
@@ -178,7 +231,6 @@ namespace SteamCmdWebAPI
             else
             {
                 app.UseExceptionHandler("/Error");
-                app.UseHsts();
             }
 
             // Sử dụng CORS
@@ -186,19 +238,27 @@ namespace SteamCmdWebAPI
 
             // Middleware khác
             app.UseStaticFiles();
+
+            // Định tuyến trước khi xác thực
             app.UseRouting();
 
-            // Sử dụng middleware kiểm tra tài khoản đầu tiên
-            app.UseFirstUserSetup();
-
-            // Xác thực và phân quyền
+            // Xác thực TRƯỚC phân quyền và bất kỳ middleware tùy chỉnh nào
             app.UseAuthentication();
             app.UseAuthorization();
+
+            // Middleware kiểm tra người dùng đầu tiên (đặt sau xác thực)
+            app.UseFirstUserSetup();
 
             // Endpoint routing
             app.MapRazorPages();
             app.MapControllers();
             app.MapHub<LogHub>("/logHub");
+            app.MapHub<LogHub>("/steamHub");
+
+            // API route cho kiểm tra session
+            app.MapControllerRoute(
+                name: "api",
+                pattern: "api/{controller=Home}/{action=Index}/{id?}");
 
             // Tạo thư mục data nếu chưa tồn tại
             string dataDir = Path.Combine(baseDirectory, "data");

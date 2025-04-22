@@ -1,4 +1,62 @@
-﻿document.addEventListener('DOMContentLoaded', function () {
+﻿// Sửa lỗi cookie và xác thực
+(function () {
+    // Kiểm tra và xóa cookie bị lỗi
+    function cleanupBrokenCookies() {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            // Tìm cookie .AspNetCore.Cookies bị lỗi
+            if (cookie.startsWith('.AspNetCore.Cookies=') && cookie.includes('error')) {
+                document.cookie = '.AspNetCore.Cookies=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                console.log('Đã xóa cookie xác thực bị lỗi');
+                // Kiểm tra nếu đang ở trang cần xác thực, chuyển hướng về trang đăng nhập
+                if (!window.location.pathname.includes('/login') &&
+                    !window.location.pathname.includes('/register') &&
+                    !window.location.pathname.includes('/error')) {
+                    window.location.href = '/login';
+                }
+                break;
+            }
+        }
+    }
+
+    // Kiểm tra trạng thái đăng nhập
+    function checkAuthStatus() {
+        fetch('/api/auth/check-session')
+            .then(response => {
+                if (response.status === 401 || response.status === 403) {
+                    // Chưa đăng nhập hoặc không có quyền
+                    if (!window.location.pathname.includes('/login') &&
+                        !window.location.pathname.includes('/register')) {
+                        window.location.href = '/login';
+                    }
+                    return;
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data && !data.authenticated) {
+                    // Không còn xác thực
+                    if (!window.location.pathname.includes('/login') &&
+                        !window.location.pathname.includes('/register')) {
+                        window.location.href = '/login';
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Lỗi kiểm tra xác thực:', error);
+                // Mất kết nối đến server - không chuyển hướng
+            });
+    }
+
+    // Làm sạch cookie khi trang tải
+    cleanupBrokenCookies();
+
+    // Kiểm tra trạng thái xác thực định kỳ mỗi 60 giây
+    setInterval(checkAuthStatus, 60000);
+})();
+
+document.addEventListener('DOMContentLoaded', function () {
     console.log('Site JS loaded successfully');
 
     // Chặn các thông báo lỗi mặc định từ trình duyệt
@@ -272,7 +330,6 @@
     });
 
     // Hàm xử lý click nút "Chạy tất cả"
-    // Xử lý nút "Chạy tất cả"
     $(document).on('click', '#runAllBtn', function () {
         const token = $('input[name="__RequestVerificationToken"]').val();
 

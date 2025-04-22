@@ -1,8 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
@@ -17,7 +16,9 @@ namespace SteamCmdWebAPI.Services
         private readonly ILogger<UserService> _logger;
         private readonly string _usersFilePath;
         private List<User> _users = new List<User>();
-        private readonly object _fileLock = new object();
+        private readonly SemaphoreSlim _fileLock = new SemaphoreSlim(1, 1);
+        private bool _isInitialized = false;
+        private readonly SemaphoreSlim _initLock = new SemaphoreSlim(1, 1);
 
         public UserService(ILogger<UserService> logger)
         {
@@ -30,23 +31,57 @@ namespace SteamCmdWebAPI.Services
                 logger.LogInformation("Đã tạo thư mục data tại {0}", dataDir);
             }
             _usersFilePath = Path.Combine(dataDir, "users.json");
-            LoadUsers();
+
+            // Khởi tạo danh sách người dùng ngay khi dịch vụ được tạo
+            InitializeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
         }
 
-        private void LoadUsers()
+        private async Task InitializeAsync()
         {
+            if (_isInitialized)
+                return;
+
+            await _initLock.WaitAsync();
+            try
+            {
+                if (_isInitialized)
+                    return;
+
+                await LoadUsersAsync();
+                _isInitialized = true;
+            }
+            finally
+            {
+                _initLock.Release();
+            }
+        }
+
+        private async Task LoadUsersAsync()
+        {
+            await _fileLock.WaitAsync();
             try
             {
                 if (File.Exists(_usersFilePath))
                 {
-                    string json = File.ReadAllText(_usersFilePath);
-                    _users = JsonSerializer.Deserialize<List<User>>(json) ?? new List<User>();
-                    _logger.LogInformation("Đã tải {0} người dùng từ {1}", _users.Count, _usersFilePath);
+                    string json = await File.ReadAllTextAsync(_usersFilePath);
+
+                    if (!string.IsNullOrWhiteSpace(json))
+                    {
+                        _users = JsonSerializer.Deserialize<List<User>>(json) ?? new List<User>();
+                        _logger.LogInformation("Đã tải {0} người dùng từ {1}", _users.Count, _usersFilePath);
+                    }
+                    else
+                    {
+                        _users = new List<User>();
+                        _logger.LogWarning("File users.json tồn tại nhưng rỗng, tạo danh sách trống");
+                    }
                 }
                 else
                 {
                     _users = new List<User>();
                     _logger.LogInformation("Không tìm thấy file users.json, tạo danh sách trống");
+                    // Tạo file trống để đảm bảo quyền ghi
+                    await File.WriteAllTextAsync(_usersFilePath, "[]");
                 }
             }
             catch (Exception ex)
@@ -54,17 +89,39 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogError(ex, "Lỗi khi tải danh sách người dùng từ {0}", _usersFilePath);
                 _users = new List<User>();
             }
+            finally
+            {
+                _fileLock.Release();
+            }
         }
 
         private async Task SaveUsersAsync()
         {
+            await _fileLock.WaitAsync();
             try
             {
-                lock (_fileLock)
+                // Kiểm tra và tạo thư mục nếu nó không tồn tại
+                string directory = Path.GetDirectoryName(_usersFilePath);
+                if (!Directory.Exists(directory))
                 {
-                    string json = JsonSerializer.Serialize(_users, new JsonSerializerOptions { WriteIndented = true });
-                    File.WriteAllText(_usersFilePath, json);
+                    Directory.CreateDirectory(directory);
                 }
+
+                // Lưu vào file tạm trước
+                string tempFilePath = _usersFilePath + ".tmp";
+                string json = JsonSerializer.Serialize(_users, new JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(tempFilePath, json);
+
+                // Đổi tên file tạm thành file chính (thay thế an toàn)
+                if (File.Exists(_usersFilePath))
+                {
+                    File.Replace(tempFilePath, _usersFilePath, null);
+                }
+                else
+                {
+                    File.Move(tempFilePath, _usersFilePath);
+                }
+
                 _logger.LogInformation("Đã lưu {0} người dùng vào {1}", _users.Count, _usersFilePath);
             }
             catch (Exception ex)
@@ -72,10 +129,16 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogError(ex, "Lỗi khi lưu danh sách người dùng vào {0}", _usersFilePath);
                 throw;
             }
+            finally
+            {
+                _fileLock.Release();
+            }
         }
 
         public async Task<User> RegisterAsync(string username, string password)
         {
+            await InitializeAsync();
+
             if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
             {
                 throw new ArgumentException("Tên đăng nhập và mật khẩu không được để trống");
@@ -107,6 +170,14 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<User> AuthenticateAsync(string username, string password)
         {
+            await InitializeAsync();
+
+            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+            {
+                _logger.LogWarning("Đăng nhập thất bại: Tên đăng nhập hoặc mật khẩu trống");
+                return null;
+            }
+
             var user = _users.FirstOrDefault(u => u.Username.Equals(username, StringComparison.OrdinalIgnoreCase));
 
             if (user == null)
@@ -115,7 +186,22 @@ namespace SteamCmdWebAPI.Services
                 return null;
             }
 
-            bool verified = BCrypt.Net.BCrypt.Verify(password, user.PasswordHash);
+            if (string.IsNullOrEmpty(user.PasswordHash))
+            {
+                _logger.LogWarning("Đăng nhập thất bại: Người dùng {0} có mật khẩu rỗng", username);
+                return null;
+            }
+
+            bool verified;
+            try
+            {
+                verified = BCrypt.Net.BCrypt.Verify(password, user.PasswordHash);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xác minh mật khẩu cho người dùng {0}", username);
+                return null;
+            }
 
             if (!verified)
             {
@@ -132,6 +218,13 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<bool> ChangePasswordAsync(int userId, string currentPassword, string newPassword)
         {
+            await InitializeAsync();
+
+            if (string.IsNullOrEmpty(currentPassword) || string.IsNullOrEmpty(newPassword))
+            {
+                return false;
+            }
+
             var user = _users.FirstOrDefault(u => u.Id == userId);
 
             if (user == null)
@@ -155,16 +248,31 @@ namespace SteamCmdWebAPI.Services
 
         public bool AnyUsers()
         {
+            // Đảm bảo dữ liệu người dùng đã được tải
+            if (!_isInitialized)
+            {
+                InitializeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+            }
             return _users.Any();
         }
 
         public User GetUserById(int id)
         {
+            // Đảm bảo dữ liệu người dùng đã được tải
+            if (!_isInitialized)
+            {
+                InitializeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+            }
             return _users.FirstOrDefault(u => u.Id == id);
         }
 
         public User GetUserByUsername(string username)
         {
+            // Đảm bảo dữ liệu người dùng đã được tải
+            if (!_isInitialized)
+            {
+                InitializeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+            }
             return _users.FirstOrDefault(u => u.Username.Equals(username, StringComparison.OrdinalIgnoreCase));
         }
     }

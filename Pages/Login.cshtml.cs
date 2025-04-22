@@ -22,6 +22,9 @@ namespace SteamCmdWebAPI.Pages
         [BindProperty]
         public string Password { get; set; }
 
+        [BindProperty(SupportsGet = true)]
+        public string ReturnUrl { get; set; }
+
         public string ErrorMessage { get; set; }
         public bool ShowRegister { get; set; }
 
@@ -33,8 +36,11 @@ namespace SteamCmdWebAPI.Pages
 
         public async Task<IActionResult> OnGetAsync()
         {
+            // Xóa cookie hiện tại để đảm bảo đăng nhập mới
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+
             // Nếu đã đăng nhập, chuyển hướng đến trang chủ
-            if (User.Identity.IsAuthenticated)
+            if (User.Identity?.IsAuthenticated == true)
             {
                 return RedirectToPage("/Index");
             }
@@ -43,10 +49,19 @@ namespace SteamCmdWebAPI.Pages
             if (!_userService.AnyUsers())
             {
                 ShowRegister = true;
+                _logger.LogInformation("Không có người dùng, hiện nút đăng ký");
             }
             else
             {
                 ShowRegister = false; // Không hiển thị tùy chọn đăng ký nếu đã có người dùng
+                _logger.LogInformation("Đã có người dùng, ẩn nút đăng ký");
+            }
+
+            // Nếu từ một trang khác chuyển đến, hiển thị thông báo
+            if (!string.IsNullOrEmpty(ReturnUrl))
+            {
+                _logger.LogInformation("Được chuyển hướng từ: {ReturnUrl}", ReturnUrl);
+                ErrorMessage = "Vui lòng đăng nhập để tiếp tục";
             }
 
             return Page();
@@ -54,21 +69,24 @@ namespace SteamCmdWebAPI.Pages
 
         public async Task<IActionResult> OnPostAsync()
         {
-            if (string.IsNullOrEmpty(Username) || string.IsNullOrEmpty(Password))
-            {
-                ErrorMessage = "Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu";
-                ShowRegister = true;
-                return Page();
-            }
-
             try
             {
+                // Đảm bảo đã đăng xuất trước
+                await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+
+                if (string.IsNullOrEmpty(Username) || string.IsNullOrEmpty(Password))
+                {
+                    ErrorMessage = "Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu";
+                    ShowRegister = !_userService.AnyUsers();
+                    return Page();
+                }
+
                 var user = await _userService.AuthenticateAsync(Username, Password);
 
                 if (user == null)
                 {
                     ErrorMessage = "Tên đăng nhập hoặc mật khẩu không chính xác";
-                    ShowRegister = true;
+                    ShowRegister = !_userService.AnyUsers();
                     return Page();
                 }
 
@@ -80,12 +98,18 @@ namespace SteamCmdWebAPI.Pages
                 };
 
                 var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+
+                // Thiết lập lại các tùy chọn xác thực
                 var authProperties = new AuthenticationProperties
                 {
                     IsPersistent = true,
-                    ExpiresUtc = DateTimeOffset.UtcNow.AddDays(7)
+                    ExpiresUtc = DateTimeOffset.UtcNow.AddDays(7),
+                    // Xóa RedirectUri để tránh chuyển hướng sau khi đăng nhập
+                    AllowRefresh = true,
+                    IssuedUtc = DateTimeOffset.UtcNow
                 };
 
+                // Tạo cookie xác thực mới
                 await HttpContext.SignInAsync(
                     CookieAuthenticationDefaults.AuthenticationScheme,
                     new ClaimsPrincipal(claimsIdentity),
@@ -93,13 +117,21 @@ namespace SteamCmdWebAPI.Pages
 
                 _logger.LogInformation("Người dùng {Username} đã đăng nhập thành công", Username);
 
-                return RedirectToPage("/Index");
+                // Chuyển hướng đến trang được yêu cầu ban đầu hoặc trang chủ
+                if (!string.IsNullOrEmpty(ReturnUrl) && Url.IsLocalUrl(ReturnUrl))
+                {
+                    return Redirect(ReturnUrl);
+                }
+                else
+                {
+                    return RedirectToPage("/Index");
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi đăng nhập: {Message}", ex.Message);
+                _logger.LogError(ex, "Lỗi không xác định khi đăng nhập: {Message}", ex.Message);
                 ErrorMessage = "Đã xảy ra lỗi: " + ex.Message;
-                ShowRegister = true;
+                ShowRegister = !_userService.AnyUsers();
                 return Page();
             }
         }
