@@ -1,77 +1,97 @@
-using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using System;
-using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 
 namespace SteamCmdWebAPI.Services
 {
     public class LicenseService : IDisposable
     {
-        private readonly string _apiUrl;
-        private readonly string _apiKey;
-        private readonly string _aesIv;
-        private readonly string _aesKey;
-        private readonly HttpClient _httpClient;
         private readonly ILogger<LicenseService> _logger;
+        private readonly HttpClient _httpClient;
+
+        // Thông tin API license
+        private const string API_URL = "http://127.0.0.1:60999/api/thirdparty/license";
+        private const string API_KEY = "HxU40My7KJNzMoElWqY5LwRvYk6nUwGc";
+        private const string AES_IV = "M9z24zymNgrwCtIM";
+        private const string AES_KEY = "8Caz082kLMVKnl6OZqeBjgIXmQizbX2d";
 
         public LicenseService(ILogger<LicenseService> logger)
         {
             _logger = logger;
-            _apiUrl = "http://127.0.0.1:60999/api/thirdparty/license";
-            _apiKey = "HxU40My7KJNzMoElWqY5LwRvYk6nUwGc";
-            _aesIv = "M9z24zymNgrwCtIM";
-            _aesKey = "8Caz082kLMVKnl6OZqeBjgIXmQizbX2d";
-            _httpClient = new HttpClient();
-            _httpClient.DefaultRequestHeaders.Add("X-Api-Key", _apiKey);
+            _httpClient = new HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(10)
+            };
+            _httpClient.DefaultRequestHeaders.Add("X-Api-Key", API_KEY);
         }
 
-        public async Task<ResponseResult> ValidateLicenseAsync()
+        public async Task<LicenseValidationResult> ValidateLicenseAsync()
         {
-            ResponseResult responseResult = new ResponseResult();
             try
             {
-                var licenseModel = await GetLicenseFromApiAsync().ConfigureAwait(false);
+                // Kiểm tra kết nối và lấy thông tin license
+                var licenseModel = await GetLicenseFromApiAsync();
+
+                // Nếu không lấy được thông tin license
                 if (licenseModel == null)
                 {
                     _logger.LogWarning("Không thể lấy thông tin giấy phép");
-                    return responseResult;
-                }
-
-                if ((DateTime.UtcNow - licenseModel.CreateTime).TotalSeconds > licenseModel.MaxSecondsOffset)
-                {
-                    _logger.LogWarning("Thời gian giấy phép vượt quá giới hạn");
-                    return responseResult;
+                    return new LicenseValidationResult
+                    {
+                        IsValid = false,
+                        Message = "Không thể kết nối tới máy chủ cấp phép"
+                    };
                 }
 
                 var license = licenseModel.ViewLicense;
-                bool isValid = license.Active && license.Status == 7 && license.Expires > DateTime.Now;
+
+                // Kiểm tra tính hợp lệ của license
+                bool isValid = license.Active &&
+                               license.Status == 7 &&
+                               license.Expires > DateTime.Now;
 
                 if (isValid)
                 {
-                    _logger.LogInformation("Xác thực giấy phép thành công. Còn {DayLeft} ngày", license.DayLeft);
+                    _logger.LogInformation(
+                        "License hợp lệ. Còn {DayLeft} ngày. Hết hạn: {Expires}",
+                        license.DayLeft,
+                        license.Expires
+                    );
+
+                    return new LicenseValidationResult
+                    {
+                        IsValid = true,
+                        Message = $"Giấy phép còn hiệu lực. Hết hạn: {license.Expires:dd/MM/yyyy}"
+                    };
                 }
                 else
                 {
-                    _logger.LogWarning("Xác thực giấy phép thất bại: Active={Active}, Status={Status}, Expires={Expires}", 
-                        license.Active, license.Status, license.Expires);
+                    _logger.LogWarning(
+                        "License không hợp lệ. Trạng thái: Active={Active}, Status={Status}, Expires={Expires}",
+                        license.Active,
+                        license.Status,
+                        license.Expires
+                    );
+
+                    return new LicenseValidationResult
+                    {
+                        IsValid = false,
+                        Message = "Giấy phép không còn hiệu lực"
+                    };
                 }
-                responseResult.Success = isValid;
-                responseResult.License = license;
-                return responseResult;
-            }
-            catch (HttpRequestException ex)
-            {
-                _logger.LogError(ex, "Lỗi kết nối khi xác thực giấy phép");
-                return responseResult;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi xác thực giấy phép");
-                return responseResult;
+                return new LicenseValidationResult
+                {
+                    IsValid = false,
+                    Message = "Lỗi hệ thống khi xác thực giấy phép"
+                };
             }
         }
 
@@ -79,27 +99,28 @@ namespace SteamCmdWebAPI.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync(_apiUrl).ConfigureAwait(false);
+                var response = await _httpClient.GetAsync(API_URL);
+
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogWarning("API trả về mã lỗi: {StatusCode}", response.StatusCode);
                     return null;
                 }
 
-                var encryptString = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var encryptString = await response.Content.ReadAsStringAsync();
                 if (string.IsNullOrEmpty(encryptString))
                 {
                     _logger.LogWarning("API trả về kết quả rỗng");
                     return null;
                 }
 
-                var baseString = Decrypt(encryptString, _aesKey, _aesIv);
+                var baseString = Decrypt(encryptString, AES_KEY, AES_IV);
                 return JsonConvert.DeserializeObject<ThirdPartyLicenseModel>(baseString);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi lấy giấy phép từ API");
-                throw;
+                return null;
             }
         }
 
@@ -116,7 +137,7 @@ namespace SteamCmdWebAPI.Services
             try
             {
                 byte[] encryptedBytes = Convert.FromBase64String(encryptedText);
-                using (var aes = new AesCryptoServiceProvider())
+                using (var aes = Aes.Create())
                 {
                     aes.Key = keyBytes;
                     aes.IV = ivBytes;
@@ -145,6 +166,14 @@ namespace SteamCmdWebAPI.Services
         }
     }
 
+    // Kết quả xác thực license
+    public class LicenseValidationResult
+    {
+        public bool IsValid { get; set; }
+        public string Message { get; set; }
+    }
+
+    // Giữ nguyên các model cần thiết
     public class ViewLicenseDto
     {
         public string LicenseId { get; set; }
@@ -160,11 +189,5 @@ namespace SteamCmdWebAPI.Services
         public ViewLicenseDto ViewLicense { get; set; }
         public int MaxSecondsOffset { get; set; }
         public DateTime CreateTime { get; set; }
-    }
-
-    public class ResponseResult
-    {
-        public bool Success { get; set; }
-        public ViewLicenseDto License { get; set; }
     }
 }

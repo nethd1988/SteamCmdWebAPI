@@ -9,6 +9,8 @@ using System;
 using System.IO;
 using System.Net;
 using System.Threading.Tasks;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace SteamCmdWebAPI
 {
@@ -20,28 +22,44 @@ namespace SteamCmdWebAPI
             var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
             Directory.SetCurrentDirectory(baseDirectory);
 
-            // Đảm bảo thư mục data tồn tại
-            string dataDir = Path.Combine(baseDirectory, "data");
-            if (!Directory.Exists(dataDir))
-            {
-                Directory.CreateDirectory(dataDir);
-                Console.WriteLine($"Đã tạo thư mục data tại {dataDir}");
-            }
-
             // Tạo builder ứng dụng
             var builder = WebApplication.CreateBuilder(args);
-
-            // Cấu hình để chạy như một Windows Service
-            builder.Host.UseWindowsService(options =>
-            {
-                options.ServiceName = "SteamCmdWebAPI";
-            });
 
             // Thêm hỗ trợ User Secrets
             if (builder.Environment.IsDevelopment())
             {
                 builder.Configuration.AddUserSecrets<Program>();
             }
+
+            // Đăng ký dịch vụ license
+            builder.Services.AddSingleton<LicenseService>();
+
+            // Xây dựng provider để kiểm tra license
+            var tempProvider = builder.Services.BuildServiceProvider();
+            var licenseService = tempProvider.GetRequiredService<LicenseService>();
+            var licenseResult = await licenseService.ValidateLicenseAsync();
+
+            if (!licenseResult.IsValid)
+            {
+                // Log lỗi license
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"LỖI GIẤY PHÉP: {licenseResult.Message}");
+                Console.ResetColor();
+
+                // Tạo file báo lỗi
+                var errorFilePath = Path.Combine(baseDirectory, "license_error.txt");
+                await File.WriteAllTextAsync(errorFilePath, licenseResult.Message);
+
+                // Dừng ứng dụng
+                Environment.Exit(1);
+                return;
+            }
+
+            // Cấu hình để chạy như một Windows Service
+            builder.Host.UseWindowsService(options =>
+            {
+                options.ServiceName = "SteamCmdWebAPI";
+            });
 
             // Đăng ký các dịch vụ
             builder.Services.AddSingleton<EncryptionService>();
@@ -51,8 +69,7 @@ namespace SteamCmdWebAPI
             builder.Services.AddSingleton<LogFileReader>();
             builder.Services.AddSingleton<SteamCmdService>();
             builder.Services.AddSingleton<TcpClientService>();
-            builder.Services.AddSingleton<LicenseService>();
-            
+
             // Đăng ký dịch vụ Worker
             builder.Services.AddHostedService<Worker>();
 
@@ -74,6 +91,16 @@ namespace SteamCmdWebAPI
                           .AllowCredentials();
                 });
             });
+
+            // Cấu hình JSON serialization
+            builder.Services.AddControllers()
+                .AddJsonOptions(options =>
+                {
+                    options.JsonSerializerOptions.WriteIndented = true;
+                    options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+                    options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+                    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                });
 
             // Thêm dịch vụ cơ bản
             builder.Services.AddRazorPages();
@@ -98,6 +125,9 @@ namespace SteamCmdWebAPI
                 settings.LogName = "Application";
             });
 
+            // Cấu hình log levels
+            builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
+
             // Xây dựng ứng dụng
             var app = builder.Build();
 
@@ -109,6 +139,7 @@ namespace SteamCmdWebAPI
             else
             {
                 app.UseExceptionHandler("/Error");
+                app.UseHsts();
             }
 
             // Sử dụng CORS
@@ -123,6 +154,14 @@ namespace SteamCmdWebAPI
             app.MapRazorPages();
             app.MapControllers();
             app.MapHub<LogHub>("/logHub");
+
+            // Tạo thư mục data nếu chưa tồn tại
+            string dataDir = Path.Combine(baseDirectory, "data");
+            if (!Directory.Exists(dataDir))
+            {
+                Directory.CreateDirectory(dataDir);
+                Console.WriteLine($"Đã tạo thư mục data tại {dataDir}");
+            }
 
             // Log địa chỉ truy cập
             Console.WriteLine("Địa chỉ truy cập:");
