@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -5,6 +6,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Hubs;
 using SteamCmdWebAPI.Services;
+using SteamCmdWebAPI.Filters;
+using SteamCmdWebAPI.Middleware;
 using System;
 using System.IO;
 using System.Net;
@@ -33,6 +36,7 @@ namespace SteamCmdWebAPI
 
             // Đăng ký dịch vụ license
             builder.Services.AddSingleton<LicenseService>();
+            builder.Services.AddSingleton<UserService>();
 
             // Xây dựng provider để kiểm tra license
             var tempProvider = builder.Services.BuildServiceProvider();
@@ -112,8 +116,30 @@ namespace SteamCmdWebAPI
                     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
                 });
 
+            // Cấu hình xác thực
+            builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+                .AddCookie(options =>
+                {
+                    options.Cookie.HttpOnly = true;
+                    options.ExpireTimeSpan = TimeSpan.FromDays(7);
+                    options.LoginPath = "/Login";
+                    options.LogoutPath = "/Logout";
+                    options.AccessDeniedPath = "/Login";
+                    options.SlidingExpiration = true;
+                });
+
+            // Cấu hình authorization
+            builder.Services.AddAuthorization();
+
+            // Đăng ký filters
+            builder.Services.AddScoped<RequireFirstUserSetupFilter>();
+
             // Thêm dịch vụ cơ bản
-            builder.Services.AddRazorPages();
+            builder.Services.AddRazorPages(options => {
+                options.Conventions.AddFolderApplicationModelConvention("/", model => {
+                    model.Filters.Add<RequireFirstUserSetupFilter>();
+                });
+            });
             builder.Services.AddControllers();
 
             // Cấu hình SignalR
@@ -161,6 +187,12 @@ namespace SteamCmdWebAPI
             // Middleware khác
             app.UseStaticFiles();
             app.UseRouting();
+
+            // Sử dụng middleware kiểm tra tài khoản đầu tiên
+            app.UseFirstUserSetup();
+
+            // Xác thực và phân quyền
+            app.UseAuthentication();
             app.UseAuthorization();
 
             // Endpoint routing

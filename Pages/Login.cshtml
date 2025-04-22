@@ -1,0 +1,42 @@
+@page
+@model SteamCmdWebAPI.Pages.LoginModel
+@{
+    ViewData["Title"] = "Đăng nhập";
+    Layout = "_AuthLayout";
+}
+
+<div class="auth-container">
+    <div class="auth-card">
+        <div class="auth-header">
+            <h2>STEAM<span>AUTO</span></h2>
+            <p>Đăng nhập vào hệ thống</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+        {
+            <div class="auth-error">
+                @Model.ErrorMessage
+            </div>
+        }
+
+        <form method="post" class="auth-form">
+            <div class="form-group">
+                <label for="username">Tên đăng nhập</label>
+                <input type="text" id="username" name="Username" required class="form-control" value="@Model.Username" autocomplete="username" />
+            </div>
+
+            <div class="form-group">
+                <label for="password">Mật khẩu</label>
+                <input type="password" id="password" name="Password" required class="form-control" autocomplete="current-password" />
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn-login">ĐĂNG NHẬP</button>
+                @if (Model.ShowRegister)
+                {
+                    <a href="/Register" class="auth-link">Tạo tài khoản mới</a>
+                }
+            </div>
+        </form>
+    </div>
+</div>

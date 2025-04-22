@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Hubs;
 using SteamCmdWebAPI.Models;
 using SteamCmdWebAPI.Services;
+using Microsoft.AspNetCore.Authorization;
 
 namespace SteamCmdWebAPI.Pages
 {

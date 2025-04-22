@@ -1201,7 +1201,7 @@ namespace SteamCmdWebAPI.Services
                     int exitCode = steamCmdProcess.ExitCode;
                     _logger.LogInformation("SteamCMD process đã kết thúc với exit code: {ExitCode}", exitCode);
 
-                    string exitMessage = $"SteamCMD đã kết thúc với mã: {exitCode} ({(exitCode == 0 ? "Thành công" : "Lỗi")})";
+                    //string exitMessage = $"SteamCMD đã kết thúc với mã: {exitCode} ({(exitCode == 0 ? "Thành công" : "Lỗi")})";
                     await _hubContext.Clients.All.SendAsync("ReceiveLog", exitMessage);
 
                     AddLog(new LogEntry(DateTime.Now, profile.Name,
