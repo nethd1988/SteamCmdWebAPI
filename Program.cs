@@ -16,13 +16,45 @@ namespace SteamCmdWebAPI
     {
         public static async Task Main(string[] args)
         {
+            // Thiết lập đường dẫn gốc của ứng dụng
+            var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            Directory.SetCurrentDirectory(baseDirectory);
+
+            // Đảm bảo thư mục data tồn tại
+            string dataDir = Path.Combine(baseDirectory, "data");
+            if (!Directory.Exists(dataDir))
+            {
+                Directory.CreateDirectory(dataDir);
+                Console.WriteLine($"Đã tạo thư mục data tại {dataDir}");
+            }
+
+            // Tạo builder ứng dụng
             var builder = WebApplication.CreateBuilder(args);
+
+            // Cấu hình để chạy như một Windows Service
+            builder.Host.UseWindowsService(options =>
+            {
+                options.ServiceName = "SteamCmdWebAPI";
+            });
 
             // Thêm hỗ trợ User Secrets
             if (builder.Environment.IsDevelopment())
             {
                 builder.Configuration.AddUserSecrets<Program>();
             }
+
+            // Đăng ký các dịch vụ
+            builder.Services.AddSingleton<EncryptionService>();
+            builder.Services.AddSingleton<ProfileService>();
+            builder.Services.AddSingleton<SettingsService>();
+            builder.Services.AddSingleton<ServerSettingsService>();
+            builder.Services.AddSingleton<LogFileReader>();
+            builder.Services.AddSingleton<SteamCmdService>();
+            builder.Services.AddSingleton<TcpClientService>();
+            builder.Services.AddSingleton<LicenseService>();
+            
+            // Đăng ký dịch vụ Worker
+            builder.Services.AddHostedService<Worker>();
 
             // Cấu hình Kestrel để lắng nghe từ tất cả các địa chỉ IP
             builder.WebHost.ConfigureKestrel(serverOptions =>
@@ -43,18 +75,6 @@ namespace SteamCmdWebAPI
                 });
             });
 
-            // Thiết lập đường dẫn gốc của ứng dụng
-            var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-            Directory.SetCurrentDirectory(baseDirectory);
-
-            // Đảm bảo thư mục data tồn tại
-            string dataDir = Path.Combine(baseDirectory, "data");
-            if (!Directory.Exists(dataDir))
-            {
-                Directory.CreateDirectory(dataDir);
-                Console.WriteLine($"Đã tạo thư mục data tại {dataDir}");
-            }
-
             // Thêm dịch vụ cơ bản
             builder.Services.AddRazorPages();
             builder.Services.AddControllers();
@@ -72,9 +92,11 @@ namespace SteamCmdWebAPI
             builder.Logging.ClearProviders();
             builder.Logging.AddConsole();
             builder.Logging.AddDebug();
-
-            // Đăng ký dịch vụ 
-            builder.Services.AddSteamCmdServices();
+            builder.Logging.AddEventLog(settings =>
+            {
+                settings.SourceName = "SteamCmdWebAPI";
+                settings.LogName = "Application";
+            });
 
             // Xây dựng ứng dụng
             var app = builder.Build();
