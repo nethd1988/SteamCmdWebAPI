@@ -70,7 +70,7 @@ namespace SteamCmdWebAPI.Pages
             return Page();
         }
 
-        // Thêm handler để lấy profile từ server
+        // Handler để lấy profile từ server
         public async Task<IActionResult> OnGetProfileFromServerAsync(string profileName)
         {
             if (string.IsNullOrEmpty(profileName))
@@ -103,11 +103,6 @@ namespace SteamCmdWebAPI.Pages
 
             // Loại bỏ các trường không cần thiết khỏi ModelState
             ModelState.Remove("Profile.Arguments");
-            if (Profile.AnonymousLogin)
-            {
-                ModelState.Remove("Username");
-                ModelState.Remove("Password");
-            }
 
             // Xóa thông báo lỗi cũ
             StatusMessage = null;
@@ -138,36 +133,35 @@ namespace SteamCmdWebAPI.Pages
                 _logger.LogInformation("Bắt đầu lưu profile: {Name}, AppID: {AppID}, InstallDirectory: {InstallDirectory}",
                     Profile.Name, Profile.AppID, Profile.InstallDirectory);
 
-                if (!Profile.AnonymousLogin)
+                // Mã hóa thông tin đăng nhập Steam nếu có
+                if (!string.IsNullOrEmpty(Username))
                 {
                     try
                     {
-                        Profile.SteamUsername = string.IsNullOrEmpty(Username) ? string.Empty : _encryptionService.Encrypt(Username);
-                        Profile.SteamPassword = string.IsNullOrEmpty(Password) ? string.Empty : _encryptionService.Encrypt(Password);
+                        Profile.SteamUsername = _encryptionService.Encrypt(Username);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Lỗi khi mã hóa thông tin đăng nhập");
+                        _logger.LogError(ex, "Lỗi khi mã hóa tên đăng nhập");
                         StatusMessage = "Lỗi khi mã hóa thông tin đăng nhập: " + ex.Message;
                         IsSuccess = false;
-
-                        // Lấy lại danh sách profile từ server
-                        try
-                        {
-                            ServerProfiles = await _tcpClientService.GetProfileNamesAsync("", 0);
-                        }
-                        catch
-                        {
-                            ServerProfiles = new List<string>();
-                        }
-
                         return Page();
                     }
                 }
-                else
+
+                if (!string.IsNullOrEmpty(Password))
                 {
-                    Profile.SteamUsername = string.Empty;
-                    Profile.SteamPassword = string.Empty;
+                    try
+                    {
+                        Profile.SteamPassword = _encryptionService.Encrypt(Password);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi mã hóa mật khẩu");
+                        StatusMessage = "Lỗi khi mã hóa thông tin đăng nhập: " + ex.Message;
+                        IsSuccess = false;
+                        return Page();
+                    }
                 }
 
                 if (string.IsNullOrEmpty(Profile.Arguments))
@@ -217,7 +211,7 @@ namespace SteamCmdWebAPI.Pages
             }
         }
 
-        // Thêm handler để nhập profile từ server
+        // Handler để nhập profile từ server
         public async Task<IActionResult> OnPostImportFromServerAsync(string profileName)
         {
             try

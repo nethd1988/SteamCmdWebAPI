@@ -69,8 +69,8 @@ namespace SteamCmdWebAPI.Pages
         public async Task<IActionResult> OnPostSaveProfileAsync()
         {
             _logger.LogInformation("OnPostSaveProfileAsync called");
-            _logger.LogInformation("Profile before binding: Name={Name}, AppID={AppID}, InstallDirectory={InstallDirectory}, AnonymousLogin={AnonymousLogin}, ValidateFiles={ValidateFiles}, AutoRun={AutoRun}",
-                Profile.Name, Profile.AppID, Profile.InstallDirectory, Profile.AnonymousLogin, Profile.ValidateFiles, Profile.AutoRun);
+            _logger.LogInformation("Profile before binding: Name={Name}, AppID={AppID}, InstallDirectory={InstallDirectory}, ValidateFiles={ValidateFiles}, AutoRun={AutoRun}",
+                Profile.Name, Profile.AppID, Profile.InstallDirectory, Profile.ValidateFiles, Profile.AutoRun);
             _logger.LogInformation("NewUsername={NewUsername}, NewPassword={NewPassword}", NewUsername, NewPassword);
 
             // Loại bỏ validation cho các trường không cần thiết
@@ -100,39 +100,31 @@ namespace SteamCmdWebAPI.Pages
                 Profile.StopTime = existingProfile.StopTime;
                 Profile.LastRun = existingProfile.LastRun;
 
-                if (Profile.AnonymousLogin)
+                try
                 {
-                    Profile.SteamUsername = string.Empty;
-                    Profile.SteamPassword = string.Empty;
+                    if (!string.IsNullOrEmpty(NewUsername))
+                    {
+                        Profile.SteamUsername = _encryptionService.Encrypt(NewUsername);
+                    }
+                    else
+                    {
+                        Profile.SteamUsername = existingProfile.SteamUsername;
+                    }
+                    if (!string.IsNullOrEmpty(NewPassword))
+                    {
+                        Profile.SteamPassword = _encryptionService.Encrypt(NewPassword);
+                    }
+                    else
+                    {
+                        Profile.SteamPassword = existingProfile.SteamPassword;
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    try
-                    {
-                        if (!string.IsNullOrEmpty(NewUsername))
-                        {
-                            Profile.SteamUsername = _encryptionService.Encrypt(NewUsername);
-                        }
-                        else
-                        {
-                            Profile.SteamUsername = existingProfile.SteamUsername;
-                        }
-                        if (!string.IsNullOrEmpty(NewPassword))
-                        {
-                            Profile.SteamPassword = _encryptionService.Encrypt(NewPassword);
-                        }
-                        else
-                        {
-                            Profile.SteamPassword = existingProfile.SteamPassword;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Lỗi khi mã hóa thông tin đăng nhập trong Edit");
-                        StatusMessage = "Lỗi khi mã hóa thông tin đăng nhập: " + ex.Message;
-                        IsSuccess = false;
-                        return Page();
-                    }
+                    _logger.LogError(ex, "Lỗi khi mã hóa thông tin đăng nhập trong Edit");
+                    StatusMessage = "Lỗi khi mã hóa thông tin đăng nhập: " + ex.Message;
+                    IsSuccess = false;
+                    return Page();
                 }
 
                 if (string.IsNullOrEmpty(Profile.Arguments))
@@ -140,8 +132,8 @@ namespace SteamCmdWebAPI.Pages
                     Profile.Arguments = "";
                 }
 
-                _logger.LogInformation("Profile before update: Name={Name}, AppID={AppID}, InstallDirectory={InstallDirectory}, AnonymousLogin={AnonymousLogin}, ValidateFiles={ValidateFiles}, AutoRun={AutoRun}",
-                    Profile.Name, Profile.AppID, Profile.InstallDirectory, Profile.AnonymousLogin, Profile.ValidateFiles, Profile.AutoRun);
+                _logger.LogInformation("Profile before update: Name={Name}, AppID={AppID}, InstallDirectory={InstallDirectory}, ValidateFiles={ValidateFiles}, AutoRun={AutoRun}",
+                    Profile.Name, Profile.AppID, Profile.InstallDirectory, Profile.ValidateFiles, Profile.AutoRun);
 
                 await _profileService.UpdateProfile(Profile);
 

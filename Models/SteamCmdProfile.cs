@@ -14,7 +14,6 @@ namespace SteamCmdWebAPI.Models
         public string Arguments { get; set; }
         public bool ValidateFiles { get; set; }
         public bool AutoRun { get; set; }
-        public bool AnonymousLogin { get; set; }
         public string Status { get; set; }
         public DateTime StartTime { get; set; }
         public DateTime StopTime { get; set; }
@@ -35,7 +34,6 @@ namespace SteamCmdWebAPI.Models
             Pid = 0;
             ValidateFiles = false;
             AutoRun = false;
-            AnonymousLogin = false;
         }
     }
 }

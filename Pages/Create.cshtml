@@ -29,7 +29,7 @@
                         <li><strong>Đường dẫn cài đặt:</strong> Thư mục cài đặt game</li>
                         <li><strong>Tham số bổ sung:</strong> Các tham số tùy chọn</li>
                     </ul>
-                    <p>Nếu game yêu cầu đăng nhập, hãy bỏ chọn "Đăng nhập ẩn danh" và nhập thông tin tài khoản Steam.</p>
+                    <p>Nhập thông tin tài khoản Steam để tải game (nếu game yêu cầu đăng nhập).</p>
                     <div class="alert alert-info">
                         <strong>Mẹo:</strong> Bạn cũng có thể sử dụng nút "Lấy từ Server" để nhập nhanh từ cơ sở dữ liệu có sẵn.
                     </div>
@@ -104,39 +104,33 @@
                             <input id="Profile_ValidateFiles" name="Profile.ValidateFiles" type="checkbox" class="form-check-input" @(Model.Profile.ValidateFiles ? "checked" : "") />
                             <label for="Profile_ValidateFiles" class="form-check-label">Kiểm tra và sửa chữa file</label>
                         </div>
-                        
+
                         <div class="mb-3 form-check">
                             <input id="Profile_AutoRun" name="Profile.AutoRun" type="checkbox" class="form-check-input" @(Model.Profile.AutoRun ? "checked" : "") />
                             <label for="Profile_AutoRun" class="form-check-label">Tự động chạy khi khởi động</label>
                         </div>
 
-                        <div class="mb-3 form-check">
-                            <input id="Profile_AnonymousLogin" name="Profile.AnonymousLogin" type="checkbox" class="form-check-input" @(Model.Profile.AnonymousLogin ? "checked" : "") />
-                            <label for="Profile_AnonymousLogin" class="form-check-label">Đăng nhập ẩn danh</label>
-                            <small class="d-block text-muted">Chọn nếu game có thể tải về mà không cần đăng nhập vào tài khoản Steam</small>
-                        </div>
-
-                        <div id="loginSection" class="@(Model.Profile.AnonymousLogin ? "d-none" : "")">
-                            <div class="card mb-3">
-                                <div class="card-header">
-                                    <h5>Thông tin đăng nhập Steam</h5>
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h5>Thông tin đăng nhập Steam</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="alert alert-warning">
+                                    <i class="bi bi-exclamation-triangle me-2"></i> Lưu ý: Thông tin đăng nhập sẽ được lưu dưới dạng mã hóa trong cơ sở dữ liệu.
                                 </div>
-                                <div class="card-body">
-                                    <div class="alert alert-warning">
-                                        <i class="bi bi-exclamation-triangle me-2"></i> Lưu ý: Thông tin đăng nhập sẽ được lưu dưới dạng mã hóa trong cơ sở dữ liệu.
-                                    </div>
 
-                                    <div class="mb-3">
-                                        <label for="Username" class="form-label">Tên đăng nhập</label>
-                                        <input id="Username" name="Username" value="@Model.Username" class="form-control" />
-                                        <span id="usernameError" class="text-danger"></span>
-                                    </div>
+                                <div class="mb-3">
+                                    <label for="Username" class="form-label">Tên đăng nhập</label>
+                                    <input id="Username" name="Username" value="@Model.Username" class="form-control" />
+                                    <small class="form-text text-muted">Để trống nếu game không yêu cầu đăng nhập</small>
+                                    <span id="usernameError" class="text-danger"></span>
+                                </div>
 
-                                    <div class="mb-3">
-                                        <label for="Password" class="form-label">Mật khẩu</label>
-                                        <input id="Password" name="Password" value="@Model.Password" type="password" class="form-control" />
-                                        <span id="passwordError" class="text-danger"></span>
-                                    </div>
+                                <div class="mb-3">
+                                    <label for="Password" class="form-label">Mật khẩu</label>
+                                    <input id="Password" name="Password" value="@Model.Password" type="password" class="form-control" />
+                                    <small class="form-text text-muted">Để trống nếu game không yêu cầu đăng nhập</small>
+                                    <span id="passwordError" class="text-danger"></span>
                                 </div>
                             </div>
                         </div>
@@ -153,21 +147,12 @@
 </div>
 
 @section Scripts {
-    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
-    
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+
     <script>
         $(document).ready(function() {
-            // Xử lý sự kiện khi check/uncheck "Đăng nhập ẩn danh"
-            $('#Profile_AnonymousLogin').change(function() {
-                if ($(this).is(':checked')) {
-                    $('#loginSection').addClass('d-none');
-                    $('#Username').val('');
-                    $('#Password').val('');
-                } else {
-                    $('#loginSection').removeClass('d-none');
-                }
-            });
-            
             // Xử lý khi nhấp vào nút "Tải thông tin"
             $('#loadProfileBtn').click(function() {
                 const profileName = $('#serverProfileSelect').val();
@@ -175,10 +160,10 @@
                     alert('Vui lòng chọn một profile từ server!');
                     return;
                 }
-                
+
                 // Hiển thị thông báo đang tải
                 $('#loadProfileBtn').text('Đang tải...').prop('disabled', true);
-                
+
                 // Gọi API để lấy thông tin profile
                 $.ajax({
                     url: `?handler=ProfileFromServer&profileName=${encodeURIComponent(profileName)}`,
@@ -193,15 +178,7 @@
                             $('#Profile_Arguments').val(profile.Arguments);
                             $('#Profile_ValidateFiles').prop('checked', profile.ValidateFiles);
                             $('#Profile_AutoRun').prop('checked', profile.AutoRun);
-                            $('#Profile_AnonymousLogin').prop('checked', profile.AnonymousLogin);
-                            
-                            // Cập nhật hiển thị phần đăng nhập
-                            if (profile.AnonymousLogin) {
-                                $('#loginSection').addClass('d-none');
-                            } else {
-                                $('#loginSection').removeClass('d-none');
-                            }
-                            
+
                             alert('Đã tải thông tin profile từ server!');
                         } else {
                             alert('Lỗi: ' + (response.error || 'Không thể tải thông tin profile'));
@@ -216,7 +193,7 @@
                     }
                 });
             });
-            
+
             // Xử lý khi nhấp vào nút "Nhập profile từ server"
             $('#importProfileBtn').click(function() {
                 const profileName = $('#serverProfileSelect').val();
@@ -224,14 +201,14 @@
                     alert('Vui lòng chọn một profile từ server!');
                     return;
                 }
-                
+
                 if (confirm(`Bạn có chắc muốn nhập profile "${profileName}" từ server không?`)) {
                     // Hiển thị thông báo đang xử lý
                     $('#importProfileBtn').text('Đang nhập...').prop('disabled', true);
-                    
+
                     // Lấy token CSRF
                     const token = $('input[name="__RequestVerificationToken"]').val();
-                    
+
                     // Gọi API để nhập profile từ server
                     $.ajax({
                         url: '?handler=ImportFromServer',

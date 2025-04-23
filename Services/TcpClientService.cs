@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using SteamCmdWebAPI.Models;
-using System.Text.Json;
 
 namespace SteamCmdWebAPI.Services
 {

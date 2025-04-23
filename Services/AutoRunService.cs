@@ -11,7 +11,7 @@ namespace SteamCmdWebAPI.Services
         private readonly ILogger<AutoRunService> _logger;
         private readonly ProfileService _profileService;
         private readonly SteamCmdService _steamCmdService;
-        
+
         private TimeSpan _interval = TimeSpan.FromHours(12);
         private bool _enabled = true;
 
@@ -34,7 +34,7 @@ namespace SteamCmdWebAPI.Services
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("Auto Run Service đã khởi động");
-            
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
@@ -42,16 +42,19 @@ namespace SteamCmdWebAPI.Services
                     if (_enabled)
                     {
                         _logger.LogInformation("Đang chạy cập nhật tự động");
-                        
-                        // Sửa lỗi: Thêm await để đợi Task hoàn thành và lấy kết quả List<SteamCmdProfile>
+
+                        // Lấy tất cả profile
                         var profiles = await _profileService.GetAllProfiles();
-                        
+
                         foreach (var profile in profiles)
                         {
                             try
                             {
-                                _logger.LogInformation($"Đang chạy tự động cập nhật cho profile '{profile.Name}'");
-                                await _steamCmdService.RunProfileAsync(profile.Id);
+                                if (profile.AutoRun)
+                                {
+                                    _logger.LogInformation($"Đang chạy tự động cập nhật cho profile '{profile.Name}'");
+                                    await _steamCmdService.RunProfileAsync(profile.Id);
+                                }
                             }
                             catch (Exception ex)
                             {

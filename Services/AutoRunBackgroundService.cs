@@ -19,6 +19,7 @@ namespace SteamCmdWebAPI.Services
         private readonly TimeSpan _serverSyncInterval = TimeSpan.FromMinutes(30);
         private DateTime _lastServerSync = DateTime.MinValue;
         private DateTime _lastAutoRunTime = DateTime.MinValue;
+        private volatile bool _isRunningAutoTask = false;
 
         public AutoRunBackgroundService(
             ILogger<AutoRunBackgroundService> logger,
@@ -40,14 +41,17 @@ namespace SteamCmdWebAPI.Services
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                try
+                if (!_isRunningAutoTask)
                 {
-                    // Kiểm tra và chạy auto-run theo cấu hình
-                    await CheckAndRunScheduledTasksAsync();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Lỗi trong quá trình auto-run");
+                    try
+                    {
+                        // Kiểm tra và chạy auto-run theo cấu hình
+                        await CheckAndRunScheduledTasksAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi trong quá trình auto-run");
+                    }
                 }
 
                 await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); // Kiểm tra mỗi phút
@@ -56,6 +60,9 @@ namespace SteamCmdWebAPI.Services
 
         private async Task CheckAndRunScheduledTasksAsync()
         {
+            if (_isRunningAutoTask)
+                return;
+
             try
             {
                 var settings = await _profileService.LoadAutoRunSettings();
@@ -71,14 +78,23 @@ namespace SteamCmdWebAPI.Services
 
                 if (_lastAutoRunTime == DateTime.MinValue || timeSinceLastRun.TotalHours >= intervalHours)
                 {
-                    _logger.LogInformation("Đang chạy tất cả profile tự động theo khoảng thời gian {0} giờ", intervalHours);
-                    await _steamCmdService.StartAllAutoRunProfilesAsync();
-                    _lastAutoRunTime = now;
+                    _isRunningAutoTask = true;
+                    try
+                    {
+                        _logger.LogInformation("Đang chạy tất cả profile tự động theo khoảng thời gian {0} giờ", intervalHours);
+                        await _steamCmdService.StartAllAutoRunProfilesAsync();
+                        _lastAutoRunTime = now;
+                    }
+                    finally
+                    {
+                        _isRunningAutoTask = false;
+                    }
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi kiểm tra lịch hẹn auto-run");
+                _isRunningAutoTask = false;
             }
         }
 
