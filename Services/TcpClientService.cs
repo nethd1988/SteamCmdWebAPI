@@ -4,7 +4,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+using System.Text.Json;
 using SteamCmdWebAPI.Models;
 
 namespace SteamCmdWebAPI.Services
@@ -14,13 +14,11 @@ namespace SteamCmdWebAPI.Services
         private readonly ILogger<TcpClientService> _logger;
         private readonly EncryptionService _encryptionService;
 
-        // Các hằng số
-        private const string AUTH_TOKEN = "simple_auth_token";
-        private const int DEFAULT_TIMEOUT = 5000; // 5 giây
-
-        // Địa chỉ server mặc định cố định
+        // Địa chỉ server mặc định
         private const string DEFAULT_SERVER_ADDRESS = "idckz.ddnsfree.com";
         private const int DEFAULT_SERVER_PORT = 61188;
+        private const string AUTH_TOKEN = "simple_auth_token";
+        private const int DEFAULT_TIMEOUT_MS = 10000; // 10 giây
 
         public TcpClientService(ILogger<TcpClientService> logger, EncryptionService encryptionService)
         {
@@ -28,9 +26,9 @@ namespace SteamCmdWebAPI.Services
             _encryptionService = encryptionService ?? throw new ArgumentNullException(nameof(encryptionService));
         }
 
-        public async Task<bool> TestConnectionAsync(string serverAddress, int port = 61188)
+        public async Task<bool> TestConnectionAsync(string serverAddress, int port = DEFAULT_SERVER_PORT)
         {
-            // Luôn sử dụng địa chỉ mặc định bất kể tham số đầu vào
+            // Luôn sử dụng địa chỉ mặc định
             serverAddress = DEFAULT_SERVER_ADDRESS;
             port = DEFAULT_SERVER_PORT;
 
@@ -40,20 +38,15 @@ namespace SteamCmdWebAPI.Services
 
                 using (var tcpClient = new TcpClient())
                 {
-                    // Đặt timeout 5 giây cho việc kết nối
                     var connectTask = tcpClient.ConnectAsync(serverAddress, port);
                     var timeoutTask = Task.Delay(5000); // 5 giây timeout
 
-                    // Chờ kết nối hoặc timeout
-                    var completedTask = await Task.WhenAny(connectTask, timeoutTask);
-
-                    if (completedTask == timeoutTask)
+                    if (await Task.WhenAny(connectTask, timeoutTask) == timeoutTask)
                     {
                         _logger.LogWarning("Kết nối đến {ServerAddress}:{Port} bị timeout", serverAddress, port);
                         return false;
                     }
 
-                    // Kiểm tra kết nối thành công
                     if (tcpClient.Connected)
                     {
                         _logger.LogInformation("Kết nối thành công đến {ServerAddress}:{Port}", serverAddress, port);
@@ -71,15 +64,15 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        public async Task<List<string>> GetProfileNamesAsync(string serverAddress, int port = 61188)
+        public async Task<List<string>> GetProfileNamesAsync(string serverAddress, int port = DEFAULT_SERVER_PORT)
         {
-            // Luôn sử dụng địa chỉ mặc định bất kể tham số đầu vào
+            // Luôn sử dụng địa chỉ mặc định
             serverAddress = DEFAULT_SERVER_ADDRESS;
             port = DEFAULT_SERVER_PORT;
 
             try
             {
-                // Kiểm tra kết nối 
+                // Kiểm tra kết nối
                 bool isConnected = await TestConnectionAsync(serverAddress, port);
                 if (!isConnected)
                 {
@@ -91,9 +84,8 @@ namespace SteamCmdWebAPI.Services
 
                 using (var tcpClient = new TcpClient())
                 {
-                    // Đặt timeout 10 giây 
                     var connectTask = tcpClient.ConnectAsync(serverAddress, port);
-                    var timeoutTask = Task.Delay(10000); // 10 giây timeout
+                    var timeoutTask = Task.Delay(DEFAULT_TIMEOUT_MS);
 
                     if (await Task.WhenAny(connectTask, timeoutTask) == timeoutTask)
                     {
@@ -167,9 +159,9 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        public async Task<SteamCmdProfile> GetProfileDetailsByNameAsync(string serverAddress, string profileName, int port = 61188)
+        public async Task<SteamCmdProfile> GetProfileDetailsByNameAsync(string serverAddress, string profileName, int port = DEFAULT_SERVER_PORT)
         {
-            // Luôn sử dụng địa chỉ mặc định bất kể tham số đầu vào
+            // Luôn sử dụng địa chỉ mặc định
             serverAddress = DEFAULT_SERVER_ADDRESS;
             port = DEFAULT_SERVER_PORT;
 
@@ -194,9 +186,8 @@ namespace SteamCmdWebAPI.Services
 
                 using (var tcpClient = new TcpClient())
                 {
-                    // Đặt timeout 10 giây
                     var connectTask = tcpClient.ConnectAsync(serverAddress, port);
-                    var timeoutTask = Task.Delay(10000); // 10 giây timeout
+                    var timeoutTask = Task.Delay(DEFAULT_TIMEOUT_MS);
 
                     if (await Task.WhenAny(connectTask, timeoutTask) == timeoutTask)
                     {
@@ -257,16 +248,25 @@ namespace SteamCmdWebAPI.Services
                     }
 
                     // Phân tích profile từ JSON
-                    var profile = JsonConvert.DeserializeObject<SteamCmdProfile>(response);
+                    try
+                    {
+                        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        var profile = JsonSerializer.Deserialize<SteamCmdProfile>(response, options);
 
-                    if (profile != null)
-                    {
-                        _logger.LogInformation("Đã nhận thông tin profile {ProfileName} từ server", profileName);
-                        return profile;
+                        if (profile != null)
+                        {
+                            _logger.LogInformation("Đã nhận thông tin profile {ProfileName} từ server", profileName);
+                            return profile;
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Không thể phân tích dữ liệu profile từ server");
+                            return null;
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        _logger.LogWarning("Không thể phân tích dữ liệu profile từ server");
+                        _logger.LogError(ex, "Lỗi khi phân tích JSON từ server");
                         return null;
                     }
                 }
@@ -305,9 +305,8 @@ namespace SteamCmdWebAPI.Services
 
                 using (var tcpClient = new TcpClient())
                 {
-                    // Đặt timeout 10 giây
                     var connectTask = tcpClient.ConnectAsync(serverAddress, port);
-                    var timeoutTask = Task.Delay(10000); // 10 giây timeout
+                    var timeoutTask = Task.Delay(DEFAULT_TIMEOUT_MS);
 
                     if (await Task.WhenAny(connectTask, timeoutTask) == timeoutTask)
                     {
@@ -356,7 +355,7 @@ namespace SteamCmdWebAPI.Services
                     }
 
                     // Chuyển profile thành JSON
-                    string json = JsonConvert.SerializeObject(profile);
+                    string json = JsonSerializer.Serialize(profile);
                     byte[] profileBytes = Encoding.UTF8.GetBytes(json);
 
                     // Gửi độ dài

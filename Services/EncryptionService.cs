@@ -18,36 +18,43 @@ namespace SteamCmdWebAPI.Services
 
         public string Encrypt(string plainText)
         {
-            if (string.IsNullOrEmpty(plainText)) return "";
+            if (string.IsNullOrEmpty(plainText)) return string.Empty;
 
-            byte[] clearBytes = Encoding.Unicode.GetBytes(plainText);
-            using (Aes encryptor = Aes.Create())
+            try
             {
-                byte[] keyBytes = Encoding.UTF8.GetBytes(_encryptionKey);
-                byte[] ivBytes = Encoding.UTF8.GetBytes(_encryptionIV);
-
-                // Đảm bảo đúng độ dài key và IV
-                Array.Resize(ref keyBytes, 32); // 256 bit
-                Array.Resize(ref ivBytes, 16);  // 128 bit
-
-                encryptor.Key = keyBytes;
-                encryptor.IV = ivBytes;
-
-                using (MemoryStream ms = new MemoryStream())
+                byte[] clearBytes = Encoding.Unicode.GetBytes(plainText);
+                using (Aes encryptor = Aes.Create())
                 {
-                    using (CryptoStream cs = new CryptoStream(ms, encryptor.CreateEncryptor(), CryptoStreamMode.Write))
+                    byte[] keyBytes = Encoding.UTF8.GetBytes(_encryptionKey);
+                    byte[] ivBytes = Encoding.UTF8.GetBytes(_encryptionIV);
+
+                    // Đảm bảo đúng độ dài key và IV
+                    Array.Resize(ref keyBytes, 32); // 256 bit
+                    Array.Resize(ref ivBytes, 16);  // 128 bit
+
+                    encryptor.Key = keyBytes;
+                    encryptor.IV = ivBytes;
+
+                    using (var ms = new System.IO.MemoryStream())
                     {
-                        cs.Write(clearBytes, 0, clearBytes.Length);
-                        cs.Close();
+                        using (var cs = new CryptoStream(ms, encryptor.CreateEncryptor(), CryptoStreamMode.Write))
+                        {
+                            cs.Write(clearBytes, 0, clearBytes.Length);
+                            cs.Close();
+                        }
+                        return Convert.ToBase64String(ms.ToArray());
                     }
-                    return Convert.ToBase64String(ms.ToArray());
                 }
+            }
+            catch (Exception)
+            {
+                return string.Empty;
             }
         }
 
         public string Decrypt(string cipherText)
         {
-            if (string.IsNullOrEmpty(cipherText) || cipherText == "encrypted") return "";
+            if (string.IsNullOrEmpty(cipherText) || cipherText == "encrypted") return string.Empty;
 
             try
             {
@@ -64,9 +71,9 @@ namespace SteamCmdWebAPI.Services
                     encryptor.Key = keyBytes;
                     encryptor.IV = ivBytes;
 
-                    using (MemoryStream ms = new MemoryStream())
+                    using (var ms = new System.IO.MemoryStream())
                     {
-                        using (CryptoStream cs = new CryptoStream(ms, encryptor.CreateDecryptor(), CryptoStreamMode.Write))
+                        using (var cs = new CryptoStream(ms, encryptor.CreateDecryptor(), CryptoStreamMode.Write))
                         {
                             cs.Write(cipherBytes, 0, cipherBytes.Length);
                             cs.Close();

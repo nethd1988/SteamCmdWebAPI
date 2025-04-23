@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamCmdWebAPI.Services;
@@ -15,9 +16,10 @@ namespace SteamCmdWebAPI.Services
         private readonly SteamCmdService _steamCmdService;
         private readonly TcpClientService _tcpClientService;
 
-        // Thời gian kiểm tra kết nối server (mỗi 30 phút)
+        // Thời gian kiểm tra server (mỗi 30 phút)
         private readonly TimeSpan _serverSyncInterval = TimeSpan.FromMinutes(30);
-        private DateTime _lastServerSync = DateTime.MinValue;
+
+        // Theo dõi thời gian chạy tự động gần nhất
         private DateTime _lastAutoRunTime = DateTime.MinValue;
         private volatile bool _isRunningAutoTask = false;
 
@@ -38,6 +40,9 @@ namespace SteamCmdWebAPI.Services
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("AutoRunBackgroundService đã khởi động");
+
+            // Đợi một chút trước khi bắt đầu
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -81,7 +86,7 @@ namespace SteamCmdWebAPI.Services
                     _isRunningAutoTask = true;
                     try
                     {
-                        _logger.LogInformation("Đang chạy tất cả profile tự động theo khoảng thời gian {0} giờ", intervalHours);
+                        _logger.LogInformation("AutoRun được bật, đang khởi động các profile được đánh dấu...");
                         await _steamCmdService.StartAllAutoRunProfilesAsync();
                         _lastAutoRunTime = now;
                     }
@@ -102,12 +107,6 @@ namespace SteamCmdWebAPI.Services
         {
             _logger.LogInformation("Đang dừng AutoRunBackgroundService...");
             await base.StopAsync(stoppingToken);
-        }
-
-        public override void Dispose()
-        {
-            _logger.LogInformation("Đang giải phóng tài nguyên AutoRunBackgroundService...");
-            base.Dispose();
         }
     }
 }

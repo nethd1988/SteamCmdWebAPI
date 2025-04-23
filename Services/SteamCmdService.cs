@@ -304,18 +304,22 @@ namespace SteamCmdWebAPI.Services
 
                 try
                 {
-                    foreach (var process in Process.GetProcessesByName("steamcmd").Union(Process.GetProcessesByName("steamcmd.exe")))
+                    foreach (var process in Process.GetProcessesByName("steamcmd")
+                            .Union(Process.GetProcessesByName("steamcmd.exe")))
                     {
                         try
                         {
                             _logger.LogWarning("Phát hiện tiến trình SteamCMD thất lạc với PID {Pid}, đang kill", process.Id);
                             process.Kill(true);
                             process.WaitForExit(2000);
-                            process.Dispose();
                         }
                         catch (Exception ex)
                         {
                             _logger.LogError(ex, "Lỗi khi kill tiến trình SteamCMD thất lạc với PID {Pid}", process.Id);
+                        }
+                        finally
+                        {
+                            process.Dispose();
                         }
                     }
                 }
@@ -326,7 +330,7 @@ namespace SteamCmdWebAPI.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi kill tất cả tiến trình SteamCMD ngay lập tức");
+                _logger.LogError(ex, "Lỗi khi kill tất cả tiến trình SteamCMD");
             }
         }
 
@@ -439,7 +443,7 @@ namespace SteamCmdWebAPI.Services
                 var profile = await _profileService.GetProfileById(id);
                 if (profile == null)
                 {
-                    // Giảm thiểu log
+                    _logger.LogError("Không tìm thấy profile ID {ProfileId}", id);
                     return false;
                 }
 
@@ -447,7 +451,6 @@ namespace SteamCmdWebAPI.Services
             }
             catch (Exception ex)
             {
-                // Ghi log ở mức Debug
                 _logger.LogDebug(ex, "Lỗi khi chạy SteamCMD cho profile ID {Id}", id);
                 throw;
             }
@@ -477,14 +480,18 @@ namespace SteamCmdWebAPI.Services
 
                 await SafeSendLogAsync("System", "Info", "Bắt đầu chạy tất cả các profile...");
 
+                // Dừng tất cả các tiến trình đang chạy trước
                 await StopAllProfilesAsync();
                 await Task.Delay(3000);
 
+                // Đảm bảo dọn dẹp môi trường
                 KillAllSteamCmdProcessesImmediate();
                 await RemoveSteamAppsSymLink();
 
+                // Chạy từng profile một
                 foreach (var profile in profiles)
                 {
+                    // Kiểm tra nếu đã huỷ
                     if (_cancelAutoRun) break;
 
                     _currentProfileIndex++;
@@ -493,6 +500,7 @@ namespace SteamCmdWebAPI.Services
 
                     try
                     {
+                        // Cố gắng chạy profile và ghi log kết quả
                         bool success = await StartProfileAsync(profile.Id);
                         if (!success)
                         {
@@ -500,6 +508,7 @@ namespace SteamCmdWebAPI.Services
                                 $"Chạy profile {profile.Name} không thành công");
                         }
 
+                        // Đợi một chút giữa các lần chạy
                         if (_currentProfileIndex < profiles.Count)
                         {
                             await Task.Delay(5000);
@@ -734,20 +743,9 @@ namespace SteamCmdWebAPI.Services
 
             try
             {
-                // Xóa thư mục steamapps tại localSteamAppsPath nếu tồn tại
-                if (Directory.Exists(localSteamAppsPath))
-                {
-                    try
-                    {
-                        Directory.Delete(localSteamAppsPath, true); // Xóa mạnh mẽ, bao gồm tất cả tệp và thư mục con
-                        //await SafeSendLogAsync("System", "Info", $"Đã xóa thư mục steamapps tại {localSteamAppsPath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        await SafeSendLogAsync("System", "Error", $"Không thể xóa thư mục steamapps tại {localSteamAppsPath}: {ex.Message}");
-                        throw; // Ném lỗi để dừng quá trình nếu không xóa được
-                    }
-                }
+                // Đảm bảo xóa symbolink cũ nếu có
+                await RemoveSteamAppsSymLink();
+                await Task.Delay(500);  // Đợi một chút
 
                 // Tạo thư mục steamapps trong thư mục cài đặt game nếu chưa tồn tại
                 if (!Directory.Exists(gameSteamAppsPath))
@@ -758,39 +756,37 @@ namespace SteamCmdWebAPI.Services
 
                 bool success = false;
 
+                // Sử dụng phương thức CreateSymbolicLink của .NET nếu đang chạy trên Windows mới
                 if (OperatingSystem.IsWindows())
                 {
                     try
                     {
-                        if (Directory.CreateSymbolicLink(localSteamAppsPath, gameSteamAppsPath) != null)
-                        {
-                            success = true;
-                        }
+                        Directory.CreateSymbolicLink(localSteamAppsPath, gameSteamAppsPath);
+                        success = true;
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Không thể sử dụng Directory.CreateSymbolicLink, sẽ thử dùng process");
+                        _logger.LogWarning(ex, "Không thể sử dụng Directory.CreateSymbolicLink, sẽ thử phương pháp thay thế");
                     }
+                }
+
+                // Nếu không thành công, sử dụng process để tạo symbolic link
+                if (!success)
+                {
+                    success = await CreateSymbolicLinkWithProcess(gameSteamAppsPath, localSteamAppsPath);
                 }
 
                 if (!success)
                 {
-                    success = await CreateSymbolicLinkWithProcess(gameSteamAppsPath, localSteamAppsPath);
-
-                    if (success)
-                    {
-                        // Đã tạo symbolic link thành công
-                    }
-                    else
-                    {
-                        throw new Exception("Không thể tạo symbolic link sau nhiều lần thử");
-                    }
+                    throw new Exception("Không thể tạo symbolic link sau nhiều lần thử");
                 }
+
+                _logger.LogInformation("Đã tạo symbolic link từ {Source} đến {Target}", localSteamAppsPath, gameSteamAppsPath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi tạo symbolic link: {Message}", ex.Message);
-                await SafeSendLogAsync("System", "Error", $"Lỗi khi tạo symbolic link: {ex.Message}");
+                //_logger.LogError(ex, "Lỗi khi tạo symbolic link: {Message}", ex.Message);
+                //await SafeSendLogAsync("System", "Error", $"Lỗi khi tạo symbolic link: {ex.Message}");
                 throw;
             }
         }
@@ -825,6 +821,7 @@ namespace SteamCmdWebAPI.Services
             try
             {
                 ProcessStartInfo linkInfo;
+
                 if (OperatingSystem.IsWindows())
                 {
                     linkInfo = new ProcessStartInfo
@@ -851,23 +848,27 @@ namespace SteamCmdWebAPI.Services
                 }
                 else
                 {
-                    throw new PlatformNotSupportedException("Hệ điều hành không được hỗ trợ để tạo symbolic link");
+                    _logger.LogError("Hệ điều hành không được hỗ trợ để tạo symbolic link");
+                    return false;
                 }
 
                 using (var process = Process.Start(linkInfo))
                 {
                     if (process == null)
                     {
-                        throw new Exception("Không thể khởi động tiến trình để tạo symbolic link.");
+                        _logger.LogError("Không thể khởi động process để tạo symbolic link");
+                        return false;
                     }
 
+                    // Đọc output và error để tránh deadlock
                     var outputTask = process.StandardOutput.ReadToEndAsync();
                     var errorTask = process.StandardError.ReadToEndAsync();
 
-                    if (!process.WaitForExit(30000))
+                    if (!process.WaitForExit(10000))  // Chờ tối đa 10 giây
                     {
                         try { process.Kill(); } catch { }
-                        throw new TimeoutException("Quá thời gian khi tạo symbolic link.");
+                        _logger.LogWarning("Quá thời gian khi tạo symbolic link");
+                        return false;
                     }
 
                     string output = await outputTask;
@@ -878,6 +879,7 @@ namespace SteamCmdWebAPI.Services
                         _logger.LogError("Lỗi khi tạo symbolic link: {Error}", error);
                         return false;
                     }
+
                     return true;
                 }
             }
@@ -887,6 +889,7 @@ namespace SteamCmdWebAPI.Services
                 return false;
             }
         }
+
 
         private void RunProcessWithTimeout(string fileName, string arguments, int timeoutMs)
         {
@@ -930,32 +933,35 @@ namespace SteamCmdWebAPI.Services
                     {
                         if (IsSymbolicLink(localSteamAppsPath))
                         {
-                            _logger.LogInformation("Đang xóa symbolic link tại {Path}", localSteamAppsPath);
-                            DeleteSymbolicLink(localSteamAppsPath);
+                            // Xóa symbolic link
+                            Directory.Delete(localSteamAppsPath);
+                            _logger.LogInformation("Đã xóa symbolic link tại {Path}", localSteamAppsPath);
                         }
                         else
                         {
+                            // Xóa thư mục thông thường
                             Directory.Delete(localSteamAppsPath, true);
+                            _logger.LogInformation("Đã xóa thư mục tại {Path}", localSteamAppsPath);
                         }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "Không thể xóa symbolic link/thư mục theo cách thông thường, thử phương pháp thay thế");
+
                         try
                         {
                             if (OperatingSystem.IsWindows())
                             {
-                                RunProcessWithTimeout("cmd.exe", $"/C rmdir \"{localSteamAppsPath}\"", 10000);
+                                RunProcessWithTimeout("cmd.exe", $"/C rmdir \"{localSteamAppsPath}\"", 5000);
                             }
                             else
                             {
-                                RunProcessWithTimeout("rm", $"-rf \"{localSteamAppsPath}\"", 10000);
+                                RunProcessWithTimeout("rm", $"-rf \"{localSteamAppsPath}\"", 5000);
                             }
                         }
                         catch (Exception innerEx)
                         {
                             _logger.LogError(innerEx, "Không thể xóa symbolic link/thư mục bằng phương pháp thay thế tại {Path}", localSteamAppsPath);
-                            await SafeSendLogAsync("System", "Error", $"Không thể xóa tại {localSteamAppsPath}: {innerEx.Message}");
                         }
                     }
                 }
@@ -963,7 +969,6 @@ namespace SteamCmdWebAPI.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi xóa symbolic link/thư mục tại {Path}: {Message}", localSteamAppsPath, ex.Message);
-                await SafeSendLogAsync("System", "Error", $"Lỗi khi xóa tại {localSteamAppsPath}: {ex.Message}");
             }
         }
 
@@ -994,17 +999,13 @@ namespace SteamCmdWebAPI.Services
                     return false;
                 }
 
+                // Tạo symbolic link tới thư mục cài đặt
                 await CreateSteamAppsSymLink(profile.InstallDirectory);
-                await Task.Delay(1000);
+                await Task.Delay(1000);  // Đợi một chút để đảm bảo symbolic link được tạo xong
 
                 string logFilePath = GetSteamCmdLogPath(profileId);
 
-                string logsDir = Path.GetDirectoryName(logFilePath);
-                if (!Directory.Exists(logsDir))
-                {
-                    Directory.CreateDirectory(logsDir);
-                }
-
+                // Khởi động LogFileReader để giám sát log
                 _logFileReader.StartMonitoring(logFilePath, async (content) =>
                 {
                     if (!string.IsNullOrEmpty(content))
@@ -1015,6 +1016,7 @@ namespace SteamCmdWebAPI.Services
 
                 try
                 {
+                    // Chuẩn bị lệnh đăng nhập
                     string loginCommand = "+login anonymous";
 
                     if (!string.IsNullOrEmpty(profile.SteamUsername) && !string.IsNullOrEmpty(profile.SteamPassword))
@@ -1036,10 +1038,12 @@ namespace SteamCmdWebAPI.Services
                         }
                     }
 
+                    // Chuẩn bị các tham số
                     string validateArg = profile.ValidateFiles ? "validate" : "";
                     string argumentsArg = string.IsNullOrEmpty(profile.Arguments) ? "" : profile.Arguments.Trim();
                     string arguments = $"{loginCommand} +app_update {profile.AppID} {validateArg} {argumentsArg} +quit".Trim();
 
+                    // Ẩn thông tin đăng nhập trong log
                     string safeArguments = arguments.Contains("+login ") ?
                         arguments.Replace("+login ", "+login [credentials] ") :
                         arguments;
@@ -1047,6 +1051,7 @@ namespace SteamCmdWebAPI.Services
                     _logger.LogInformation("Chạy SteamCMD với tham số: {SafeArguments}", safeArguments);
                     await SafeSendLogAsync(profile.Name, "Info", $"Đang chạy SteamCMD cho {profile.Name}...");
 
+                    // Tạo và cấu hình process SteamCMD
                     steamCmdProcess = new Process
                     {
                         StartInfo = new ProcessStartInfo
@@ -1064,6 +1069,7 @@ namespace SteamCmdWebAPI.Services
                         EnableRaisingEvents = true
                     };
 
+                    // Tạo buffer và timer để gửi output theo lô
                     var outputBuffer = new StringBuilder();
                     var outputTimer = new System.Timers.Timer(100);
                     outputTimer.Elapsed += async (sender, e) =>
@@ -1079,11 +1085,11 @@ namespace SteamCmdWebAPI.Services
                     };
                     outputTimer.Start();
 
+                    // Xử lý output
                     steamCmdProcess.OutputDataReceived += (sender, e) =>
                     {
                         if (!string.IsNullOrEmpty(e.Data))
                         {
-                            _logger.LogDebug("SteamCMD Output: {Data}", e.Data);
                             lock (outputBuffer)
                             {
                                 outputBuffer.AppendLine(e.Data);
@@ -1091,6 +1097,7 @@ namespace SteamCmdWebAPI.Services
                         }
                     };
 
+                    // Xử lý lỗi
                     steamCmdProcess.ErrorDataReceived += async (sender, e) =>
                     {
                         if (!string.IsNullOrEmpty(e.Data))
@@ -1100,18 +1107,25 @@ namespace SteamCmdWebAPI.Services
                         }
                     };
 
+                    // Lưu tiến trình vào dictionary
                     _steamCmdProcesses[profileId] = steamCmdProcess;
 
+                    // Khởi động tiến trình
                     steamCmdProcess.Start();
 
+                    // Cập nhật thông tin profile
                     profile.Pid = steamCmdProcess.Id;
+                    profile.Status = "Running";
                     await _profileService.UpdateProfile(profile);
 
+                    // Bắt đầu đọc output và error
                     steamCmdProcess.BeginOutputReadLine();
                     steamCmdProcess.BeginErrorReadLine();
 
+                    // Chờ tiến trình kết thúc
                     await Task.Run(() => steamCmdProcess.WaitForExit());
 
+                    // Dừng timer và xử lý output còn lại
                     outputTimer.Stop();
                     string remainingOutput;
                     lock (outputBuffer)
@@ -1124,6 +1138,7 @@ namespace SteamCmdWebAPI.Services
                         await _hubContext.Clients.All.SendAsync("ReceiveLog", remainingOutput);
                     }
 
+                    // Lấy mã thoát và ghi log
                     int exitCode = steamCmdProcess.ExitCode;
                     _logger.LogInformation("SteamCMD process đã kết thúc với exit code: {ExitCode}", exitCode);
 
@@ -1138,12 +1153,16 @@ namespace SteamCmdWebAPI.Services
                 }
                 finally
                 {
+                    // Dừng giám sát log
                     _logFileReader.StopMonitoring();
 
+                    // Xóa tiến trình khỏi dictionary
                     _steamCmdProcesses.TryRemove(profileId, out _);
 
+                    // Xóa symbolic link
                     await RemoveSteamAppsSymLink();
 
+                    // Dọn dẹp tiến trình nếu còn chạy
                     if (steamCmdProcess != null)
                     {
                         try
@@ -1219,10 +1238,13 @@ namespace SteamCmdWebAPI.Services
                 {
                     await SafeSendLogAsync(profile.Name, "Info", $"Đang tự động khởi động {profile.Name}...");
 
+                    // Dừng profile này trước nếu đang chạy
                     await StopAndCleanupProfileAsync(profile.Id);
 
+                    // Chạy profile
                     await StartProfileAsync(profile.Id);
 
+                    // Đợi một chút giữa các lần chạy
                     await Task.Delay(3000);
                 }
                 catch (Exception ex)
