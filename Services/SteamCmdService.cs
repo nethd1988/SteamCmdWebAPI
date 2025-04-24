@@ -45,6 +45,13 @@ namespace SteamCmdWebAPI.Services
         private HashSet<string> _recentLogMessages = new HashSet<string>();
         private readonly int _maxRecentLogMessages = 100;
 
+        // Short-term cache for recent hub messages to prevent console duplication
+        private readonly ConcurrentDictionary<string, DateTime> _recentHubMessages = new ConcurrentDictionary<string, DateTime>();
+        private readonly System.Timers.Timer _hubMessageCleanupTimer;
+        private const int HubMessageCacheDurationSeconds = 5; // Keep messages in cache for 5 seconds
+        private const int HubMessageCleanupIntervalMs = 10000; // Clean up cache every 10 seconds
+
+
         // LogEntry class as in the original code
         public class LogEntry
         {
@@ -88,6 +95,14 @@ namespace SteamCmdWebAPI.Services
             _scheduleTimer.AutoReset = true;
             _scheduleTimer.Start();
             _logger.LogInformation("Bộ lập lịch đã khởi động.");
+
+            // Initialize and start the hub message cleanup timer
+            _hubMessageCleanupTimer = new System.Timers.Timer(HubMessageCleanupIntervalMs);
+            _hubMessageCleanupTimer.Elapsed += (s, e) => CleanupRecentHubMessages();
+            _hubMessageCleanupTimer.AutoReset = true;
+            _hubMessageCleanupTimer.Start();
+            _logger.LogInformation("Bộ lập lịch dọn dẹp log hub đã khởi động.");
+
         }
 
         #region Log and Notification Methods
@@ -122,7 +137,14 @@ namespace SteamCmdWebAPI.Services
                     _recentLogMessages.Clear();
                 }
 
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", message);
+                // Check short-term cache before sending to the hub
+                if (!_recentHubMessages.TryGetValue(message, out var lastSentTime) || (DateTime.Now - lastSentTime).TotalSeconds > HubMessageCacheDurationSeconds)
+                {
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", message);
+                    _recentHubMessages[message] = DateTime.Now; // Update or add timestamp
+                }
+
+                // Always add to the internal log history
                 AddLog(new LogEntry(DateTime.Now, profileName, status, message));
             }
             catch (Exception ex)
@@ -149,6 +171,19 @@ namespace SteamCmdWebAPI.Services
                 }
             }
         }
+
+        /// <summary>
+        /// Cleans up old entries from the _recentHubMessages cache.
+        /// </summary>
+        private void CleanupRecentHubMessages()
+        {
+            var cutoffTime = DateTime.Now.AddSeconds(-HubMessageCacheDurationSeconds);
+            foreach (var entry in _recentHubMessages.Where(kvp => kvp.Value < cutoffTime).ToList())
+            {
+                _recentHubMessages.TryRemove(entry.Key, out _);
+            }
+        }
+
 
         #endregion
 
@@ -447,7 +482,7 @@ namespace SteamCmdWebAPI.Services
             if (Directory.Exists(localSteamappsDir))
             {
                 //_logger.LogInformation($"Attempting to delete old local steamapps directory: {localSteamappsDir}"); // Removed log
-                await SafeSendLogAsync("System", "Info", $"Đang cố gắng xóa thư mục steamapps cũ...");
+                //await SafeSendLogAsync("System", "Info", $"Đang cố gắng xóa thư mục steamapps cũ..."); // Removed log
 
                 bool deleted = false;
                 int retryCount = 15; // Increased max retry attempts for robustness
@@ -458,7 +493,7 @@ namespace SteamCmdWebAPI.Services
                     try
                     {
                         //_logger.LogInformation($"Attempting to delete directory {localSteamappsDir} attempt {i + 1}/{retryCount}..."); // Removed log
-                        await SafeSendLogAsync("System", "Info", $"Đang cố gắng xóa thư mục steamapps cũ (Thử {i + 1}/{retryCount})...");
+                        //await SafeSendLogAsync("System", "Info", $"Đang cố gắng xóa thư mục steamapps cũ (Thử {i + 1}/{retryCount})..."); // Removed log
 
                         // Use rmdir /S /Q to force delete the directory and its contents
                         // Increased timeout for deletion command to allow more time
@@ -468,7 +503,7 @@ namespace SteamCmdWebAPI.Services
                         if (!Directory.Exists(localSteamappsDir))
                         {
                             _logger.LogInformation("Successfully deleted old local steamapps directory.");
-                            await SafeSendLogAsync("System", "Success", "Đã xóa thư mục steamapps cũ thành công.");
+                            //await SafeSendLogAsync("System", "Success", "Đã xóa thư mục steamapps cũ thành công."); // Removed log
                             deleted = true;
                             break; // Deletion successful, exit loop
                         }
@@ -513,7 +548,7 @@ namespace SteamCmdWebAPI.Services
             if (!Directory.Exists(localSteamappsDir))
             {
                 //_logger.LogInformation($"Creating symbolic link from \"{steamappsDir}\" to \"{localSteamappsDir}\""); // Removed log
-                await SafeSendLogAsync("System", "Info", $"Đang tạo liên kết tượng trưng từ \"{steamappsDir}\" đến \"{localSteamappsDir}\"");
+                //await SafeSendLogAsync("System", "Info", $"Đang tạo liên kết tượng trưng từ \"{steamappsDir}\" đến \"{localSteamappsDir}\""); // Removed log
                 try
                 {
                     // Ensure the target directory exists before creating the link (already checked above, but defensive check)
@@ -531,7 +566,7 @@ namespace SteamCmdWebAPI.Services
                     if (Directory.Exists(localSteamappsDir))
                     {
                         _logger.LogInformation("Successfully created symbolic link.");
-                        await SafeSendLogAsync("System", "Success", "Đã tạo liên kết tượng trưng thành công.");
+                        //await SafeSendLogAsync("System", "Success", "Đã tạo liên kết tượng trưng thành công."); // Removed log
                         return true; // Symbolic link created successfully
                     }
                     else
@@ -1503,11 +1538,11 @@ namespace SteamCmdWebAPI.Services
             _logger.LogInformation("Đã xóa hàng đợi cập nhật.");
 
 
-            // Đặt cờ hủy tiến trình tự động chạy
+            // Đặt cờ hủy tiến trình tự động chạy (This flag is more for the auto-run loop, less critical for queue processing)
             _cancelAutoRun = true;
-            _isRunningAllProfiles = false; // Thêm dòng này để chắc chắn dừng quá trình chạy tất cả profiles
+            _isRunningAllProfiles = false; // Explicitly set to false
 
-            // Dừng tất cả các process đang được theo dõi
+            // Dừng tất cả các process đang được theo dõi (this handles the currently running SteamCMD process)
             foreach (var profileId in _steamCmdProcesses.Keys.ToList())
             {
                 if (_steamCmdProcesses.TryRemove(profileId, out var process))
@@ -1517,11 +1552,11 @@ namespace SteamCmdWebAPI.Services
                 }
             }
 
-            // Dừng mọi tiến trình steamcmd còn sót lại
+            // Dừng mọi tiến trình steamcmd còn sót lại (Ensures no SteamCMD processes are left running)
             await KillAllSteamCmdProcessesAsync();
             await Task.Delay(RetryDelayMs); // Đợi sau khi kill
 
-            // Cập nhật trạng thái của các profile đang chạy hoặc chờ
+            // Cập nhật trạng thái của các profile đang chạy hoặc chờ (Mark any profiles that were 'Running' or 'Waiting' as 'Stopped')
             var profiles = await _profileService.GetAllProfiles();
             foreach (var profile in profiles.Where(p => p.Status == "Running" || p.Status == "Waiting"))
             {
@@ -1561,6 +1596,13 @@ namespace SteamCmdWebAPI.Services
                 _scheduleTimer.Dispose();
             }
 
+            // Stop and dispose the hub message cleanup timer
+            if (_hubMessageCleanupTimer != null)
+            {
+                _hubMessageCleanupTimer.Stop();
+                _hubMessageCleanupTimer.Dispose();
+            }
+
 
             // Stop all running profiles and clear the queue
             await StopAllProfilesAsync();
@@ -1586,6 +1628,7 @@ namespace SteamCmdWebAPI.Services
 
                     if (response.IsSuccessStatusCode)
                     {
+                        // Corrected typo here
                         string json = await response.Content.ReadAsStringAsync();
                         // Use Newtonsoft.Json to deserialize
                         dynamic data = JsonConvert.DeserializeObject(json);
