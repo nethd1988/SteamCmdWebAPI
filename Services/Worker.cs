@@ -1,4 +1,3 @@
-
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
@@ -151,14 +150,13 @@ namespace SteamCmdWebAPI
             {
                 _logger.LogInformation("Dịch vụ SteamCmdWebAPI đã khởi động thành công");
 
-                // Loại bỏ đoạn code AutoRun ở đây
-                // AutoRun được xử lý bởi AutoRunBackgroundService
-                //var settings = await _profileService.LoadAutoRunSettings();
-                //if (settings.AutoRunEnabled)
-                //{
-                //    _logger.LogInformation("AutoRun được bật, đang khởi động các profile được đánh dấu...");
-                //    await _steamCmdService.StartAllAutoRunProfilesAsync();
-                //}
+                // Kiểm tra cấu hình AutoRun và chạy các profile được đánh dấu
+                var settings = await _profileService.LoadAutoRunSettings();
+                if (settings.AutoRunEnabled)
+                {
+                    _logger.LogInformation("AutoRun được bật, đang khởi động các profile được đánh dấu...");
+                    await _steamCmdService.StartAllAutoRunProfilesAsync();
+                }
 
                 // Dịch vụ Windows chạy liên tục
                 while (!stoppingToken.IsCancellationRequested)
