@@ -887,16 +887,14 @@ namespace SteamCmdWebAPI.Services
             }
 
 
-            // --- First Run: Attempt to update all relevant App IDs ---
-            // Modified log message to use game names
+            // --- First Run: Attempt to update all relevant App IDs (WITHOUT validate) ---
             await SafeSendLogAsync(profile.Name, "Info", $"Bắt đầu lần chạy cập nhật đầu tiên cho các game: {string.Join(", ", appNamesForLog)}");
-            // Note: We don't strictly need the result of the first run for 0x204 errors anymore,
-            // as we will determine failures by checking manifest files post-run.
-            await RunSteamCmdProcessAsync(profile, id, appIdsToUpdateInitial, profile.ValidateFiles);
+            // Corrected the call here to always pass false for forceValidate
+            await RunSteamCmdProcessAsync(profile, id, appIdsToUpdateInitial, false);
 
             // Dừng tất cả các process khác để đảm bảo không xung đột trước khi kiểm tra và thử lại
             await KillAllSteamCmdProcessesAsync();
-            await Task.Delay(5000); // Đợi sau khi dừng
+            await Task.Delay(5000); // Đợi 5 giây để đảm bảo tất cả đã dừng
 
             // --- Check Manifest Files and Identify Failed App IDs ---
             List<string> failedAppIdsForRetry = new List<string>();
@@ -919,10 +917,10 @@ namespace SteamCmdWebAPI.Services
                 }
                 else
                 {
-                    // Check the UpdateResult field
+                    // Check the UpdateResult field - treat 0, 2, and 23 as successful/no retry needed
                     if (manifestData.TryGetValue("UpdateResult", out var updateResultValue))
                     {
-                        if (updateResultValue != "2" && updateResultValue != "23") // 2: Success, 23: Already up to date
+                        if (updateResultValue != "2" && updateResultValue != "23" && updateResultValue != "0") // Added && updateResultValue != "0"
                         {
                             string gameName = manifestData.TryGetValue("name", out var nameValue) ? nameValue : appId;
                             _logger.LogWarning($"Cập nhật App ID {appId} ('{gameName}') không thành công (UpdateResult: {updateResultValue}). Đang thêm vào danh sách thử lại.");
@@ -955,7 +953,7 @@ namespace SteamCmdWebAPI.Services
             {
                 // Ensure no processes are running before the retry
                 await KillAllSteamCmdProcessesAsync();
-                await Task.Delay(5000); // Wait after killing
+                await Task.Delay(5000); // Đợi sau khi killing
 
                 var failedAppNamesForRetryLog = new List<string>();
                 foreach (var appId in failedAppIdsForRetry)
@@ -1002,7 +1000,8 @@ namespace SteamCmdWebAPI.Services
                     }
                     else if (manifestData.TryGetValue("UpdateResult", out var updateResultValue))
                     {
-                        if (updateResultValue != "2" && updateResultValue != "23")
+                        // Check the UpdateResult field - treat 0, 2, and 23 as successful/no retry needed
+                        if (updateResultValue != "2" && updateResultValue != "23" && updateResultValue != "0") // Added && updateResultValue != "0"
                         {
                             string gameName = manifestData.TryGetValue("name", out var nameValue) ? nameValue : appId;
                             _logger.LogError($"Thử lại cho App ID {appId} ('{gameName}') không thành công (UpdateResult: {updateResultValue}).");
