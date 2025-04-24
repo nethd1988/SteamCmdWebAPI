@@ -28,31 +28,29 @@ namespace SteamCmdWebAPI.Services
         private readonly LogFileReader _logFileReader;
 
         private const int MaxLogEntries = 5000;
-        // Adjusted base retry delay and process exit timeout based on user's request for higher delays
-        private const int RetryDelayMs = 5000; // Increased base retry delay
-        private const int ProcessExitTimeoutMs = 20000; // Increased process exit timeout
+        // Increased delays for robustness
+        private const int RetryDelayMs = 5000;
+        private const int ProcessExitTimeoutMs = 20000;
 
         private readonly ConcurrentDictionary<int, Process> _steamCmdProcesses = new ConcurrentDictionary<int, Process>();
-        private readonly System.Timers.Timer _scheduleTimer; // Assuming scheduling is needed based on original code
+        private readonly System.Timers.Timer _scheduleTimer;
 
-        private volatile bool _isRunningAllProfiles = false; // Assuming auto-run feature is needed
-        private int _currentProfileIndex = 0; // Assuming auto-run feature is needed
-        private volatile bool _cancelAutoRun = false; // Assuming auto-run feature is needed
-        private DateTime _lastAutoRunTime = DateTime.MinValue; // Assuming auto-run feature is needed
+        private volatile bool _isRunningAllProfiles = false;
+        private int _currentProfileIndex = 0;
+        private volatile bool _cancelAutoRun = false;
+        private DateTime _lastAutoRunTime = DateTime.MinValue;
 
-        // Assuming logging is needed based on original code
         private readonly List<LogEntry> _logs = new List<LogEntry>(MaxLogEntries);
         private HashSet<string> _recentLogMessages = new HashSet<string>();
         private readonly int _maxRecentLogMessages = 100;
 
-        // Short-term cache for recent hub messages to prevent console duplication
+        // Cache for recent hub messages to prevent console duplication
         private readonly ConcurrentDictionary<string, DateTime> _recentHubMessages = new ConcurrentDictionary<string, DateTime>();
         private readonly System.Timers.Timer _hubMessageCleanupTimer;
-        private const int HubMessageCacheDurationSeconds = 5; // Keep messages in cache for 5 seconds
-        private const int HubMessageCleanupIntervalMs = 10000; // Clean up cache every 10 seconds
+        private const int HubMessageCacheDurationSeconds = 5;
+        private const int HubMessageCleanupIntervalMs = 10000;
 
 
-        // LogEntry class as in the original code
         public class LogEntry
         {
             public DateTime Timestamp { get; set; }
@@ -69,7 +67,7 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        // Thêm các thuộc tính và phương thức quản lý hàng đợi vào đầu lớp SteamCmdService
+        // Queue management
         private readonly ConcurrentQueue<int> _updateQueue = new ConcurrentQueue<int>();
         private volatile bool _isProcessingQueue = false;
         private Task _queueProcessorTask = null;
@@ -89,24 +87,20 @@ namespace SteamCmdWebAPI.Services
             _encryptionService = encryptionService;
             _logFileReader = logFileReader;
 
-            // Assuming scheduling is needed
             _scheduleTimer = new System.Timers.Timer(60000);
             _scheduleTimer.Elapsed += async (s, e) => await CheckScheduleAsync();
             _scheduleTimer.AutoReset = true;
             _scheduleTimer.Start();
             _logger.LogInformation("Bộ lập lịch đã khởi động.");
 
-            // Initialize and start the hub message cleanup timer
             _hubMessageCleanupTimer = new System.Timers.Timer(HubMessageCleanupIntervalMs);
             _hubMessageCleanupTimer.Elapsed += (s, e) => CleanupRecentHubMessages();
             _hubMessageCleanupTimer.AutoReset = true;
             _hubMessageCleanupTimer.Start();
             _logger.LogInformation("Bộ lập lịch dọn dẹp log hub đã khởi động.");
-
         }
 
         #region Log and Notification Methods
-        // Keeping original logging methods
         private void AddLog(LogEntry entry)
         {
             lock (_logs)
@@ -125,26 +119,25 @@ namespace SteamCmdWebAPI.Services
             {
                 string logKey = $"{profileName}:{status}:{message}";
 
+                // Avoid excessive duplicate internal log entries
                 if (_recentLogMessages.Contains(logKey))
                 {
                     return;
                 }
-
                 _recentLogMessages.Add(logKey);
-
                 if (_recentLogMessages.Count > _maxRecentLogMessages)
                 {
-                    _recentLogMessages.Clear();
+                    _recentLogMessages.Clear(); // Simple clear when limit reached
                 }
 
-                // Check short-term cache before sending to the hub
+                // Check short-term cache before sending to hub to avoid console spam
                 if (!_recentHubMessages.TryGetValue(message, out var lastSentTime) || (DateTime.Now - lastSentTime).TotalSeconds > HubMessageCacheDurationSeconds)
                 {
                     await _hubContext.Clients.All.SendAsync("ReceiveLog", message);
-                    _recentHubMessages[message] = DateTime.Now; // Update or add timestamp
+                    _recentHubMessages[message] = DateTime.Now;
                 }
 
-                // Always add to the internal log history
+                // Always add to internal log history
                 AddLog(new LogEntry(DateTime.Now, profileName, status, message));
             }
             catch (Exception ex)
@@ -183,12 +176,9 @@ namespace SteamCmdWebAPI.Services
                 _recentHubMessages.TryRemove(entry.Key, out _);
             }
         }
-
-
         #endregion
 
         #region Schedule and Auto Run
-        // Đơn giản hóa phương thức StartAllAutoRunProfilesAsync
         public async Task StartAllAutoRunProfilesAsync()
         {
             var profiles = await _profileService.GetAllProfiles();
@@ -202,25 +192,26 @@ namespace SteamCmdWebAPI.Services
 
             _logger.LogInformation("Đang thêm {Count} profile Auto Run vào hàng đợi", autoRunProfiles.Count);
             await SafeSendLogAsync("System", "Info", $"Đang thêm {autoRunProfiles.Count} profile Auto Run vào hàng đợi cập nhật");
-            // Dừng tất cả các tiến trình trước khi bắt đầu
+
+            // Stop existing processes before queueing
             await KillAllSteamCmdProcessesAsync();
-            // Thêm các profile auto run vào hàng đợi cập nhật
+
+            // Add auto-run profiles to the update queue
             foreach (var profile in autoRunProfiles)
             {
                 await QueueProfileForUpdate(profile.Id);
-                await Task.Delay(500); // Đợi 0.5 giây giữa các lần thêm vào hàng đợi
+                await Task.Delay(500); // Short delay between adding to queue
             }
 
             await SafeSendLogAsync("System", "Success", "Đã thêm tất cả profile Auto Run vào hàng đợi cập nhật");
         }
 
-        // Đơn giản hóa phương thức CheckScheduleAsync
         private async Task CheckScheduleAsync()
         {
             try
             {
                 var settings = await _settingsService.LoadSettingsAsync();
-                if (!settings.AutoRunEnabled || _isRunningAllProfiles)
+                if (!settings.AutoRunEnabled || _isRunningAllProfiles) // Also check if manual run-all is active
                 {
                     return;
                 }
@@ -232,54 +223,62 @@ namespace SteamCmdWebAPI.Services
                 if (_lastAutoRunTime == DateTime.MinValue || timeSinceLastRun.TotalHours >= intervalHours)
                 {
                     _logger.LogInformation("Đang thêm tất cả profile vào hàng đợi theo khoảng thời gian {0} giờ", intervalHours);
-                    await StartAllAutoRunProfilesAsync();
+                    await StartAllAutoRunProfilesAsync(); // This now queues profiles
                     _lastAutoRunTime = now;
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi kiểm tra lịch hẹn");
+                await SafeSendLogAsync("System", "Error", $"Lỗi khi kiểm tra lịch hẹn: {ex.Message}");
             }
         }
-
         #endregion
 
         #region Process Management Utilities
-        // Giảm bớt phương thức KillProcessAsync
         private async Task<bool> KillProcessAsync(Process process, string profileName)
         {
             if (process == null || process.HasExited)
                 return true;
             try
             {
+                _logger.LogInformation("Đang dừng tiến trình SteamCMD cho {ProfileName} (PID: {PID})", profileName, process.Id);
                 process.Terminator(ProcessExitTimeoutMs);
-                await Task.Delay(500);
-                return true;
+                await Task.Delay(500); // Give time for termination
+                _logger.LogInformation("Đã dừng tiến trình SteamCMD cho {ProfileName}", profileName);
+                return process.HasExited; // Check if actually exited
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Lỗi khi dừng tiến trình SteamCMD cho profile {ProfileName}", profileName);
+                // Log as warning, don't necessarily stop execution flow if kill fails
+                _logger.LogWarning(ex, "Lỗi khi dừng tiến trình SteamCMD cho {ProfileName} (PID: {PID})", profileName, process?.Id);
                 return false;
             }
         }
 
-        // Đơn giản hóa phương thức KillAllSteamCmdProcessesAsync
         private async Task<bool> KillAllSteamCmdProcessesAsync()
         {
+            _logger.LogInformation("Đang dừng tất cả các tiến trình SteamCMD...");
+            bool success = true;
             try
             {
-                // Dừng tất cả các process đang theo dõi
-                foreach (var kvp in _steamCmdProcesses.ToArray())
+                // Stop tracked processes first
+                foreach (var kvp in _steamCmdProcesses.ToArray()) // Use ToArray for safe iteration while removing
                 {
-                    await KillProcessAsync(kvp.Value, $"Profile {kvp.Key}");
-                    _steamCmdProcesses.TryRemove(kvp.Key, out _);
+                    if (!await KillProcessAsync(kvp.Value, $"Profile {kvp.Key}"))
+                    {
+                        success = false; // Mark failure if any tracked process couldn't be stopped
+                    }
+                    _steamCmdProcesses.TryRemove(kvp.Key, out _); // Remove from tracking
                 }
 
-                // Dùng taskkill để kết thúc tất cả các process steamcmd.exe còn lại
-                CmdHelper.RunCommand("taskkill /F /IM steamcmd.exe", ProcessExitTimeoutMs);
-                await Task.Delay(1000); // Đợi 1 giây
+                // Use taskkill as a safety net for any remaining steamcmd.exe processes
+                _logger.LogInformation("Sử dụng taskkill để đảm bảo tất cả steamcmd.exe đã dừng...");
+                CmdHelper.RunCommand("taskkill /F /IM steamcmd.exe /T", ProcessExitTimeoutMs); // Added /T to kill child processes
+                await Task.Delay(1500); // Wait after taskkill
 
-                return true;
+                _logger.LogInformation("Đã hoàn tất dừng các tiến trình SteamCMD.");
+                return success;
             }
             catch (Exception ex)
             {
@@ -287,68 +286,68 @@ namespace SteamCmdWebAPI.Services
                 return false;
             }
         }
-
         #endregion
 
         #region SteamCmd Installation and Path Management
-        // Keeping original installation and path management methods
         private string GetSteamCmdPath()
         {
             string steamCmdDir = Path.Combine(Directory.GetCurrentDirectory(), "steamcmd");
             return Path.Combine(steamCmdDir, "steamcmd.exe");
         }
 
-        // Đơn giản hóa phương thức IsSteamCmdInstalled
         public Task<bool> IsSteamCmdInstalled()
         {
-            string steamCmdPath = GetSteamCmdPath();
-            return Task.FromResult(File.Exists(steamCmdPath));
+            return Task.FromResult(File.Exists(GetSteamCmdPath()));
         }
-
 
         public async Task InstallSteamCmd()
         {
             string steamCmdDir = Path.Combine(Directory.GetCurrentDirectory(), "steamcmd");
             string zipPath = Path.Combine(steamCmdDir, "steamcmd.zip");
-            string steamCmdPath = Path.Combine(steamCmdDir, "steamcmd.exe");
+            string steamCmdPath = GetSteamCmdPath();
             string downloadUrl = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
 
             try
             {
-                // Kill tất cả tiến trình steamcmd.exe trước khi cài đặt
+                await SafeSendLogAsync("System", "Info", "Bắt đầu quá trình cài đặt SteamCMD...");
+                // Ensure no SteamCMD processes are running
                 await KillAllSteamCmdProcessesAsync();
-                await Task.Delay(5000); // Đợi 5 giây để đảm bảo các tiến trình đã bị kill
+                await Task.Delay(RetryDelayMs); // Wait after killing
 
-                // Kiểm tra nếu file steamcmd.exe đang tồn tại và không thể xoá
+                // Attempt to delete existing executable if it's locked
                 if (File.Exists(steamCmdPath))
                 {
                     try
                     {
-                        // Thử mở file để kiểm tra xem có bị khoá không
-                        using (var fileStream = new FileStream(steamCmdPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
-                        {
-                            // File không bị khoá, có thể đóng fileStream
-                        }
+                        File.Delete(steamCmdPath);
+                        await Task.Delay(1000); // Wait after delete
                     }
-                    catch (IOException)
+                    catch (IOException ioEx)
                     {
-                        // File đang bị khoá, thử xoá lại sau khi kill tiến trình
-                        CmdHelper.RunCommand("taskkill /F /IM steamcmd.exe", 10000);
+                        _logger.LogWarning(ioEx, "Không thể xóa steamcmd.exe hiện tại, có thể đang bị khóa. Thử kill lại và xóa.");
+                        await SafeSendLogAsync("System", "Warning", "Không thể xóa steamcmd.exe, thử kill lại...");
+                        CmdHelper.RunCommand("taskkill /F /IM steamcmd.exe /T", ProcessExitTimeoutMs);
                         await Task.Delay(2000);
-
-                        // Thử xoá file
                         try
                         {
                             File.Delete(steamCmdPath);
                             await Task.Delay(1000);
                         }
-                        catch
+                        catch (Exception finalDeleteEx)
                         {
-                            _logger.LogError($"Không thể xoá file steamcmd.exe hiện tại. File đang bị khoá.");
-                            await SafeSendLogAsync("System", "Error", $"Không thể xoá file steamcmd.exe hiện tại. File đang bị khoá bởi tiến trình khác.");
+                            _logger.LogError(finalDeleteEx, "Xóa steamcmd.exe thất bại lần cuối.");
+                            await SafeSendLogAsync("System", "Error", $"Không thể xóa steamcmd.exe hiện tại: {finalDeleteEx.Message}");
+                            // Decide whether to throw or continue based on severity
+                            // throw; // Re-throwing might be appropriate here
                         }
                     }
+                    catch (Exception ex) // Catch other potential delete errors
+                    {
+                        _logger.LogError(ex, "Lỗi không mong muốn khi xóa steamcmd.exe cũ.");
+                        await SafeSendLogAsync("System", "Error", $"Lỗi khi xóa steamcmd.exe cũ: {ex.Message}");
+                    }
                 }
+
 
                 if (!Directory.Exists(steamCmdDir))
                 {
@@ -357,248 +356,242 @@ namespace SteamCmdWebAPI.Services
                     await SafeSendLogAsync("System", "Info", $"Đã tạo thư mục steamcmd: {steamCmdDir}");
                 }
 
-                // Tải xuống steamcmd.zip
+                // Download steamcmd.zip
                 using (var httpClient = new HttpClient())
                 {
-                    httpClient.Timeout = TimeSpan.FromMinutes(5);
+                    httpClient.Timeout = TimeSpan.FromMinutes(5); // Reasonable timeout for download
                     await SafeSendLogAsync("System", "Info", $"Đang tải SteamCMD từ {downloadUrl}...");
                     _logger.LogInformation("Bắt đầu tải SteamCMD từ {Url}", downloadUrl);
 
-                    // Thử xoá file zip cũ nếu tồn tại
                     if (File.Exists(zipPath))
                     {
-                        try { File.Delete(zipPath); } catch { }
+                        try { File.Delete(zipPath); } catch (Exception ex) { _logger.LogWarning(ex, "Không thể xóa file zip cũ."); }
                     }
 
                     var response = await httpClient.GetAsync(downloadUrl);
-                    response.EnsureSuccessStatusCode();
-                    using (var fs = new FileStream(zipPath, FileMode.Create))
+                    response.EnsureSuccessStatusCode(); // Throws if download fails
+                    using (var fs = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None))
                     {
                         await response.Content.CopyToAsync(fs);
                     }
                     await SafeSendLogAsync("System", "Info", "Đã tải xong SteamCMD, đang giải nén...");
                 }
 
-                // Đảm bảo không có file cũ nào đang chạy trước khi giải nén
+                // Ensure no processes interfere with extraction
                 await KillAllSteamCmdProcessesAsync();
-                await Task.Delay(3000);
+                await Task.Delay(3000); // Wait after killing
 
+                // Extract
                 try
                 {
-                    // Giải nén
-                    System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, steamCmdDir, true);
-                    await SafeSendLogAsync("System", "Success", "Đã cài đặt SteamCMD thành công");
+                    System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, steamCmdDir, true); // Overwrite existing files
+                    await SafeSendLogAsync("System", "Success", "Đã giải nén SteamCMD thành công.");
                 }
-                catch (IOException ex)
+                catch (IOException ioEx) // Handle potential file lock errors during extraction
                 {
-                    await SafeSendLogAsync("System", "Error", $"Lỗi khi giải nén: {ex.Message}");
-
-                    // Thử phương pháp giải nén thủ công
-                    await SafeSendLogAsync("System", "Info", "Đang thử phương pháp giải nén thủ công...");
-                    CmdHelper.RunCommand($"powershell -command \"Expand-Archive -Path '{zipPath}' -DestinationPath '{steamCmdDir}' -Force\"", 60000);
+                    _logger.LogError(ioEx, "Lỗi IO khi giải nén SteamCMD. Thử dùng PowerShell.");
+                    await SafeSendLogAsync("System", "Error", $"Lỗi IO khi giải nén: {ioEx.Message}. Thử dùng PowerShell...");
+                    CmdHelper.RunCommand($"powershell -command \"Expand-Archive -Path '{zipPath}' -DestinationPath '{steamCmdDir}' -Force\"", 60000); // PS fallback with timeout
+                    await Task.Delay(2000); // Wait after PS command
+                }
+                catch (Exception ex) // Catch other extraction errors
+                {
+                    _logger.LogError(ex, "Lỗi không mong muốn khi giải nén SteamCMD.");
+                    await SafeSendLogAsync("System", "Error", $"Lỗi giải nén không mong muốn: {ex.Message}");
+                    throw; // Re-throw other critical extraction errors
+                }
+                finally // Ensure zip file is deleted
+                {
+                    try { File.Delete(zipPath); } catch (Exception ex) { _logger.LogWarning(ex, "Không thể xóa file zip sau khi giải nén."); }
                 }
 
-                try { File.Delete(zipPath); }
-                catch (Exception ex) { _logger.LogWarning(ex, "Không thể xóa file zip"); }
 
-                // Kiểm tra lại sau khi cài đặt
+                // Final check for steamcmd.exe
                 if (!File.Exists(steamCmdPath))
                 {
-                    throw new Exception("Cài đặt thất bại. Không tìm thấy steamcmd.exe sau khi cài đặt.");
+                    throw new Exception("Cài đặt thất bại. Không tìm thấy steamcmd.exe sau khi giải nén.");
                 }
 
-                // Kiểm tra file có thể thực thi
+                // Basic validation of the executable file
                 try
                 {
                     FileInfo fileInfo = new FileInfo(steamCmdPath);
-                    if (fileInfo.Length < 10000) // Kiểm tra kích thước tối thiểu
+                    if (fileInfo.Length < 10000) // Basic sanity check for file size
                     {
-                        throw new Exception("File steamcmd.exe được tạo nhưng có kích thước không hợp lệ.");
+                        throw new Exception("File steamcmd.exe được tạo nhưng có kích thước không hợp lệ (< 10KB).");
                     }
-
-                    await SafeSendLogAsync("System", "Success", "Đã cài đặt SteamCMD thành công");
+                    _logger.LogInformation("Đã cài đặt và xác thực SteamCMD thành công.");
+                    await SafeSendLogAsync("System", "Success", "Đã cài đặt SteamCMD thành công.");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Lỗi khi kiểm tra file steamcmd.exe: {Message}", ex.Message);
+                    _logger.LogError(ex, "Lỗi khi kiểm tra file steamcmd.exe sau cài đặt: {Message}", ex.Message);
                     await SafeSendLogAsync("System", "Error", $"Lỗi khi kiểm tra file steamcmd.exe: {ex.Message}");
-                    throw;
+                    throw; // Re-throw validation error
                 }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx, "Lỗi mạng khi tải SteamCMD từ {Url}", downloadUrl);
+                await SafeSendLogAsync("System", "Error", $"Lỗi mạng khi tải SteamCMD: {httpEx.Message}");
+                throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi trong quá trình cài đặt SteamCMD: {Message}", ex.Message);
-                await SafeSendLogAsync("System", "Error", $"Lỗi khi cài đặt SteamCMD: {ex.Message}");
-                throw;
+                _logger.LogError(ex, "Lỗi nghiêm trọng trong quá trình cài đặt SteamCMD: {Message}", ex.Message);
+                await SafeSendLogAsync("System", "Error", $"Lỗi nghiêm trọng khi cài đặt SteamCMD: {ex.Message}");
+                throw; // Re-throw other critical errors
             }
         }
 
 
-        private string GetSteamCmdLogPath(int profileId)
+        private string GetSteamCmdLogPath(int profileId) // Kept for potential future direct log file access
         {
             string steamCmdDir = Path.Combine(Directory.GetCurrentDirectory(), "steamcmd");
             string logsDir = Path.Combine(steamCmdDir, "logs");
-            if (!Directory.Exists(logsDir))
-            {
-                Directory.CreateDirectory(logsDir);
-            }
+            Directory.CreateDirectory(logsDir); // Ensure exists
             return Path.Combine(logsDir, $"console_log_{profileId}.txt");
         }
-
         #endregion
 
         #region Folder Setup
-
         /// <summary>
-        /// Prepares the folder structure, including deleting the old local steamapps directory and creating a symbolic link.
-        /// This method ensures the local steamapps directory is deleted (with retries and process killing) before creating the symbolic link.
+        /// Prepares the folder structure: deletes old local steamapps and creates a symbolic link.
+        /// Includes robust deletion attempts with process killing.
         /// </summary>
-        /// <param name="gameInstallDir">The game installation directory where the target steamapps folder resides.</param>
-        /// <returns>True if the folder structure preparation (deletion and symbolic link creation) was successful, false otherwise.</returns>
+        /// <returns>True if successful, false otherwise.</returns>
         private async Task<bool> PrepareFolderStructure(string gameInstallDir)
         {
-            string steamappsDir = Path.Combine(gameInstallDir, "steamapps");
-            string localSteamappsDir = Path.Combine(Directory.GetCurrentDirectory(), "steamcmd", "steamapps");
+            if (string.IsNullOrWhiteSpace(gameInstallDir))
+            {
+                _logger.LogError("Thư mục cài đặt không hợp lệ hoặc bị bỏ trống.");
+                await SafeSendLogAsync("System", "Error", "Thư mục cài đặt không hợp lệ hoặc bị bỏ trống.");
+                return false;
+            }
 
-            // Ensure the game install steamapps directory exists as the target for the symbolic link
-            if (!Directory.Exists(steamappsDir))
+            string steamappsTargetDir = Path.Combine(gameInstallDir, "steamapps");
+            string localSteamappsLinkDir = Path.Combine(Directory.GetCurrentDirectory(), "steamcmd", "steamapps");
+
+            // 1. Ensure the target directory exists
+            if (!Directory.Exists(steamappsTargetDir))
             {
                 try
                 {
-                    Directory.CreateDirectory(steamappsDir);
-                    //_logger.LogInformation($"Created game install steamapps directory: {steamappsDir}"); // Removed log
-                    await SafeSendLogAsync("System", "Info", $"Đã tạo thư mục cài đặt game: {steamappsDir}");
+                    Directory.CreateDirectory(steamappsTargetDir);
+                    await SafeSendLogAsync("System", "Info", $"Đã tạo thư mục đích: {steamappsTargetDir}");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, $"Failed to create game install steamapps directory: {steamappsDir}");
-                    await SafeSendLogAsync("System", "Error", $"Không thể tạo thư mục cài đặt game: {steamappsDir}: {ex.Message}");
-                    // If the target directory cannot be created, we cannot create the symbolic link later.
+                    _logger.LogError(ex, $"Không thể tạo thư mục đích: {steamappsTargetDir}");
+                    await SafeSendLogAsync("System", "Error", $"Không thể tạo thư mục đích: {steamappsTargetDir}: {ex.Message}");
                     return false;
                 }
             }
 
-            // Delete the existing local steamapps folder if it exists - Ensure deletion with retries and kill
-            if (Directory.Exists(localSteamappsDir))
+            // 2. Delete existing local steamapps link/directory (with retries and killing processes)
+            if (Directory.Exists(localSteamappsLinkDir) || File.Exists(localSteamappsLinkDir)) // Check for file junction too
             {
-                //_logger.LogInformation($"Attempting to delete old local steamapps directory: {localSteamappsDir}"); // Removed log
-                //await SafeSendLogAsync("System", "Info", $"Đang cố gắng xóa thư mục steamapps cũ..."); // Removed log
-
+                _logger.LogInformation($"Đang cố gắng xóa thư mục/liên kết steamapps cục bộ cũ: {localSteamappsLinkDir}");
                 bool deleted = false;
-                int retryCount = 15; // Increased max retry attempts for robustness
-                int baseRetryDelayMs = 3000; // Increased base delay between retries
+                int maxRetries = 10; // Reduced retries slightly, increased delays instead
+                int currentRetryDelay = 3000; // Start with 3 seconds
 
-                for (int i = 0; i < retryCount; i++)
+                for (int i = 0; i < maxRetries; i++)
                 {
                     try
                     {
-                        //_logger.LogInformation($"Attempting to delete directory {localSteamappsDir} attempt {i + 1}/{retryCount}..."); // Removed log
-                        //await SafeSendLogAsync("System", "Info", $"Đang cố gắng xóa thư mục steamapps cũ (Thử {i + 1}/{retryCount})..."); // Removed log
-
-                        // Use rmdir /S /Q to force delete the directory and its contents
-                        // Increased timeout for deletion command to allow more time
-                        CmdHelper.RunCommand($"rmdir /S /Q \"{localSteamappsDir}\"", 45000); // Increased timeout
-                        await Task.Delay(baseRetryDelayMs); // Short delay after running the command
-
-                        if (!Directory.Exists(localSteamappsDir))
+                        _logger.LogInformation($"Thử xóa thư mục/liên kết {localSteamappsLinkDir} lần {i + 1}/{maxRetries}...");
+                        // Use rmdir for directories, del for file junctions
+                        if ((File.GetAttributes(localSteamappsLinkDir) & FileAttributes.Directory) == FileAttributes.Directory)
                         {
-                            _logger.LogInformation("Successfully deleted old local steamapps directory.");
-                            //await SafeSendLogAsync("System", "Success", "Đã xóa thư mục steamapps cũ thành công."); // Removed log
-                            deleted = true;
-                            break; // Deletion successful, exit loop
+                            CmdHelper.RunCommand($"rmdir /S /Q \"{localSteamappsLinkDir}\"", 45000); // Force remove directory
                         }
                         else
                         {
-                            _logger.LogWarning($"Old local steamapps directory still exists after attempt {i + 1}. Attempting to kill SteamCMD and waiting before retrying.");
-                            await SafeSendLogAsync("System", "Warning", $"Thư mục steamapps cũ vẫn tồn tại sau thử {i + 1}. Đang thử dừng SteamCMD và đợi trước khi thử lại.");
+                            CmdHelper.RunCommand($"del /F /Q \"{localSteamappsLinkDir}\"", 15000); // Force remove file/junction
+                        }
 
-                            // Attempt to kill SteamCMD processes if deletion fails
+                        await Task.Delay(1000); // Wait a bit after command
+
+                        if (!Directory.Exists(localSteamappsLinkDir) && !File.Exists(localSteamappsLinkDir))
+                        {
+                            _logger.LogInformation("Đã xóa thành công thư mục/liên kết steamapps cục bộ cũ.");
+                            deleted = true;
+                            break;
+                        }
+                        else
+                        {
+                            _logger.LogWarning($"Thư mục/liên kết steamapps cục bộ cũ vẫn tồn tại sau lần thử {i + 1}. Dừng SteamCMD và đợi.");
+                            await SafeSendLogAsync("System", "Warning", $"Thư mục/liên kết steamapps cũ vẫn tồn tại (thử {i + 1}). Đang dừng SteamCMD...");
                             await KillAllSteamCmdProcessesAsync();
-                            await Task.Delay(7000); // Increased wait time (7 seconds) after killing before retrying deletion
-
-                            await Task.Delay(baseRetryDelayMs * (i + 1)); // Increase delay for subsequent retries
+                            await Task.Delay(currentRetryDelay); // Wait longer after killing
+                            currentRetryDelay += 2000; // Increase delay for next retry
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, $"Error deleting old local steamapps directory on attempt {i + 1}");
-                        await SafeSendLogAsync("System", "Error", $"Lỗi khi xóa thư mục steamapps cũ ở thử {i + 1}: {ex.Message}");
-
-                        // Attempt to kill SteamCMD processes if deletion encounters an error
-                        _logger.LogInformation($"Encountered error during directory deletion, attempting to kill SteamCMD before retrying.");
-                        await SafeSendLogAsync("System", "Info", $"Gặp lỗi khi xóa thư mục, đang thử dừng SteamCMD trước khi thử lại.");
-                        await KillAllSteamCmdProcessesAsync();
-                        await Task.Delay(7000); // Increased wait time (7 seconds) after killing before retrying deletion
-
-                        await Task.Delay(baseRetryDelayMs * (i + 1)); // Wait before next retry
+                        _logger.LogError(ex, $"Lỗi khi xóa thư mục/liên kết steamapps cục bộ cũ lần thử {i + 1}");
+                        await SafeSendLogAsync("System", "Error", $"Lỗi khi xóa (thử {i + 1}): {ex.Message}");
+                        await KillAllSteamCmdProcessesAsync(); // Kill processes on error too
+                        await Task.Delay(currentRetryDelay);
+                        currentRetryDelay += 2000;
                     }
                 }
 
                 if (!deleted)
                 {
-                    _logger.LogError($"Failed to delete old local steamapps directory at {localSteamappsDir} after {retryCount} attempts. Cannot proceed with symbolic link.");
-                    await SafeSendLogAsync("System", "Error", $"Không thể xóa thư mục steamapps cũ tại {localSteamappsDir} sau {retryCount} lần thử. Không thể tạo liên kết.");
-                    // If deletion failed after all retries, we cannot proceed with the symbolic link
-                    return false; // Indicate failure
+                    _logger.LogError($"Không thể xóa thư mục/liên kết steamapps cục bộ cũ tại {localSteamappsLinkDir} sau {maxRetries} lần thử.");
+                    await SafeSendLogAsync("System", "Error", $"Không thể xóa {localSteamappsLinkDir} sau {maxRetries} lần thử. Không thể tạo liên kết.");
+                    return false;
                 }
             }
 
-            // Create symbolic link only if the old local steamapps directory was successfully deleted (or didn't exist initially)
-            // and the target directory exists.
-            if (!Directory.Exists(localSteamappsDir))
+            // 3. Create the symbolic link
+            if (!Directory.Exists(localSteamappsLinkDir)) // Double-check it's gone before creating link
             {
-                //_logger.LogInformation($"Creating symbolic link from \"{steamappsDir}\" to \"{localSteamappsDir}\""); // Removed log
-                //await SafeSendLogAsync("System", "Info", $"Đang tạo liên kết tượng trưng từ \"{steamappsDir}\" đến \"{localSteamappsDir}\""); // Removed log
+                _logger.LogInformation($"Đang tạo liên kết tượng trưng từ \"{steamappsTargetDir}\" đến \"{localSteamappsLinkDir}\"");
                 try
                 {
-                    // Ensure the target directory exists before creating the link (already checked above, but defensive check)
-                    if (!Directory.Exists(steamappsDir))
-                    {
-                        _logger.LogError($"Target directory for symbolic link does not exist: {steamappsDir}. Cannot create link.");
-                        await SafeSendLogAsync("System", "Error", $"Thư mục đích cho liên kết tượng trưng không tồn tại: {steamappsDir}. Không thể tạo liên kết.");
-                        return false; // Cannot create link if target is missing
-                    }
+                    // Ensure the parent directory for the link exists
+                    Directory.CreateDirectory(Path.GetDirectoryName(localSteamappsLinkDir));
 
-                    // Use mklink /D to create a directory symbolic link
-                    CmdHelper.RunCommand($"mklink /D \"{localSteamappsDir}\" \"{steamappsDir}\"", 15000); // Increased timeout for mklink command
-                    await Task.Delay(3000); // Increased delay after creating link
+                    CmdHelper.RunCommand($"mklink /D \"{localSteamappsLinkDir}\" \"{steamappsTargetDir}\"", 15000);
+                    await Task.Delay(2000); // Wait after link creation
 
-                    if (Directory.Exists(localSteamappsDir))
+                    // Verify link creation by checking existence
+                    if (Directory.Exists(localSteamappsLinkDir))
                     {
-                        _logger.LogInformation("Successfully created symbolic link.");
-                        //await SafeSendLogAsync("System", "Success", "Đã tạo liên kết tượng trưng thành công."); // Removed log
-                        return true; // Symbolic link created successfully
+                        _logger.LogInformation("Đã tạo liên kết tượng trưng thành công.");
+                        return true;
                     }
                     else
                     {
-                        _logger.LogError($"Failed to create symbolic link to {localSteamappsDir}. Directory does not exist after mklink command.");
-                        await SafeSendLogAsync("System", "Error", $"Không thể tạo liên kết tượng trưng đến {localSteamappsDir}. Thư mục không tồn tại sau lệnh mklink.");
-                        return false; // Symbolic link creation failed
+                        _logger.LogError($"Không thể tạo liên kết tượng trưng đến {localSteamappsLinkDir}. Thư mục không tồn tại sau lệnh mklink.");
+                        await SafeSendLogAsync("System", "Error", $"Không thể tạo liên kết tượng trưng đến {localSteamappsLinkDir}.");
+                        return false;
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error creating symbolic link");
+                    _logger.LogError(ex, "Lỗi khi tạo liên kết tượng trưng");
                     await SafeSendLogAsync("System", "Error", $"Lỗi khi tạo liên kết tượng trưng: {ex.Message}");
-                    return false; // Error during symbolic link creation
+                    return false;
                 }
             }
             else
             {
-                // This case indicates that Directory.Exists(localSteamappsDir) was true initially
-                // but the deletion failed after all retries.
-                _logger.LogError("Old local steamapps directory still exists after deletion attempts. Skipping symbolic link creation.");
-                await SafeSendLogAsync("System", "Error", "Thư mục steamapps cũ vẫn tồn tại sau khi thử xóa. Bỏ qua việc tạo liên kết tượng trưng.");
-                return false; // Deletion failed, so symbolic link wasn't created
+                // Should not happen if deletion logic worked, but log defensively
+                _logger.LogError("Thư mục/liên kết steamapps cục bộ vẫn tồn tại mặc dù đã cố gắng xóa. Bỏ qua tạo liên kết.");
+                await SafeSendLogAsync("System", "Error", "Thư mục/liên kết steamapps cục bộ vẫn tồn tại. Bỏ qua tạo liên kết.");
+                return false;
             }
         }
-
         #endregion
 
-        #region Public API Methods
+        #region Public API Methods (Queueing and Execution)
 
         /// <summary>
-        /// Thêm một profile vào hàng đợi cập nhật
+        /// Adds a profile to the update queue.
         /// </summary>
         public async Task<bool> QueueProfileForUpdate(int profileId)
         {
@@ -607,1083 +600,986 @@ namespace SteamCmdWebAPI.Services
                 var profile = await _profileService.GetProfileById(profileId);
                 if (profile == null)
                 {
-                    _logger.LogWarning("Không tìm thấy profile ID {0} để thêm vào hàng đợi", profileId);
+                    _logger.LogWarning("Không tìm thấy profile ID {ProfileId} để thêm vào hàng đợi", profileId);
                     return false;
                 }
 
-                // Kiểm tra xem profile này đã có trong hàng đợi chưa
                 if (_updateQueue.Contains(profileId))
                 {
-                    _logger.LogInformation("Profile ID {0} đã có trong hàng đợi cập nhật", profileId);
-                    return true;
+                    _logger.LogInformation("Profile ID {ProfileId} ('{ProfileName}') đã có trong hàng đợi cập nhật", profileId, profile.Name);
+                    await SafeSendLogAsync(profile.Name, "Info", $"Profile {profile.Name} đã có trong hàng đợi.");
+                    return true; // Already queued
                 }
 
-                // Thêm vào hàng đợi
                 _updateQueue.Enqueue(profileId);
-                _logger.LogInformation("Đã thêm profile ID {0} vào hàng đợi cập nhật", profileId);
-                // Khởi động bộ xử lý hàng đợi nếu chưa chạy
-                if (_queueProcessorTask == null || _queueProcessorTask.IsCompleted)
-                {
-                    _queueProcessorTask = Task.Run(ProcessUpdateQueueAsync);
-                }
+                _logger.LogInformation("Đã thêm profile ID {ProfileId} ('{ProfileName}') vào hàng đợi cập nhật", profileId, profile.Name);
+                await SafeSendLogAsync(profile.Name, "Info", $"Đã thêm Profile {profile.Name} vào hàng đợi cập nhật.");
+
+                // Start the queue processor if it's not running
+                StartQueueProcessorIfNotRunning();
 
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi thêm profile ID {0} vào hàng đợi cập nhật", profileId);
+                _logger.LogError(ex, "Lỗi khi thêm profile ID {ProfileId} vào hàng đợi cập nhật", profileId);
+                await SafeSendLogAsync($"Profile {profileId}", "Error", $"Lỗi khi thêm vào hàng đợi: {ex.Message}");
                 return false;
             }
         }
 
+        private void StartQueueProcessorIfNotRunning()
+        {
+            // Use lock for thread-safe check and start
+            lock (_queueProcessorTask ?? new object()) // Lock on the task itself or a temporary object if null
+            {
+                if (_queueProcessorTask == null || _queueProcessorTask.IsCompleted)
+                {
+                    _logger.LogInformation("Khởi động bộ xử lý hàng đợi...");
+                    _queueProcessorTask = Task.Run(ProcessUpdateQueueAsync);
+                }
+            }
+        }
+
+
         /// <summary>
-        /// Xử lý hàng đợi cập nhật
+        /// Processes the update queue sequentially.
+        /// </summary>
+        /// <summary>
+        /// Processes the update queue sequentially.
         /// </summary>
         private async Task ProcessUpdateQueueAsync()
         {
+            // Prevent concurrent execution of the processor itself
             if (_isProcessingQueue)
+            {
+                _logger.LogWarning("ProcessUpdateQueueAsync called but already running. Exiting."); // Added log
                 return;
+            }
             _isProcessingQueue = true;
+            _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Set _isProcessingQueue = true"); // Added log
 
             try
             {
-                _logger.LogInformation("Bắt đầu xử lý hàng đợi cập nhật");
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", "Bắt đầu xử lý hàng đợi cập nhật");
+                _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Bắt đầu xử lý hàng đợi (Queue Count: {Count})", _updateQueue.Count); // Added log + count
+                await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Bắt đầu xử lý hàng đợi cập nhật (Số lượng: {_updateQueue.Count})"); // Added count
+
                 while (_updateQueue.TryDequeue(out int profileId))
                 {
+                    var profile = await _profileService.GetProfileById(profileId);
+                    string profileName = profile?.Name ?? $"Profile {profileId}";
+                    _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Dequeued {ProfileName} (ID: {ProfileId})", profileName, profileId); // Added log
+
                     try
                     {
-                        _logger.LogInformation("Đang xử lý cập nhật cho profile ID {0}", profileId);
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Đang xử lý cập nhật cho profile ID {profileId}");
-                        // Đảm bảo dừng mọi tiến trình đang chạy trước khi cập nhật mới
-                        await StopAllProfilesAsync();
-                        await Task.Delay(5000); // Đợi 5 giây để đảm bảo tất cả đã dừng
+                        _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Processing {ProfileName}...", profileName); // Added log
+                        await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Đang xử lý cập nhật cho {profileName} (ID: {profileId})...");
 
-                        // Chạy cập nhật
+                        // >>>>> DÒNG GÂY LỖI ĐÃ BỊ XÓA <<<<<
+                        // Dòng "await StopAllProfilesAsync();" đã được loại bỏ khỏi đây.
+                        // Việc dừng các tiến trình SteamCMD đã được xử lý trong ExecuteProfileUpdateAsync
+                        // hoặc cần được gọi trước khi bắt đầu xử lý toàn bộ hàng đợi (ví dụ: trong RunAllProfilesAsync).
+                        // await Task.Delay(RetryDelayMs); // Bạn có thể giữ dòng chờ này nếu cần thiết giữa các lần chạy profile
+
+                        _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Calling ExecuteProfileUpdateAsync for {ProfileName}...", profileName); // Added log
+
+                        // Execute the actual update logic
                         bool success = await ExecuteProfileUpdateAsync(profileId);
+                        _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: ExecuteProfileUpdateAsync completed for {ProfileName}. Success: {SuccessState}", profileName, success); // Added log
+
+
                         if (success)
                         {
-                            _logger.LogInformation("Đã xử lý cập nhật thành công cho profile ID {0}", profileId);
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Đã xử lý cập nhật thành công cho profile ID {profileId}");
+                            _logger.LogInformation("Đã xử lý cập nhật thành công cho {ProfileName} (ID: {ProfileId})", profileName, profileId);
+                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật thành công cho {profileName} (ID: {profileId})");
                         }
                         else
                         {
-                            _logger.LogWarning("Xử lý cập nhật không thành công cho profile ID {0}", profileId);
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Xử lý cập nhật không thành công cho profile ID {profileId}");
+                            _logger.LogWarning("Xử lý cập nhật không thành công cho {ProfileName} (ID: {ProfileId})", profileName, profileId);
+                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật KHÔNG thành công cho {profileName} (ID: {profileId}). Kiểm tra log.");
                         }
 
-                        // Đợi một chút trước khi xử lý tiếp theo
-                        await Task.Delay(3000);
+                        _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Waiting 3000ms before next item..."); // Added log
+                                                                                                                          // Wait briefly before processing the next item
+                        await Task.Delay(3000); // Giữ dòng chờ này giúp tránh quá tải hệ thống khi xử lý nhiều profile liên tiếp
+                        _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Finished wait."); // Added log
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Lỗi khi xử lý cập nhật cho profile ID {0}", profileId);
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Lỗi khi xử lý cập nhật cho profile ID {profileId}: {ex.Message}");
+                        // Existing error logging
+                        _logger.LogError(ex, "Lỗi khi xử lý cập nhật cho {ProfileName} (ID: {ProfileId}) từ hàng đợi", profileName, profileId);
+                        await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Lỗi khi xử lý cập nhật cho {profileName} (ID: {profileId}): {ex.Message}");
+                        if (profile != null)
+                        {
+                            profile.Status = "Error";
+                            profile.StopTime = DateTime.Now;
+                            await _profileService.UpdateProfile(profile);
+                        }
                     }
-                }
+                    _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: End of loop iteration for {ProfileName}. Remaining queue count: {Count}", profileName, _updateQueue.Count); // Added log
+                } // End while loop (queue processing)
 
-                _logger.LogInformation("Đã xử lý xong hàng đợi cập nhật");
+                _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Queue is now empty."); // Added log
                 await _hubContext.Clients.All.SendAsync("ReceiveLog", "Đã xử lý xong hàng đợi cập nhật");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi trong quá trình xử lý hàng đợi cập nhật");
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Lỗi trong quá trình xử lý hàng đợi cập nhật: {ex.Message}");
+                // Existing error logging
+                _logger.LogError(ex, "Lỗi nghiêm trọng trong quá trình xử lý hàng đợi cập nhật");
+                await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Lỗi nghiêm trọng trong bộ xử lý hàng đợi: {ex.Message}");
             }
             finally
             {
-                _isProcessingQueue = false;
-            }
-        }
-
-        // Sửa phương thức RunProfileAsync để thêm vào hàng đợi thay vì chạy trực tiếp
-        public async Task<bool> RunProfileAsync(int id)
-        {
-            try
-            {
-                var profile = await _profileService.GetProfileById(id);
-                if (profile == null)
-                {
-                    _logger.LogError("Profile ID {ProfileId} not found", id);
-                    await SafeSendLogAsync($"Profile {id}", "Error", $"Profile with ID {id} not found");
-                    return false;
-                }
-
-                // Kiểm tra nếu hàng đợi đang xử lý profile này
-                if (_isProcessingQueue && _updateQueue.Contains(id))
-                {
-                    _logger.LogInformation("Profile ID {0} đang được xử lý trong hàng đợi", id);
-                    await SafeSendLogAsync(profile.Name, "Info", $"Profile {profile.Name} đang được xử lý trong hàng đợi");
-                    return true;
-                }
-
-                // Thêm vào hàng đợi
-                return await QueueProfileForUpdate(id);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi khi thêm profile ID {0} vào hàng đợi", id);
-                return false;
+                _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Setting _isProcessingQueue = false"); // Added log
+                _isProcessingQueue = false; // Ensure this is reset
             }
         }
 
         /// <summary>
-        /// Thêm phương thức thực thi cập nhật thực tế, bao gồm xử lý retry với validate cho các App ID bị lỗi.
+        /// Queues a single profile for update.
         /// </summary>
-        /// <param name="id">ID của profile</param>
-        /// <returns>True nếu cập nhật thành công, false nếu thất bại.</returns>
+        public async Task<bool> RunProfileAsync(int id)
+        {
+            return await QueueProfileForUpdate(id); // Simply queue it
+        }
+
+        /// <summary>
+        /// Executes the core update logic for a profile, including retries.
+        /// This is called by the queue processor.
+        /// </summary>
         private async Task<bool> ExecuteProfileUpdateAsync(int id)
         {
             var profile = await _profileService.GetProfileById(id);
             if (profile == null)
             {
-                _logger.LogError("Profile ID {ProfileId} not found for update execution", id);
-                await SafeSendLogAsync($"Profile {id}", "Error", $"Profile with ID {id} not found for update execution");
+                _logger.LogError("Profile ID {ProfileId} không tìm thấy để thực thi cập nhật", id);
+                await SafeSendLogAsync($"Profile {id}", "Error", $"Profile ID {id} không tìm thấy để thực thi cập nhật");
                 return false;
             }
 
-            await SafeSendLogAsync(profile.Name, "Info", $"Chuẩn bị cập nhật {profile.Name}...");
+            await SafeSendLogAsync(profile.Name, "Info", $"Chuẩn bị cập nhật '{profile.Name}' (AppID: {profile.AppID})...");
 
-            // Dừng các process hiện tại nếu có và tất cả các process SteamCMD khác
-            await StopAllProfilesAsync(); // StopAllProfilesAsync already handles killing all steamcmd processes
-            await Task.Delay(5000); // Đợi 5 giây để đảm bảo tất cả đã dừng
+            // Stop any potentially running processes (redundant if called by queue processor, but safe)
+            // await StopAllProfilesAsync(); // Already called by ProcessUpdateQueueAsync
+            // await Task.Delay(RetryDelayMs);
 
-            // Kiểm tra và cài đặt SteamCMD nếu cần
-            bool steamCmdFileExists = await IsSteamCmdInstalled();
-            if (!steamCmdFileExists)
+            // 1. Check/Install SteamCMD
+            if (!await IsSteamCmdInstalled())
             {
                 await SafeSendLogAsync(profile.Name, "Info", "SteamCMD chưa được cài đặt. Đang tải về...");
                 try
                 {
                     await InstallSteamCmd();
+                    if (!await IsSteamCmdInstalled()) // Verify after install attempt
+                    {
+                        throw new Exception("SteamCMD installation reported success but executable not found.");
+                    }
                 }
                 catch (Exception installEx)
                 {
                     await SafeSendLogAsync(profile.Name, "Error", $"Không thể cài đặt SteamCMD: {installEx.Message}");
-                    profile.Status = "Stopped";
-                    profile.StopTime = DateTime.Now;
-                    await _profileService.UpdateProfile(profile);
-                    return false;
-                }
-
-
-                // Kiểm tra lại sau khi cài đặt
-                steamCmdFileExists = await IsSteamCmdInstalled();
-                if (!steamCmdFileExists)
-                {
-                    await SafeSendLogAsync(profile.Name, "Error", "Không thể cài đặt SteamCMD.");
-                    profile.Status = "Stopped";
+                    profile.Status = "Error"; // Set status to Error on installation failure
                     profile.StopTime = DateTime.Now;
                     await _profileService.UpdateProfile(profile);
                     return false;
                 }
             }
 
-            // Kiểm tra thư mục cài đặt
-            if (!string.IsNullOrEmpty(profile.InstallDirectory))
+            // 2. Check/Create Install Directory
+            if (string.IsNullOrWhiteSpace(profile.InstallDirectory))
             {
-                if (!Directory.Exists(profile.InstallDirectory))
-                {
-                    try
-                    {
-                        Directory.CreateDirectory(profile.InstallDirectory);
-                        await SafeSendLogAsync(profile.Name, "Info", $"Đã tạo thư mục cài đặt: {profile.InstallDirectory}");
-                    }
-                    catch (Exception ex)
-                    {
-                        await SafeSendLogAsync(profile.Name, "Error", $"Không thể tạo thư mục cài đặt: {ex.Message}");
-                        profile.Status = "Stopped";
-                        profile.StopTime = DateTime.Now;
-                        await _profileService.UpdateProfile(profile);
-                        return false;
-                    }
-                }
-            }
-
-            // Chuẩn bị cấu trúc thư mục
-            string linkedSteamappsDir = Path.Combine(Directory.GetCurrentDirectory(), "steamcmd", "steamapps");
-            bool folderPreparationSuccess = await PrepareFolderStructure(profile.InstallDirectory);
-            if (!folderPreparationSuccess)
-            {
-                await SafeSendLogAsync(profile.Name, "Error", "Lỗi khi chuẩn bị cấu trúc thư mục.");
-                profile.Status = "Stopped";
+                await SafeSendLogAsync(profile.Name, "Error", "Thư mục cài đặt không được cấu hình cho profile này.");
+                profile.Status = "Error";
                 profile.StopTime = DateTime.Now;
-                profile.Pid = 0;
+                await _profileService.UpdateProfile(profile);
+                return false;
+            }
+            if (!Directory.Exists(profile.InstallDirectory))
+            {
+                try
+                {
+                    Directory.CreateDirectory(profile.InstallDirectory);
+                    await SafeSendLogAsync(profile.Name, "Info", $"Đã tạo thư mục cài đặt: {profile.InstallDirectory}");
+                }
+                catch (Exception ex)
+                {
+                    await SafeSendLogAsync(profile.Name, "Error", $"Không thể tạo thư mục cài đặt '{profile.InstallDirectory}': {ex.Message}");
+                    profile.Status = "Error";
+                    profile.StopTime = DateTime.Now;
+                    await _profileService.UpdateProfile(profile);
+                    return false;
+                }
+            }
+
+            // 3. Prepare Folder Structure (Delete old link, create new one)
+            string linkedSteamappsDir = Path.Combine(Directory.GetCurrentDirectory(), "steamcmd", "steamapps");
+            if (!await PrepareFolderStructure(profile.InstallDirectory))
+            {
+                await SafeSendLogAsync(profile.Name, "Error", "Lỗi khi chuẩn bị cấu trúc thư mục (liên kết steamapps).");
+                profile.Status = "Error";
+                profile.StopTime = DateTime.Now;
                 await _profileService.UpdateProfile(profile);
                 return false;
             }
 
-            // Tìm kiếm App ID phụ từ file manifest
+            // 4. Identify App IDs to Update (Main + from manifests)
             var appIdsToUpdateInitial = new List<string> { profile.AppID };
-
-            if (Directory.Exists(linkedSteamappsDir))
+            try
             {
-                try
+                if (Directory.Exists(linkedSteamappsDir)) // Check if link exists after PrepareFolderStructure
                 {
                     var manifestFiles = Directory.GetFiles(linkedSteamappsDir, "appmanifest_*.acf");
                     var regex = new Regex(@"appmanifest_(\d+)\.acf");
-
                     foreach (var file in manifestFiles)
                     {
                         var match = regex.Match(Path.GetFileName(file));
                         if (match.Success)
                         {
-                            string appId = match.Groups[1].Value;
-                            if (appId != profile.AppID && !appIdsToUpdateInitial.Contains(appId)) // Avoid adding the main profile's AppID again and duplicates
+                            string foundAppId = match.Groups[1].Value;
+                            if (foundAppId != profile.AppID && !appIdsToUpdateInitial.Contains(foundAppId))
                             {
-                                appIdsToUpdateInitial.Add(appId);
-                                _logger.LogInformation($"Found additional App ID from manifest: {appId}");
+                                appIdsToUpdateInitial.Add(foundAppId);
+                                _logger.LogInformation($"Tìm thấy App ID phụ từ manifest: {foundAppId} cho profile {profile.Name}");
                             }
                         }
                     }
-                    if (appIdsToUpdateInitial.Count > 1)
-                    {
-                        await SafeSendLogAsync(profile.Name, "Info", $"Tổng cộng có {appIdsToUpdateInitial.Count} App ID sẽ được cập nhật (bao gồm App ID chính và các App ID phụ).");
-                    }
-                    else
-                    {
-                        await SafeSendLogAsync(profile.Name, "Info", $"Chỉ có App ID chính ({profile.AppID}) sẽ được cập nhật.");
-                    }
                 }
-                catch (Exception ex)
+                if (appIdsToUpdateInitial.Count > 1)
                 {
-                    _logger.LogError(ex, "Lỗi khi đọc file appmanifest trong thư mục steamapps đã liên kết.");
-                    await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi đọc file appmanifest trong thư mục steamapps đã liên kết: {ex.Message}");
-                    // Continue even if reading manifest files fails
+                    await SafeSendLogAsync(profile.Name, "Info", $"Sẽ cập nhật {appIdsToUpdateInitial.Count} App ID (chính: {profile.AppID}, phụ: {string.Join(", ", appIdsToUpdateInitial.Where(a => a != profile.AppID))}).");
                 }
             }
-            else
+            catch (Exception ex)
             {
-                _logger.LogWarning($"Thư mục steamapps đã liên kết không tồn tại: {linkedSteamappsDir}");
-                await SafeSendLogAsync(profile.Name, "Warning", $"Thư mục steamapps đã liên kết không tồn tại sau khi chuẩn bị cấu trúc thư mục: {linkedSteamappsDir}. Chỉ App ID chính sẽ được cập nhật.");
-                // Continue, but no additional apps will be updated
+                _logger.LogError(ex, "Lỗi khi đọc file appmanifest cho profile {ProfileName}", profile.Name);
+                await SafeSendLogAsync(profile.Name, "Warning", $"Lỗi khi đọc file appmanifest: {ex.Message}. Chỉ cập nhật App ID chính.");
+                // Continue with only the main AppID
+                appIdsToUpdateInitial = new List<string> { profile.AppID };
             }
 
-            // Cập nhật trạng thái profile trước khi chạy
+
+            // 5. Update Profile Status to Running
             profile.Status = "Running";
             profile.StartTime = DateTime.Now;
+            profile.StopTime = DateTime.Now;
+            profile.Pid = 0; // Reset PID before run
             await _profileService.UpdateProfile(profile);
 
-            // --- Get Game Names for Initial Run Log ---
-            var appNamesForLog = new List<string>();
-            foreach (var appId in appIdsToUpdateInitial)
-            {
-                string gameName = appId; // Default to App ID
-                var manifestData = await ReadAppManifest(linkedSteamappsDir, appId);
-                if (manifestData != null && manifestData.TryGetValue("name", out var nameValue))
-                {
-                    gameName = nameValue;
-                }
-                else
-                {
-                    // Fallback to API if name not in manifest (less preferred due to potential delay)
-                    var appInfo = await GetSteamAppInfo(appId);
-                    if (appInfo != null && !string.IsNullOrEmpty(appInfo.Name))
-                    {
-                        gameName = appInfo.Name;
-                    }
-                }
-                appNamesForLog.Add($"'{gameName}' ({appId})");
-            }
+
+            // --- Get Game Names for Logging ---
+            var appNamesForLog = await GetAppNamesAsync(linkedSteamappsDir, appIdsToUpdateInitial);
 
 
-            // --- First Run: Attempt to update all relevant App IDs (WITHOUT validate) ---
-            await SafeSendLogAsync(profile.Name, "Info", $"Bắt đầu lần chạy cập nhật đầu tiên cho các game: {string.Join(", ", appNamesForLog)}");
-            // Corrected the call here to always pass false for forceValidate
-            await RunSteamCmdProcessAsync(profile, id, appIdsToUpdateInitial, false);
+            // --- First Run: Update all identified App IDs (NO validate) ---
+            await SafeSendLogAsync(profile.Name, "Info", $"Bắt đầu lần chạy cập nhật đầu tiên cho: {string.Join(", ", appNamesForLog.Select(kv => $"'{kv.Value}' ({kv.Key})"))}");
+            var initialRunResult = await RunSteamCmdProcessAsync(profile, id, appIdsToUpdateInitial, forceValidate: false);
 
-            // Dừng tất cả các process khác để đảm bảo không xung đột trước khi kiểm tra và thử lại
-            await KillAllSteamCmdProcessesAsync();
-            await Task.Delay(5000); // Đợi 5 giây để đảm bảo tất cả đã dừng
 
-            // --- Check Manifest Files and Identify Failed App IDs ---
-            List<string> failedAppIdsForRetry = new List<string>();
-            await SafeSendLogAsync(profile.Name, "Info", "Đang kiểm tra kết quả cập nhật từ file manifest...");
+            // --- Short delay and ensure processes are stopped before validation check ---
+            await KillAllSteamCmdProcessesAsync(); // Kill just in case the process didn't exit cleanly or hung
+            await Task.Delay(RetryDelayMs);
+
+
+            // --- Check Manifests and Identify Failures ---
+            var failedAppIdsForRetry = new List<string>();
+            await SafeSendLogAsync(profile.Name, "Info", "Đang kiểm tra kết quả cập nhật lần đầu từ file manifest...");
 
             foreach (var appId in appIdsToUpdateInitial)
             {
                 var manifestData = await ReadAppManifest(linkedSteamappsDir, appId);
+                string gameName = appNamesForLog.TryGetValue(appId, out var name) ? name : appId; // Get name from pre-fetched map
 
                 if (manifestData == null)
                 {
-                    // Manifest file not found after the update attempt implies failure
-                    string gameName = appId; // Fallback to App ID
-                    var appInfo = await GetSteamAppInfo(appId);
-                    if (appInfo != null && !string.IsNullOrEmpty(appInfo.Name)) gameName = appInfo.Name;
-
-                    _logger.LogWarning($"Không tìm thấy file manifest cho App ID {appId} ('{gameName}') sau khi cập nhật. Coi như thất bại.");
-                    await SafeSendLogAsync(profile.Name, "Warning", $"Không tìm thấy file manifest cho game '{gameName}' (App ID: {appId}) sau khi cập nhật. Coi như thất bại.");
+                    _logger.LogWarning($"Manifest cho '{gameName}' (AppID: {appId}) không tìm thấy sau lần chạy đầu. Đánh dấu để thử lại.");
+                    await SafeSendLogAsync(profile.Name, "Warning", $"Manifest cho '{gameName}' ({appId}) không tìm thấy. Thử lại.");
+                    failedAppIdsForRetry.Add(appId);
+                }
+                else if (!manifestData.TryGetValue("UpdateResult", out string updateResultValue) ||
+                         (updateResultValue != "0" && updateResultValue != "2" && updateResultValue != "23")) // Check UpdateResult (0, 2, 23 are considered OK here)
+                {
+                    string resultText = manifestData.TryGetValue("UpdateResult", out var ur) ? $"UpdateResult: {ur}" : "UpdateResult không tồn tại";
+                    _logger.LogWarning($"Cập nhật lần đầu cho '{gameName}' (AppID: {appId}) không thành công ({resultText}). Đánh dấu để thử lại.");
+                    await SafeSendLogAsync(profile.Name, "Warning", $"Cập nhật '{gameName}' ({appId}) lần đầu không thành công ({resultText}). Thử lại.");
                     failedAppIdsForRetry.Add(appId);
                 }
                 else
                 {
-                    // Check the UpdateResult field - treat 0, 2, and 23 as successful/no retry needed
-                    if (manifestData.TryGetValue("UpdateResult", out var updateResultValue))
-                    {
-                        if (updateResultValue != "2" && updateResultValue != "23" && updateResultValue != "0") // Added && updateResultValue != "0"
-                        {
-                            string gameName = manifestData.TryGetValue("name", out var nameValue) ? nameValue : appId;
-                            _logger.LogWarning($"Cập nhật App ID {appId} ('{gameName}') không thành công (UpdateResult: {updateResultValue}). Đang thêm vào danh sách thử lại.");
-                            await SafeSendLogAsync(profile.Name, "Warning", $"Cập nhật game '{gameName}' (App ID: {appId}) không thành công (UpdateResult: {updateResultValue}). Đang thêm vào danh sách thử lại.");
-                            failedAppIdsForRetry.Add(appId);
-                        }
-                        else
-                        {
-                            string gameName = manifestData.TryGetValue("name", out var nameValue) ? nameValue : appId;
-                            _logger.LogInformation($"Cập nhật App ID {appId} ('{gameName}') thành công (UpdateResult: {updateResultValue}).");
-                            // Log success message here if needed, but avoid spamming for every successful app in the list.
-                            // SafeSendLogAsync is better for key events.
-                        }
-                    }
-                    else
-                    {
-                        // If UpdateResult is missing, it could indicate an incomplete or failed update
-                        string gameName = manifestData.TryGetValue("name", out var nameValue) ? nameValue : appId;
-                        _logger.LogWarning($"File manifest cho App ID {appId} ('{gameName}') không có trường UpdateResult. Coi như có khả năng thất bại.");
-                        await SafeSendLogAsync(profile.Name, "Warning", $"File manifest cho game '{gameName}' (App ID: {appId}) không có trường UpdateResult. Coi như có khả năng thất bại.");
-                        failedAppIdsForRetry.Add(appId);
-                    }
+                    _logger.LogInformation($"Cập nhật lần đầu cho '{gameName}' (AppID: {appId}) thành công (UpdateResult: {updateResultValue}).");
+                    // Optionally log success via SafeSendLogAsync if desired, but can be noisy
                 }
             }
 
 
-            // --- Second Run (if needed): Retry all failed App IDs with validate ---
-            bool retryRunSuccessful = true; // Assume successful if no retry is needed
+            // --- Second Run (if needed): Retry ONLY failed App IDs WITH validate ---
+            bool retryRunSuccessful = true; // Assume success if no retry needed
             if (failedAppIdsForRetry.Any())
             {
-                // Ensure no processes are running before the retry
+                // Ensure clean state before retry
                 await KillAllSteamCmdProcessesAsync();
-                await Task.Delay(5000); // Đợi sau khi killing
+                await Task.Delay(RetryDelayMs);
 
-                var failedAppNamesForRetryLog = new List<string>();
-                foreach (var appId in failedAppIdsForRetry)
-                {
-                    string gameName = appId; // Default to App ID
-                    var manifestData = await ReadAppManifest(linkedSteamappsDir, appId);
-                    if (manifestData != null && manifestData.TryGetValue("name", out var nameValue))
-                    {
-                        gameName = nameValue;
-                    }
-                    else
-                    {
-                        var appInfo = await GetSteamAppInfo(appId);
-                        if (appInfo != null && !string.IsNullOrEmpty(appInfo.Name))
-                        {
-                            gameName = appInfo.Name;
-                        }
-                    }
-                    failedAppNamesForRetryLog.Add($"'{gameName}' ({appId})");
-                }
+                var failedAppNamesForRetryLog = failedAppIdsForRetry
+                    .Select(appId => $"'{appNamesForLog.GetValueOrDefault(appId, appId)}' ({appId})")
+                    .ToList();
 
                 _logger.LogWarning($"Phát hiện {failedAppIdsForRetry.Count} game cần thử lại với validate: {string.Join(", ", failedAppNamesForRetryLog)}. Đang thực hiện lần chạy thứ hai...");
-                await SafeSendLogAsync(profile.Name, "Warning", $"Phát hiện {failedAppIdsForRetry.Count} game cần thử lại với validate. Đang thực hiện lần chạy thứ hai.");
+                await SafeSendLogAsync(profile.Name, "Warning", $"Phát hiện {failedAppIdsForRetry.Count} game cần thử lại với validate. Bắt đầu lần chạy thứ hai...");
 
-                // Run retry specifically for ALL failed App IDs with forced validation
-                var retryRunResult = await RunSteamCmdProcessAsync(profile, id, failedAppIdsForRetry, true);
+                // Run retry specifically for failed App IDs with forced validation
+                var retryRunResult = await RunSteamCmdProcessAsync(profile, id, failedAppIdsForRetry, forceValidate: true);
 
-                // After the retry run, check the manifest files again for the IDs that were just retried
-                List<string> failedAfterRetry = new List<string>();
-                await SafeSendLogAsync(profile.Name, "Info", "Đang kiểm tra kết quả thử lại từ file manifest...");
+                // --- Final Check After Retry ---
+                await KillAllSteamCmdProcessesAsync(); // Kill after retry run
+                await Task.Delay(RetryDelayMs);
 
-                foreach (var appId in failedAppIdsForRetry)
+                var failedAfterRetry = new List<string>();
+                await SafeSendLogAsync(profile.Name, "Info", "Đang kiểm tra kết quả cuối cùng sau khi thử lại...");
+
+                foreach (var appId in failedAppIdsForRetry) // Only check the ones that were retried
                 {
                     var manifestData = await ReadAppManifest(linkedSteamappsDir, appId);
+                    string gameName = appNamesForLog.GetValueOrDefault(appId, appId);
+
                     if (manifestData == null)
                     {
-                        string gameName = appId; // Fallback to App ID if manifest still missing
-                        var appInfo = await GetSteamAppInfo(appId);
-                        if (appInfo != null && !string.IsNullOrEmpty(appInfo.Name)) gameName = appInfo.Name;
-
-                        _logger.LogError($"Thử lại cho App ID {appId} ('{gameName}') không thành công. Không tìm thấy file manifest sau khi thử lại.");
-                        await SafeSendLogAsync(profile.Name, "Error", $"Thử lại cho game '{gameName}' (App ID: {appId}) không thành công. Không tìm thấy file manifest sau khi thử lại.");
+                        _logger.LogError($"Thử lại cho '{gameName}' (AppID: {appId}) thất bại. Manifest vẫn không tìm thấy.");
+                        await SafeSendLogAsync(profile.Name, "Error", $"Thử lại cho '{gameName}' ({appId}) thất bại (không tìm thấy manifest).");
                         failedAfterRetry.Add(appId);
                     }
-                    else if (manifestData.TryGetValue("UpdateResult", out var updateResultValue))
+                    else if (!manifestData.TryGetValue("UpdateResult", out string updateResultValue) ||
+                             (updateResultValue != "0" && updateResultValue != "2" && updateResultValue != "23"))
                     {
-                        // Check the UpdateResult field - treat 0, 2, and 23 as successful/no retry needed
-                        if (updateResultValue != "2" && updateResultValue != "23" && updateResultValue != "0") // Added && updateResultValue != "0"
-                        {
-                            string gameName = manifestData.TryGetValue("name", out var nameValue) ? nameValue : appId;
-                            _logger.LogError($"Thử lại cho App ID {appId} ('{gameName}') không thành công (UpdateResult: {updateResultValue}).");
-                            await SafeSendLogAsync(profile.Name, "Error", $"Thử lại cho game '{gameName}' (App ID: {appId}) không thành công (UpdateResult: {updateResultValue}).");
-                            failedAfterRetry.Add(appId);
-                        }
-                        else
-                        {
-                            string gameName = manifestData.TryGetValue("name", out var nameValue) ? nameValue : appId;
-                            _logger.LogInformation($"Thử lại cho App ID {appId} ('{gameName}') thành công sau khi validate.");
-                            await SafeSendLogAsync(profile.Name, "Success", $"Thử lại cho game '{gameName}' (App ID: {appId}) thành công sau khi validate.");
-                        }
+                        string resultText = manifestData.TryGetValue("UpdateResult", out var ur) ? $"UpdateResult: {ur}" : "UpdateResult không tồn tại";
+                        _logger.LogError($"Thử lại cho '{gameName}' (AppID: {appId}) thất bại ({resultText}).");
+                        await SafeSendLogAsync(profile.Name, "Error", $"Thử lại cho '{gameName}' ({appId}) thất bại ({resultText}).");
+                        failedAfterRetry.Add(appId);
                     }
                     else
                     {
-                        string gameName = manifestData.TryGetValue("name", out var nameValue) ? nameValue : appId;
-                        _logger.LogError($"Thử lại cho App ID {appId} ('{gameName}') không thành công. File manifest không có trường UpdateResult sau khi thử lại.");
-                        await SafeSendLogAsync(profile.Name, "Error", $"Thử lại cho game '{gameName}' (App ID: {appId}) không thành công. File manifest không có trường UpdateResult sau khi thử lại.");
-                        failedAfterRetry.Add(appId);
+                        _logger.LogInformation($"Thử lại cho '{gameName}' (AppID: {appId}) thành công (UpdateResult: {updateResultValue}).");
+                        await SafeSendLogAsync(profile.Name, "Success", $"Thử lại cho '{gameName}' ({appId}) thành công (UpdateResult: {updateResultValue}).");
                     }
                 }
-
-                // The retry run was successful if no IDs failed *after* the retry check
-                retryRunSuccessful = !failedAfterRetry.Any();
-
+                retryRunSuccessful = !failedAfterRetry.Any(); // Retry successful if no apps failed *after* the retry validation check
             }
 
-            // Determine overall success:
-            // Overall success if there were no failures after the initial check,
-            // OR if there were failures and the retry run resulted in no remaining failures.
+
+            // 6. Determine Overall Success & Update Profile Status
             bool overallSuccess = failedAppIdsForRetry.Count == 0 || retryRunSuccessful;
 
-
-            // Cập nhật trạng thái profile sau khi chạy
-            profile.Status = overallSuccess ? "Stopped" : "Error";
+            profile.Status = overallSuccess ? "Stopped" : "Error"; // Use "Error" status for failure
             profile.StopTime = DateTime.Now;
-            profile.Pid = 0;
-            profile.LastRun = DateTime.UtcNow;
+            profile.Pid = 0; // Clear PID after process completion/kill
+            profile.LastRun = DateTime.UtcNow; // Record last run time
             await _profileService.UpdateProfile(profile);
+
             if (overallSuccess)
             {
-                await SafeSendLogAsync(profile.Name, "Success", $"Cập nhật thành công game {profile.Name}");
+                await SafeSendLogAsync(profile.Name, "Success", $"Hoàn tất cập nhật {profile.Name}.");
             }
             else
             {
-                await SafeSendLogAsync(profile.Name, "Error", $"Cập nhật không thành công game {profile.Name}. Kiểm tra log để biết thêm chi tiết.");
+                // Log specific failed apps if possible
+                var finalFailedNames = (failedAppIdsForRetry.Count > 0 && !retryRunSuccessful)
+                    ? failedAppIdsForRetry // If retry itself failed or wasn't fully successful use the list from retry check
+                    : failedAppIdsForRetry; // Fallback to initial failed list if retry wasn't needed but something went wrong conceptually
+
+                var namesToLog = finalFailedNames
+                                 .Select(appId => $"'{appNamesForLog.GetValueOrDefault(appId, appId)}' ({appId})")
+                                 .ToList();
+
+                string errorMsg = $"Cập nhật {profile.Name} không thành công.";
+                if (namesToLog.Any())
+                {
+                    errorMsg += $" Các game sau có thể vẫn bị lỗi: {string.Join(", ", namesToLog)}.";
+                }
+                errorMsg += " Kiểm tra log chi tiết.";
+
+                await SafeSendLogAsync(profile.Name, "Error", errorMsg);
             }
 
             return overallSuccess;
         }
 
+        /// <summary>
+        /// Helper to get game names for a list of App IDs. Prioritizes manifest, falls back to API.
+        /// </summary>
+        private async Task<Dictionary<string, string>> GetAppNamesAsync(string steamappsDir, List<string> appIds)
+        {
+            var appNames = new Dictionary<string, string>();
+            foreach (var appId in appIds)
+            {
+                string gameName = appId; // Default
+                var manifestData = await ReadAppManifest(steamappsDir, appId);
+                if (manifestData != null && manifestData.TryGetValue("name", out var nameValue) && !string.IsNullOrWhiteSpace(nameValue))
+                {
+                    gameName = nameValue;
+                }
+                else
+                {
+                    // Fallback to API only if manifest name is missing/empty
+                    var appInfo = await GetSteamAppInfo(appId); // Consider adding a small delay or caching here if hitting API rate limits
+                    if (appInfo != null && !string.IsNullOrEmpty(appInfo.Name))
+                    {
+                        gameName = appInfo.Name;
+                    }
+                    // Small delay to avoid hammering the API if many names are missing from manifests
+                    await Task.Delay(200);
+                }
+                appNames[appId] = gameName;
+            }
+            return appNames;
+        }
+
 
         /// <summary>
-        /// Kết quả của quá trình chạy SteamCMD.
+        /// Result of a single SteamCMD process execution.
         /// </summary>
         private class SteamCmdRunResult
         {
-            public bool Success { get; set; }
-            // Keeping this for potential future use or specific 0x204 logging during the run,
-            // but the main retry logic will now rely on parsing manifest files post-run.
-            public List<string> FailedAppIdsState204 { get; set; } = new List<string>();
-            public int ExitCode { get; set; } // Added to capture exit code
+            public bool Success { get; set; } // Based on Exit Code (0 or 2)
+            // FailedAppIdsState204 is removed as primary check relies on post-run manifest parsing
+            public int ExitCode { get; set; }
         }
 
         /// <summary>
-        /// Runs the actual SteamCMD process for a given profile.
+        /// Runs the SteamCMD process for the specified App IDs.
         /// </summary>
-        /// <param name="profile">The SteamCmdProfile to run.</param>
-        /// <param name="profileId">The ID of the profile.</param>
-        /// <param name="appIdsToUpdate">A list of App IDs to update in this process run.</param>
-        /// <param name="forceValidate">Whether to force the 'validate' command after each app_update.</param>
-        /// <returns>A SteamCmdRunResult indicating success and any App IDs that failed with state 0x204.</returns>
+        /// <param name="forceValidate">Append 'validate' after each 'app_update'.</param>
+        /// <returns>Result including exit code.</returns>
         private async Task<SteamCmdRunResult> RunSteamCmdProcessAsync(SteamCmdProfile profile, int profileId, List<string> appIdsToUpdate, bool forceValidate)
         {
             Process steamCmdProcess = null;
-            SteamCmdRunResult runResult = new SteamCmdRunResult { Success = false, ExitCode = -1 }; // Initialize with default values
+            var runResult = new SteamCmdRunResult { Success = false, ExitCode = -1 };
             string steamCmdPath = GetSteamCmdPath();
+            string steamCmdDir = Path.GetDirectoryName(steamCmdPath);
 
-            // Regex to capture the specific 0x204 error message and App ID during runtime logging
-            var errorRegexState204 = new Regex(@"Error! App '(\d+)' state is 0x204 after update job", RegexOptions.Compiled);
+            // Regex for detecting 0x204 error during runtime - kept for immediate logging but not primary failure detection
+            var errorRegexState204 = new Regex(@"Error! App '(\d+)' state is 0x204 after update job", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
             try
             {
                 if (!File.Exists(steamCmdPath))
                 {
-                    await SafeSendLogAsync(profile.Name, "Error", $"File SteamCMD không tồn tại tại {steamCmdPath}");
+                    await SafeSendLogAsync(profile.Name, "Error", $"File SteamCMD không tồn tại: {steamCmdPath}");
                     return runResult;
                 }
 
-                string logFilePath = GetSteamCmdLogPath(profileId);
+                // --- Prepare SteamCMD Arguments ---
+                StringBuilder argumentsBuilder = new StringBuilder();
 
-                // Start LogFileReader to monitor the console log file
-                _logFileReader.StartMonitoring(logFilePath, async (content) =>
+                // Login
+                string loginCommand = "+login anonymous";
+                if (!string.IsNullOrEmpty(profile.SteamUsername) && !string.IsNullOrEmpty(profile.SteamPassword))
                 {
-                    if (!string.IsNullOrEmpty(content))
+                    try
                     {
-                        // Send log content to clients via SignalR
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", content);
-
-                        // Check for the specific 0x204 error message for immediate logging
-                        var matches = errorRegexState204.Matches(content);
-                        foreach (Match match in matches)
-                        {
-                            if (match.Success && match.Groups.Count > 1)
-                            {
-                                string failedAppId = match.Groups[1].Value;
-                                // Log the 0x204 error here for immediate visibility,
-                                // but the main retry logic will rely on manifest file checks later.
-                                if (!runResult.FailedAppIdsState204.Contains(failedAppId)) // Still collect for reporting in runResult
-                                {
-                                    runResult.FailedAppIdsState204.Add(failedAppId);
-                                    _logger.LogError($"Detected update failure for App ID {failedAppId} with state 0x204 during run.");
-
-                                    // Attempt to get the game name and include it in the log message
-                                    string gameName = failedAppId; // Default to App ID
-                                    var appInfo = await GetSteamAppInfo(failedAppId);
-                                    if (appInfo != null && !string.IsNullOrEmpty(appInfo.Name))
-                                    {
-                                        gameName = appInfo.Name;
-                                    }
-                                    await SafeSendLogAsync(profile.Name, "Error", $"Trong quá trình chạy: Cập nhật thất bại cho game '{gameName}' (App ID: {failedAppId}, trạng thái 0x204).");
-                                }
-                            }
-                        }
-                        // Future Improvement: Add logic here to detect *other* types of errors from log output if needed,
-                        // but for now, we rely on the manifest file check post-run.
+                        string username = _encryptionService.Decrypt(profile.SteamUsername);
+                        string password = _encryptionService.Decrypt(profile.SteamPassword);
+                        loginCommand = $"+login \"{username}\" \"{password}\""; // Quote username/password
                     }
-                });
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi giải mã thông tin đăng nhập cho profile {ProfileName}", profile.Name);
+                        await SafeSendLogAsync(profile.Name, "Error", $"Lỗi giải mã thông tin đăng nhập: {ex.Message}. Sử dụng login anonymous.");
+                        // Fallback to anonymous login on decryption error
+                        loginCommand = "+login anonymous";
+                    }
+                }
+                argumentsBuilder.Append(loginCommand);
 
-                try
+                // App Updates
+                if (appIdsToUpdate == null || !appIdsToUpdate.Any())
                 {
-                    // Prepare login command
-                    string loginCommand = "+login anonymous";
-                    if (!string.IsNullOrEmpty(profile.SteamUsername) && !string.IsNullOrEmpty(profile.SteamPassword))
+                    _logger.LogWarning("RunSteamCmdProcessAsync được gọi không có App ID nào để cập nhật cho profile {ProfileName}", profile.Name);
+                    await SafeSendLogAsync(profile.Name, "Warning", "Không có App ID nào được chỉ định để cập nhật trong lần chạy này.");
+                    runResult.Success = true; // No work to do is considered success
+                    runResult.ExitCode = 0;
+                    return runResult;
+                }
+                foreach (var appId in appIdsToUpdate)
+                {
+                    argumentsBuilder.Append($" +app_update {appId}");
+                    if (forceValidate)
                     {
-                        try
-                        {
-                            string username = _encryptionService.Decrypt(profile.SteamUsername);
-                            string password = _encryptionService.Decrypt(profile.SteamPassword);
-                            loginCommand = $"+login {username} {password}";
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Lỗi khi giải mã thông tin đăng nhập cho profile {ProfileName}", profile.Name);
-                            await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi giải mã thông tin đăng nhập: {ex.Message}");
-                            // Decide if this should stop the process - currently logs and continues
-                        }
+                        argumentsBuilder.Append(" validate");
                     }
+                }
 
-                    // Prepare custom arguments
-                    string argumentsArg = string.IsNullOrEmpty(profile.Arguments) ? "" : profile.Arguments.Trim();
+                // Custom Arguments + Quit
+                if (!string.IsNullOrEmpty(profile.Arguments))
+                {
+                    argumentsBuilder.Append($" {profile.Arguments.Trim()}");
+                }
+                argumentsBuilder.Append(" +quit");
 
-                    // Construct the full command arguments
-                    StringBuilder argumentsBuilder = new StringBuilder();
-                    argumentsBuilder.Append($"{loginCommand}");
+                string arguments = argumentsBuilder.ToString();
+                string safeArguments = Regex.Replace(arguments, @"\+login\s+\S+\s+\S+", "+login [credentials]"); // Mask credentials
+                _logger.LogInformation("Chạy SteamCMD cho '{ProfileName}' với tham số: {SafeArguments}", profile.Name, safeArguments);
+                // Specific "Starting update for games..." log is now handled in ExecuteProfileUpdateAsync before calling this
 
-                    // Add app update commands with or without validate
-                    if (appIdsToUpdate != null && appIdsToUpdate.Any())
+                // --- Setup and Start Process ---
+                steamCmdProcess = new Process
+                {
+                    StartInfo = new ProcessStartInfo
                     {
-                        foreach (var appId in appIdsToUpdate)
-                        {
-                            argumentsBuilder.Append($" +app_update {appId}");
-                            if (forceValidate)
-                            {
-                                argumentsBuilder.Append(" validate");
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // Should not happen if called correctly, but handle defensively
-                        _logger.LogWarning("RunSteamCmdProcessAsync called with empty or null appIdsToUpdate list.");
-                        await SafeSendLogAsync(profile.Name, "Warning", "Không có App ID nào để cập nhật trong lần chạy này.");
-                        runResult.Success = true; // Consider it a success if there was nothing to update? Or maybe false? Let's say true if no errors occurred and nothing to update.
-                        runResult.ExitCode = 0; // Assume successful "no-op"
-                        return runResult;
-                    }
+                        FileName = steamCmdPath,
+                        Arguments = arguments,
+                        WorkingDirectory = steamCmdDir, // CRITICAL: Run from steamcmd directory
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        RedirectStandardInput = true, // May be needed for some prompts
+                        CreateNoWindow = true,
+                        StandardOutputEncoding = Encoding.UTF8, // Use UTF8 for wider character support
+                        StandardErrorEncoding = Encoding.UTF8
+                    },
+                    EnableRaisingEvents = true
+                };
 
+                // --- Output Handling (Buffering and Throttling) ---
+                var outputBuffer = new StringBuilder();
+                var recentOutputMessages = new ConcurrentDictionary<string, byte>(); // Track recent messages to reduce duplicates sent to hub
+                int maxRecentMessages = 50; // Limit cache size
+                System.Timers.Timer outputTimer = null;
 
-                    // Append any custom arguments, and finally +quit
-                    if (!string.IsNullOrEmpty(argumentsArg))
-                    {
-                        argumentsBuilder.Append($" {argumentsArg}");
-                    }
-                    argumentsBuilder.Append(" +quit");
-
-                    string arguments = argumentsBuilder.ToString().Trim();
-
-                    // Hide sensitive information in logs
-                    string safeArguments = arguments.Contains("+login ") ?
-                        arguments.Replace("+login ", "+login [credentials] ") :
-                        arguments;
-
-                    _logger.LogInformation("Chạy SteamCMD với tham số: {SafeArguments}", safeArguments);
-                    // This log is now less detailed as the main log with names is done before calling this method
-                    //await SafeSendLogAsync(profile.Name, "Info", $"Đang chạy SteamCMD cho các game: {string.Join(", ", appIdsToUpdate)}..."); // Removed or modified
-
-                    // Create and configure the SteamCMD process
-                    steamCmdProcess = new Process
-                    {
-                        StartInfo = new ProcessStartInfo
-                        {
-                            FileName = steamCmdPath,
-                            Arguments = arguments,
-                            UseShellExecute = false,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                            RedirectStandardInput = true, // Needed for some SteamCMD interactions, though +quit is used here
-                            CreateNoWindow = true, // Hide the console window
-                            StandardOutputEncoding = Encoding.UTF8,
-                            StandardErrorEncoding = Encoding.UTF8,
-                            WorkingDirectory = Path.GetDirectoryName(steamCmdPath) // Set working directory to steamcmd folder
-                        },
-                        EnableRaisingEvents = true // Enable events like Exited
-                    };
-
-                    // Buffer and timer for sending output in batches to avoid flooding
-                    var outputBuffer = new StringBuilder();
-                    var lastMessageHash = new HashSet<string>(StringComparer.Ordinal); // Track recent messages to avoid excessive logging of duplicates
-                    var duplicateCount = 0;
-                    var outputTimer = new System.Timers.Timer(200); // Increased timer interval slightly
-
-                    outputTimer.Elapsed += async (sender, e) =>
-                    {
-                        string output;
-                        lock (outputBuffer)
-                        {
-                            if (outputBuffer.Length == 0) return;
-                            output = outputBuffer.ToString();
-                            outputBuffer.Clear();
-                        }
-
-                        // Append duplicate count info if any were skipped
-                        if (duplicateCount > 0)
-                        {
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"{output}\n[{duplicateCount} thông báo trùng lặp được bỏ qua]");
-                            duplicateCount = 0; // Reset count after sending
-                        }
-                        else
-                        {
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog", output);
-                        }
-                    };
-                    outputTimer.Start();
-
-                    // Event handler for standard output
-                    steamCmdProcess.OutputDataReceived += (sender, e) =>
-                    {
-                        if (string.IsNullOrEmpty(e.Data)) return;
-
-                        // Duplicate message filtering for display logs
-                        if (lastMessageHash.Contains(e.Data.Trim()))
-                        {
-                            duplicateCount++;
-                            return;
-                        }
-
-                        lastMessageHash.Add(e.Data.Trim());
-
-                        // Keep the hash set size in check
-                        if (lastMessageHash.Count > 100) // Increased size limit
-                        {
-                            lastMessageHash.Clear();
-                        }
-
-                        // Append to the output buffer for batch sending
-                        lock (outputBuffer)
-                        {
-                            outputBuffer.AppendLine(e.Data);
-                        }
-                    };
-
-                    // Event handler for standard error
-                    steamCmdProcess.ErrorDataReceived += async (sender, e) =>
-                    {
-                        if (string.IsNullOrEmpty(e.Data)) return;
-
-                        // Check if this error message has been logged recently
-                        if (!lastMessageHash.Contains(e.Data.Trim()))
-                        {
-                            _logger.LogError("SteamCMD Error: {Data}", e.Data);
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Lỗi: {e.Data}");
-
-                            lastMessageHash.Add(e.Data.Trim());
-                            if (lastMessageHash.Count > 100)
-                            {
-                                lastMessageHash.Clear();
-                            }
-                        }
-                    };
-
-                    // Add the process to the tracking dictionary
-                    _steamCmdProcesses[profileId] = steamCmdProcess;
-
-                    // Start the process
-                    steamCmdProcess.Start();
-
-                    // Update profile with PID
-                    profile.Pid = steamCmdProcess.Id;
-                    await _profileService.UpdateProfile(profile);
-
-                    // Begin asynchronous reading of output and error streams
-                    steamCmdProcess.BeginOutputReadLine();
-                    steamCmdProcess.BeginErrorReadLine();
-
-                    // Wait for the process to exit
-                    steamCmdProcess.WaitForExit();
-
-                    // Store the exit code
-                    runResult.ExitCode = steamCmdProcess.ExitCode;
-
-                    // Stop the output timer and process any remaining buffered output
-                    outputTimer.Stop();
-                    string remainingOutput;
+                // Function to send buffered output
+                async Task SendBufferedOutput()
+                {
+                    string outputToSend;
                     lock (outputBuffer)
                     {
-                        remainingOutput = outputBuffer.ToString();
+                        if (outputBuffer.Length == 0) return;
+                        outputToSend = outputBuffer.ToString();
                         outputBuffer.Clear();
                     }
-
-                    if (!string.IsNullOrEmpty(remainingOutput))
+                    if (!string.IsNullOrWhiteSpace(outputToSend))
                     {
-                        if (duplicateCount > 0)
-                        {
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog",
-                               $"{remainingOutput}\n[{duplicateCount} thông báo trùng lặp được bỏ qua]");
-                        }
-                        else
-                        {
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog", remainingOutput);
-                        }
+                        await _hubContext.Clients.All.SendAsync("ReceiveLog", outputToSend.TrimEnd()); // Send trimmed output
                     }
-
-                    // Determine success for THIS RUN: Consider it successful if the exit code is 0 or 2.
-                    // Note: This success flag is for the SteamCMD process's exit code, not necessarily
-                    // that all App IDs updated successfully within this run.
-                    runResult.Success = (runResult.ExitCode == 0 || runResult.ExitCode == 2);
-
-
-                    if (runResult.Success)
-                    {
-                        string exitMessage = $"Quá trình SteamCMD hoàn tất thành công (Exit Code: {runResult.ExitCode}).";
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", exitMessage);
-                        AddLog(new LogEntry(DateTime.Now, profile.Name, "Success", exitMessage));
-                    }
-                    else
-                    {
-                        string exitMessage = $"Quá trình SteamCMD hoàn tất với lỗi (Exit Code: {runResult.ExitCode}). Kiểm tra log chi tiết.";
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", exitMessage);
-                        AddLog(new LogEntry(DateTime.Now, profile.Name, "Error", exitMessage));
-                    }
-
                 }
-                finally
-                {
-                    // Stop monitoring the log file
-                    _logFileReader.StopMonitoring();
 
-                    // Remove the process from tracking
-                    _steamCmdProcesses.TryRemove(profileId, out _);
+                outputTimer = new System.Timers.Timer(250); // Send updates every 250ms
+                outputTimer.Elapsed += async (sender, e) => await SendBufferedOutput();
+                outputTimer.AutoReset = true;
 
-                    // Dispose of the process object
-                    if (steamCmdProcess != null)
+                // Data Received Handlers
+                steamCmdProcess.OutputDataReceived += (sender, e) => {
+                    if (e.Data == null) return; // Ignore null data (often sent when stream closes)
+                    string line = e.Data.Trim();
+                    if (string.IsNullOrEmpty(line)) return;
+
+                    // Minimal duplicate check for hub messages
+                    if (recentOutputMessages.TryAdd(line, 0)) // TryAdd is atomic
                     {
-                        if (!steamCmdProcess.HasExited)
+                        lock (outputBuffer)
                         {
-                            try
-                            {
-                                // Attempt to terminate if it hasn't exited for some reason
-                                steamCmdProcess.Terminator(ProcessExitTimeoutMs);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "Error terminating SteamCMD process in finally block: {Message}", ex.Message);
-                            }
+                            outputBuffer.AppendLine(line);
                         }
-                        steamCmdProcess.Dispose();
+                        // Clean up old messages if cache gets too big
+                        if (recentOutputMessages.Count > maxRecentMessages * 1.5) // Clean slightly above max
+                        {
+                            var keysToRemove = recentOutputMessages.Keys.Take(recentOutputMessages.Count - maxRecentMessages).ToList();
+                            foreach (var key in keysToRemove) recentOutputMessages.TryRemove(key, out _);
+                        }
+
+                        // Check for 0x204 error in real-time for immediate logging
+                        var match = errorRegexState204.Match(line);
+                        if (match.Success)
+                        {
+                            string failedAppId = match.Groups[1].Value;
+                            _logger.LogError($"Phát hiện lỗi cập nhật thời gian thực cho App ID {failedAppId} (trạng thái 0x204) trong log của profile '{profile.Name}'.");
+                            // Get name async and log - Fire and forget style to not block output handling
+                            _ = Task.Run(async () => {
+                                var nameMap = await GetAppNamesAsync(Path.Combine(steamCmdDir, "steamapps"), new List<string> { failedAppId });
+                                string gameName = nameMap.GetValueOrDefault(failedAppId, failedAppId);
+                                await SafeSendLogAsync(profile.Name, "Error", $"Lỗi thời gian thực: Cập nhật thất bại '{gameName}' ({failedAppId}, 0x204).");
+                            });
+                        }
                     }
+                };
+
+                steamCmdProcess.ErrorDataReceived += (sender, e) => {
+                    if (string.IsNullOrEmpty(e.Data)) return;
+                    _logger.LogError("SteamCMD Error ({ProfileName}): {Data}", profile.Name, e.Data);
+                    // Send errors immediately without buffering/duplicate check
+                    _ = _hubContext.Clients.All.SendAsync("ReceiveLog", $"LỖI SteamCMD: {e.Data}"); // Fire and forget
+                };
+
+                // --- Start and Wait ---
+                _steamCmdProcesses[profileId] = steamCmdProcess; // Track the process
+                steamCmdProcess.Start();
+                profile.Pid = steamCmdProcess.Id; // Update PID in profile immediately after start
+                await _profileService.UpdateProfile(profile);
+
+                steamCmdProcess.BeginOutputReadLine();
+                steamCmdProcess.BeginErrorReadLine();
+                outputTimer.Start(); // Start sending buffered output
+
+                // Wait for exit (consider a timeout? WaitForExit can block indefinitely)
+                // bool exited = steamCmdProcess.WaitForExit(ProcessExitTimeoutMs * 10); // Example: 10x timeout for the entire process run
+                steamCmdProcess.WaitForExit(); // Using indefinite wait as per original logic
+                                               // if (!exited)
+                                               // {
+                                               //     _logger.LogWarning("SteamCMD process for profile {ProfileName} did not exit within the timeout. Attempting to kill.", profile.Name);
+                                               //     await KillProcessAsync(steamCmdProcess, profile.Name);
+                                               //     runResult.ExitCode = -99; // Indicate timeout exit code
+                                               // }
+                                               // else
+                                               // {
+                runResult.ExitCode = steamCmdProcess.ExitCode;
+                // }
+
+                // --- Cleanup ---
+                outputTimer.Stop(); // Stop the timer
+                await SendBufferedOutput(); // Send any remaining output
+
+                _steamCmdProcesses.TryRemove(profileId, out _); // Untrack the process
+
+
+                // Evaluate Success based on Exit Code (0=OK, 2=OK with info/warning)
+                runResult.Success = (runResult.ExitCode == 0 || runResult.ExitCode == 2);
+
+                if (runResult.Success)
+                {
+                    _logger.LogInformation("Quá trình SteamCMD cho '{ProfileName}' hoàn tất. Exit Code: {ExitCode}", profile.Name, runResult.ExitCode);
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Quá trình SteamCMD cho '{profile.Name}' hoàn tất (Code: {runResult.ExitCode}).");
+                }
+                else
+                {
+                    _logger.LogError("Quá trình SteamCMD cho '{ProfileName}' hoàn tất với lỗi. Exit Code: {ExitCode}", profile.Name, runResult.ExitCode);
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Quá trình SteamCMD cho '{profile.Name}' thất bại (Code: {runResult.ExitCode}).");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi chạy SteamCMD: {Message}", ex.Message);
-                await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi chạy SteamCMD: {ex.Message}");
+                _logger.LogError(ex, "Lỗi nghiêm trọng khi chạy SteamCMD cho profile {ProfileName}: {Message}", profile?.Name ?? "Unknown", ex.Message);
+                await SafeSendLogAsync(profile?.Name ?? $"Profile {profileId}", "Error", $"Lỗi nghiêm trọng khi chạy SteamCMD: {ex.Message}");
                 runResult.Success = false;
-                runResult.ExitCode = -1; // Indicate a process crash or startup error
-
-                // Ensure process is disposed even if an exception occurs early
+                runResult.ExitCode = -1; // Indicate external error
+            }
+            finally
+            {
+                // Ensure process is disposed
                 steamCmdProcess?.Dispose();
+                // outputTimer?.Dispose(); // Dispose timer if it was created
             }
 
             return runResult;
         }
 
+
         /// <summary>
-        /// Reads and parses an appmanifest_XXXXXX.acf file.
+        /// Reads and parses an appmanifest_XXXXXX.acf file using robust regex.
         /// </summary>
-        /// <param name="steamappsDir">The path to the steamapps directory.</param>
-        /// <param name="appId">The App ID of the manifest file to read.</param>
-        /// <returns>A dictionary containing the key-value pairs from the manifest file, or null if the file is not found or cannot be read.</returns>
+        /// <returns>Dictionary of key-value pairs or null on error/not found.</returns>
         private async Task<Dictionary<string, string>> ReadAppManifest(string steamappsDir, string appId)
         {
             string manifestFilePath = Path.Combine(steamappsDir, $"appmanifest_{appId}.acf");
-            Dictionary<string, string> manifestData = new Dictionary<string, string>();
-
             if (!File.Exists(manifestFilePath))
             {
-                _logger.LogWarning($"File manifest không tồn tại cho App ID {appId}: {manifestFilePath}");
+                // This is expected if an app failed to download, log as Info or Debug level
+                _logger.LogInformation($"File manifest không tồn tại cho App ID {appId}: {manifestFilePath} (Có thể do chưa cài đặt/lỗi tải).");
                 return null;
             }
 
             try
             {
-                // Read the file content
-                string content = await File.ReadAllTextAsync(manifestFilePath);
+                // Read content with retry for potential locks
+                string content = null;
+                for (int i = 0; i < 3; i++)
+                {
+                    try
+                    {
+                        content = await File.ReadAllTextAsync(manifestFilePath);
+                        break; // Success
+                    }
+                    catch (IOException ioEx) when (i < 2) // Retry on IO error (likely lock)
+                    {
+                        _logger.LogWarning(ioEx, "Tạm thời không đọc được file manifest {ManifestFile} (lần {Attempt}), thử lại...", manifestFilePath, i + 1);
+                        await Task.Delay(500 + i * 500); // Wait longer each retry
+                    }
+                }
+                if (content == null)
+                {
+                    _logger.LogError($"Không thể đọc file manifest {manifestFilePath} sau nhiều lần thử.");
+                    return null; // Failed to read after retries
+                }
 
-                // Use Regex to find key-value pairs. This regex is more robust for typical ACF structures.
-                var regex = new Regex(@"""(\w+)""\s+""([^""]*)""", RegexOptions.Compiled);
+
+                // Regex to parse ACF key-value pairs (handles nested structures minimally)
+                var manifestData = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // Case-insensitive keys
+                // This regex focuses on top-level key-value pairs. Needs enhancement for true nested parsing.
+                var regex = new Regex(@"""(?<key>\w+)""\s+""(?<value>[^""]*)""", RegexOptions.Compiled);
                 var matches = regex.Matches(content);
 
                 foreach (Match match in matches)
                 {
                     if (match.Success)
                     {
-                        string key = match.Groups[1].Value;
-                        string value = match.Groups[2].Value;
-                        // Handle potential nested structures if needed in the future, but for flat keys like appid, name, UpdateResult, this is sufficient.
-                        if (!manifestData.ContainsKey(key)) // Avoid duplicate keys, although usually not an issue in ACF
-                        {
-                            manifestData[key] = value;
-                        }
+                        // Use OrdinalIgnoreCase dictionary, so ContainsKey check is less critical unless duplicate keys are expected
+                        manifestData[match.Groups["key"].Value] = match.Groups["value"].Value;
                     }
                 }
                 return manifestData;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Lỗi khi đọc hoặc phân tích file manifest {manifestFilePath}: {ex.Message}");
-                return null;
+                _logger.LogError(ex, $"Lỗi khi đọc hoặc phân tích cú pháp file manifest {manifestFilePath}");
+                return null; // Return null on parsing error
             }
         }
 
+        // --- Run/Stop All, Restart, Shutdown ---
 
-        // Keeping original methods for running all profiles, stopping all profiles, restarting profile, and shutdown
         public async Task RunAllProfilesAsync()
         {
+            // Robust check to prevent re-entry
             if (_isRunningAllProfiles)
             {
-                await SafeSendLogAsync("System", "Warning", "Đang có quá trình chạy tất cả profile, không thể thực hiện yêu cầu này");
+                _logger.LogWarning("RunAllProfilesAsync called but already running.");
+                await SafeSendLogAsync("System", "Warning", "Đang có quá trình chạy tất cả profile, không thể thực hiện yêu cầu này.");
                 return;
             }
 
-            try
+            _isRunningAllProfiles = true; // Set flag EARLY
+
+            try // Add try block
             {
                 var profiles = await _profileService.GetAllProfiles();
                 if (!profiles.Any())
                 {
-                    _logger.LogWarning("Không có cấu hình nào để chạy");
-                    await SafeSendLogAsync("System", "Warning", "Không có cấu hình nào để chạy");
-                    return;
+                    await SafeSendLogAsync("System", "Warning", "Không có cấu hình nào để chạy.");
+                    return; // Exit early if no profiles
                 }
 
-                _isRunningAllProfiles = true;
+                // Reset cancel flag specifically for this run
                 _cancelAutoRun = false;
-                _currentProfileIndex = 0;
+                _currentProfileIndex = 0; // Reset index
 
-                await SafeSendLogAsync("System", "Info", "Bắt đầu chạy tất cả các profile...");
+                _logger.LogInformation("RunAllProfilesAsync: Bắt đầu thêm tất cả profile vào hàng đợi cập nhật..."); // Changed log message slightly for clarity
+                await SafeSendLogAsync("System", "Info", "Bắt đầu thêm tất cả profile vào hàng đợi cập nhật...");
 
-                // Ensure a clean environment before starting all profiles
-                await KillAllSteamCmdProcessesAsync();
-                await Task.Delay(RetryDelayMs * 2); // Increased delay
+                // Ensure a clean state before queueing all
+                _logger.LogInformation("RunAllProfilesAsync: Calling StopAllProfilesAsync as preparation..."); // Added log
+                await StopAllProfilesAsync(); // Stop current + kill all steamcmd (This no longer sets _cancelAutoRun = true)
+                _logger.LogInformation("RunAllProfilesAsync: StopAllProfilesAsync preparation completed. Waiting {Delay}ms...", RetryDelayMs); // Added log
+                await Task.Delay(RetryDelayMs);
 
-                // Run each profile sequentially
+                // Queue each profile
+                _logger.LogInformation("RunAllProfilesAsync: Starting profile queueing loop..."); // Added log
                 foreach (var profile in profiles)
                 {
-                    if (_cancelAutoRun) break; // Allow cancellation
+                    // The user must trigger cancellation elsewhere now.
+                    // If you need a way to cancel this loop, you'll need a separate method
+                    // that sets _cancelAutoRun = true, triggered by UI/API.
+                    // if (_cancelAutoRun) // Keep check if explicit cancel is needed
+                    // {
+                    //      await SafeSendLogAsync("System", "Info", "Đã hủy quá trình chạy tất cả profile.");
+                    //      break;
+                    // }
 
                     _currentProfileIndex++;
-
-                    await SafeSendLogAsync("System", "Info",
-                        $"Đang chuẩn bị chạy profile ({_currentProfileIndex}/{profiles.Count}): {profile.Name}");
-
-                    try
-                    {
-                        // RunProfileAsync now adds to the queue, ProcessUpdateQueueAsync executes
-                        await RunProfileAsync(profile.Id);
-
-
-                        // Wait between running profiles, unless it's the last one or cancelled
-                        if (_currentProfileIndex < profiles.Count && !_cancelAutoRun)
-                        {
-                            // Consider adding a check here to wait for the current profile in the queue to finish
-                            // before adding the next one, if sequential execution is strictly required.
-                            // For now, it just queues and waits a short delay.
-                            await Task.Delay(5000); // Increased delay between profiles
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Lỗi khi thêm profile {ProfileName} vào hàng đợi từ RunAllProfilesAsync", profile.Name);
-                        await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi thêm vào hàng đợi: {ex.Message}");
-                        // Continue to the next profile even if one fails to be queued
-                    }
+                    await SafeSendLogAsync("System", "Info", $"Đang thêm profile ({_currentProfileIndex}/{profiles.Count}): {profile.Name} vào hàng đợi...");
+                    await QueueProfileForUpdate(profile.Id); // Queue it
+                    await Task.Delay(500); // Small delay between queueing
                 }
+                _logger.LogInformation("RunAllProfilesAsync: Finished profile queueing loop."); // Added log
 
-                // Wait for the queue processing to complete after adding all profiles
-                while (_isProcessingQueue)
-                {
-                    await Task.Delay(1000);
-                }
 
-                await SafeSendLogAsync("System", "Success", "Đã hoàn thành chạy tất cả các profile");
+                // Removed the check for _cancelAutoRun here, success depends on queueing completion
+                await SafeSendLogAsync("System", "Info", "Đã thêm tất cả profile vào hàng đợi. Bộ xử lý hàng đợi sẽ chạy chúng tuần tự.");
+
             }
-            catch (Exception ex)
+            catch (Exception ex) // Catch potential errors during setup/queueing
             {
-                _logger.LogError(ex, "Lỗi khi chạy tất cả các profile");
-                await SafeSendLogAsync("System", "Error", $"Lỗi khi chạy tất cả các profile: {ex.Message}");
+                _logger.LogError(ex, "Lỗi trong RunAllProfilesAsync.");
+                await SafeSendLogAsync("System", "Error", $"Lỗi khi chuẩn bị chạy tất cả profile: {ex.Message}");
             }
-            finally
+            finally // Add finally block
             {
-                _isRunningAllProfiles = false;
-                _cancelAutoRun = false; // Reset cancel flag
+                _logger.LogInformation("RunAllProfilesAsync: Resetting _isRunningAllProfiles = false."); // Added log
+                _isRunningAllProfiles = false; // Ensure flag is always reset
             }
         }
 
         public async Task StopAllProfilesAsync()
         {
-            _logger.LogInformation("Đang dừng tất cả các profiles...");
-            await SafeSendLogAsync("System", "Info", "Đang dừng tất cả các profiles...");
+            _logger.LogInformation("Đang dừng tất cả các profile và xóa hàng đợi...");
+            await SafeSendLogAsync("System", "Info", "Đang dừng tất cả các profile và xóa hàng đợi...");
 
-            // Clear the update queue
-            while (_updateQueue.TryDequeue(out _)) { }
-            _logger.LogInformation("Đã xóa hàng đợi cập nhật.");
+            // 1. Clear the update queue
+            int clearedCount = 0;
+            while (_updateQueue.TryDequeue(out _)) { clearedCount++; }
+            if (clearedCount > 0) _logger.LogInformation("Đã xóa {Count} mục khỏi hàng đợi cập nhật.", clearedCount);
 
+            // 2. Set flags to stop ongoing loops/processes
+            // _cancelAutoRun = true; // <<<<<<< REMOVE THIS LINE >>>>>>>>>>>>
+            _isRunningAllProfiles = false; // Indicate RunAll is not active (This might still be needed here or in RunAllProfiles finally block)
 
-            // Đặt cờ hủy tiến trình tự động chạy (This flag is more for the auto-run loop, less critical for queue processing)
-            _cancelAutoRun = true;
-            _isRunningAllProfiles = false; // Explicitly set to false
-
-            // Dừng tất cả các process đang được theo dõi (this handles the currently running SteamCMD process)
-            foreach (var profileId in _steamCmdProcesses.Keys.ToList())
-            {
-                if (_steamCmdProcesses.TryRemove(profileId, out var process))
-                {
-                    await KillProcessAsync(process, $"Profile {profileId}");
-                    process.Dispose();
-                }
-            }
-
-            // Dừng mọi tiến trình steamcmd còn sót lại (Ensures no SteamCMD processes are left running)
+            // 3. Kill all tracked and untracked SteamCMD processes
             await KillAllSteamCmdProcessesAsync();
-            await Task.Delay(RetryDelayMs); // Đợi sau khi kill
+            await Task.Delay(1000); // Short wait after killing
 
-            // Cập nhật trạng thái của các profile đang chạy hoặc chờ (Mark any profiles that were 'Running' or 'Waiting' as 'Stopped')
+            // 4. Update status of any profiles that were 'Running'
             var profiles = await _profileService.GetAllProfiles();
-            foreach (var profile in profiles.Where(p => p.Status == "Running" || p.Status == "Waiting"))
+            foreach (var profile in profiles.Where(p => p.Status == "Running"))
             {
+                _logger.LogInformation("Cập nhật trạng thái profile '{ProfileName}' thành Stopped do StopAll.", profile.Name);
                 profile.Status = "Stopped";
                 profile.StopTime = DateTime.Now;
-                profile.Pid = 0;
+                profile.Pid = 0; // Clear PID
                 await _profileService.UpdateProfile(profile);
             }
 
-            await SafeSendLogAsync("System", "Success", "Đã dừng tất cả các profiles");
+            await SafeSendLogAsync("System", "Success", "Đã dừng tất cả các profile và xóa hàng đợi.");
         }
 
+        /// <summary>
+        /// Restarts a specific profile by stopping it (if running) and re-queueing it.
+        /// </summary>
         public async Task<bool> RestartProfileAsync(int profileId)
         {
-            // Stop the profile if it's running
+            var profile = await _profileService.GetProfileById(profileId);
+            if (profile == null) return false;
+
+            await SafeSendLogAsync(profile.Name, "Info", $"Đang khởi động lại profile {profile.Name}...");
+
+            // Stop the specific process if tracked
             if (_steamCmdProcesses.TryRemove(profileId, out var process))
             {
-                await KillProcessAsync(process, $"Profile {profileId}");
+                await KillProcessAsync(process, profile.Name);
                 process.Dispose();
             }
+            // Also ensure any untracked process with the same logic is killed (redundant but safe)
+            // Consider finding process by PID if stored reliably in profile, otherwise KillAll is needed.
+            // For simplicity, relying on queue processor's StopAll before next run.
 
-            await Task.Delay(RetryDelayMs * 2); // Increased delay before restarting
+            await Task.Delay(RetryDelayMs); // Wait before re-queueing
 
-            // Run the profile again by adding it to the queue
+            // Re-queue the profile
             return await QueueProfileForUpdate(profileId);
         }
 
         public async Task ShutdownAsync()
         {
-            _logger.LogInformation("Đang dừng tất cả các process trước khi tắt ứng dụng...");
-            await SafeSendLogAsync("System", "Info", "Đang dừng tất cả các process trước khi tắt ứng dụng...");
+            _logger.LogInformation("Đang tắt dịch vụ SteamCMD...");
+            await SafeSendLogAsync("System", "Info", "Đang tắt ứng dụng...");
 
-            // Stop the schedule timer
-            if (_scheduleTimer != null)
-            {
-                _scheduleTimer.Stop();
-                _scheduleTimer.Dispose();
-            }
+            // Stop timers
+            _scheduleTimer?.Stop();
+            _scheduleTimer?.Dispose();
+            _hubMessageCleanupTimer?.Stop();
+            _hubMessageCleanupTimer?.Dispose();
 
-            // Stop and dispose the hub message cleanup timer
-            if (_hubMessageCleanupTimer != null)
-            {
-                _hubMessageCleanupTimer.Stop();
-                _hubMessageCleanupTimer.Dispose();
-            }
-
-
-            // Stop all running profiles and clear the queue
+            // Stop all profiles and clear queue
             await StopAllProfilesAsync();
 
-            _logger.LogInformation("Đã hoàn thành dừng process.");
+            _logger.LogInformation("Đã hoàn thành tắt dịch vụ SteamCMD.");
             await SafeSendLogAsync("System", "Success", "Đã hoàn thành dừng process.");
+            // Note: Actual application shutdown (e.g., Environment.Exit) is handled elsewhere
         }
 
+
+        // --- Steam API Info ---
         /// <summary>
-        /// Lấy thông tin cập nhật của game từ SteamCMD API
+        /// Gets app update info from api.steamcmd.net
         /// </summary>
-        /// <param name="appID">ID của game</param>
-        /// <returns>Thông tin cập nhật hoặc null nếu không tìm thấy</returns>
         public async Task<AppUpdateInfo> GetSteamAppInfo(string appID)
         {
-            using (HttpClient client = new HttpClient())
+            if (string.IsNullOrWhiteSpace(appID) || !int.TryParse(appID, out _))
+            {
+                _logger.LogWarning("Yêu cầu lấy thông tin Steam với AppID không hợp lệ: '{AppID}'", appID);
+                return null;
+            }
+
+            using (var client = new HttpClient())
             {
                 try
                 {
-                    client.DefaultRequestHeaders.Add("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36");
+                    // Use a standard user agent
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
+                    client.Timeout = TimeSpan.FromSeconds(30); // Set a reasonable timeout
+
                     string url = $"https://api.steamcmd.net/v1/info/{appID}";
                     HttpResponseMessage response = await client.GetAsync(url);
 
-                    if (response.IsSuccessStatusCode)
+                    // Check for common non-success codes before EnsureSuccessStatusCode
+                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                     {
-                        // Corrected typo here
-                        string json = await response.Content.ReadAsStringAsync();
-                        // Use Newtonsoft.Json to deserialize
-                        dynamic data = JsonConvert.DeserializeObject(json);
-
-                        if (data != null && data.status == "success" && data.data != null && data.data[appID] != null)
-                        {
-                            var gameData = data.data[appID];
-                            var appInfo = new AppUpdateInfo
-                            {
-                                AppID = appID,
-                                Name = gameData.common?.name ?? "Không xác định"
-                            };
-                            if (gameData._change_number != null)
-                            {
-                                appInfo.ChangeNumber = (long)gameData._change_number;
-                            }
-
-                            if (gameData.extended != null)
-                            {
-                                appInfo.Developer = gameData.extended.developer ?? "Không có thông tin";
-                                appInfo.Publisher = gameData.extended.publisher ?? "Không có thông tin";
-                            }
-
-                            if (gameData.depots != null && gameData.depots.branches != null && gameData.depots.branches.@public != null)
-                            {
-                                long timestamp = 0;
-                                if (gameData.depots.branches.@public.timeupdated != null &&
-                                    long.TryParse(gameData.depots.branches.@public.timeupdated.ToString(), out timestamp))
-                                {
-                                    DateTime updateTime = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)
-                                        .AddSeconds(timestamp);
-                                    updateTime = updateTime.AddHours(7); // GMT+7
-                                    appInfo.LastUpdate = updateTime.ToString("dd/MM/yyyy HH:mm:ss") + " (GMT+7)";
-                                    appInfo.LastUpdateDateTime = updateTime;
-                                    appInfo.UpdateDays = (int)(DateTime.Now - updateTime).TotalDays;
-                                    appInfo.HasRecentUpdate = appInfo.UpdateDays >= 0 && appInfo.UpdateDays <= 7;
-                                }
-                            }
-
-                            return appInfo;
-                        }
+                        _logger.LogWarning("Không tìm thấy thông tin cho AppID {AppID} (404 Not Found)", appID);
+                        return null;
                     }
+                    // Add other status codes to handle if needed (e.g., 429 Too Many Requests)
 
-                    _logger.LogWarning("Không tìm thấy thông tin cho AppID {AppID}", appID);
+                    response.EnsureSuccessStatusCode(); // Throw for other errors (5xx etc.)
+
+                    string json = await response.Content.ReadAsStringAsync();
+                    dynamic data = JsonConvert.DeserializeObject(json); // Using dynamic for simplicity
+
+                    // Check structure carefully
+                    if (data?.status == "success" && data?.data?[appID] != null)
+                    {
+                        var gameData = data.data[appID];
+                        var appInfo = new AppUpdateInfo { AppID = appID };
+
+                        // Extract common fields safely
+                        appInfo.Name = gameData.common?.name?.ToString() ?? "Không xác định";
+                        appInfo.ChangeNumber = gameData._change_number?.ToObject<long>() ?? 0;
+
+                        // Extract extended fields safely
+                        appInfo.Developer = gameData.extended?.developer?.ToString() ?? "Không có thông tin";
+                        appInfo.Publisher = gameData.extended?.publisher?.ToString() ?? "Không có thông tin";
+
+                        // Extract update time from public branch safely
+                        string timeUpdatedStr = gameData.depots?.branches?.@public?.timeupdated?.ToString();
+                        if (long.TryParse(timeUpdatedStr, out long timestamp) && timestamp > 0)
+                        {
+                            DateTime updateTimeUtc = DateTimeOffset.FromUnixTimeSeconds(timestamp).UtcDateTime;
+                            DateTime updateTimeLocal = updateTimeUtc.ToLocalTime(); // Convert to server's local time
+                            appInfo.LastUpdate = updateTimeLocal.ToString("dd/MM/yyyy HH:mm:ss zzz"); // Include timezone offset
+                            appInfo.LastUpdateDateTime = updateTimeLocal;
+                            appInfo.UpdateDays = (int)Math.Floor((DateTime.Now - updateTimeLocal).TotalDays);
+                            // Check if update was within the last 7 days (inclusive of today)
+                            appInfo.HasRecentUpdate = appInfo.UpdateDays >= 0 && appInfo.UpdateDays <= 7;
+                        }
+                        else
+                        {
+                            appInfo.LastUpdate = "Không có thông tin";
+                            appInfo.LastUpdateDateTime = null;
+                            appInfo.UpdateDays = -1; // Indicate unknown
+                            appInfo.HasRecentUpdate = false;
+                        }
+
+                        return appInfo;
+                    }
+                    else // Status was not success or data structure unexpected
+                    {
+                        _logger.LogWarning("Phản hồi API Steam thành công nhưng dữ liệu không hợp lệ hoặc không tìm thấy cho AppID {AppID}. Phản hồi: {JsonResponse}", appID, json.Length > 500 ? json.Substring(0, 500) + "..." : json);
+                        return null;
+                    }
+                }
+                catch (HttpRequestException httpEx)
+                {
+                    _logger.LogError(httpEx, "Lỗi HTTP khi lấy thông tin Steam App {AppID}: {Message}", appID, httpEx.Message);
                     return null;
                 }
-                catch (Exception ex)
+                catch (JsonException jsonEx)
                 {
-                    _logger.LogError(ex, "Lỗi khi lấy thông tin Steam App {AppID}: {Message}", appID, ex.Message);
+                    _logger.LogError(jsonEx, "Lỗi JSON khi phân tích phản hồi Steam API cho App {AppID}: {Message}", appID, jsonEx.Message);
+                    return null;
+                }
+                catch (Exception ex) // Catch-all for other unexpected errors
+                {
+                    _logger.LogError(ex, "Lỗi không mong muốn khi lấy thông tin Steam App {AppID}: {Message}", appID, ex.Message);
                     return null;
                 }
             }
         }
 
         /// <summary>
-        /// Lớp chứa thông tin cập nhật của game
+        /// Class to hold Steam app update information.
         /// </summary>
         public class AppUpdateInfo
         {
@@ -1691,12 +1587,12 @@ namespace SteamCmdWebAPI.Services
             public string Name { get; set; }
             public string LastUpdate { get; set; } = "Không có thông tin";
             public DateTime? LastUpdateDateTime { get; set; }
-            public int UpdateDays { get; set; }
-            public bool HasRecentUpdate { get; set; }
+            public int UpdateDays { get; set; } // Days ago (-1 if unknown)
+            public bool HasRecentUpdate { get; set; } // Updated within last 7 days?
             public string Developer { get; set; } = "Không có thông tin";
             public string Publisher { get; set; } = "Không có thông tin";
             public long ChangeNumber { get; set; }
         }
-    }
-}
+    } // End class SteamCmdService
+} // End namespace SteamCmdWebAPI.Services
 #endregion
