@@ -124,19 +124,26 @@ namespace SteamCmdWebAPI.Pages
             {
                 _logger.LogInformation("Nhận yêu cầu POST Stop với profileId: {ProfileId}", profileId);
 
-                // Cập nhật trạng thái trước khi dừng tiến trình
+                // Lấy profile trước khi dừng
                 var profile = await _profileService.GetProfileById(profileId);
-                if (profile != null)
+                if (profile == null)
                 {
-                    profile.Status = "Stopped";
-                    profile.StopTime = DateTime.Now;
-                    profile.Pid = 0;
-                    await _profileService.UpdateProfile(profile);
+                    return new JsonResult(new { success = false, error = $"Không tìm thấy profile với ID {profileId}" }) { StatusCode = 404 };
                 }
+
+                // Ghi log
+                _logger.LogInformation("Đang dừng profile {ProfileName} (ID: {ProfileId})", profile.Name, profileId);
 
                 // Dừng tiến trình SteamCMD
                 await _steamCmdService.StopAllProfilesAsync();
-                _logger.LogInformation("Dừng profile {ProfileId} thành công", profileId);
+
+                // Cập nhật trạng thái
+                profile.Status = "Stopped";
+                profile.StopTime = DateTime.Now;
+                profile.Pid = 0;
+                await _profileService.UpdateProfile(profile);
+
+                _logger.LogInformation("Đã dừng profile {ProfileName} (ID: {ProfileId}) thành công", profile.Name, profileId);
                 return new JsonResult(new { success = true, noAlert = true });
             }
             catch (Exception ex)

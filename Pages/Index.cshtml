@@ -48,6 +48,9 @@
         </div>
     </div>
 
+
+
+
     <!-- Console SteamCMD thay thế cho LogContainer -->
     <div class="card mb-3">
         <div class="card-header d-flex justify-content-between align-items-center" id="consoleHeader">
@@ -86,7 +89,7 @@
                                     <td>@profile.AppID</td>
                                     <td class="text-truncate" style="max-width: 200px;" title="@profile.InstallDirectory">@profile.InstallDirectory</td>
                                     <td>
-                                        <span class="badge bg-@(profile.Status == "Running" ? "success" : "secondary")">
+                                        <span class="badge bg-@(profile.Status == "Running" ? "success" : (profile.Status == "Error" ? "danger" : "secondary"))">
                                             @profile.Status
                                         </span>
                                     </td>
@@ -179,77 +182,87 @@
                 }
             }
 
-            $(".run-btn").click(function () {
-                const profileId = $(this).data("id");
-                const profileName = $(this).closest('tr').find('td:nth-child(2)').text();
+                    $(".run-btn").click(function () {
+            const profileId = $(this).data("id");
+            const profileName = $(this).closest('tr').find('td:nth-child(2)').text();
 
-                $("#steamcmd-console").attr("data-profile-id", profileId);
-                updateActiveProfileBadge(profileId, profileName);
-                $("tr.table-success").removeClass('table-success');
-                $(`tr[data-profile-id="${profileId}"]`).addClass('table-success');
+            $("#steamcmd-console").attr("data-profile-id", profileId);
+            updateActiveProfileBadge(profileId, profileName);
+            $("tr.table-success").removeClass('table-success');
+            $(`tr[data-profile-id="${profileId}"]`).addClass('table-success');
 
-                if (window.steamConsole) {
-                    window.steamConsole.clear();
-                    window.steamConsole.setProfileId(profileId);
-                    window.steamConsole.addLine(`Đang chuẩn bị chạy profile: ${profileName} (ID: ${profileId})`, 'success');
-                }
+            // Cập nhật trạng thái ngay lập tức trước khi gọi API
+            updateProfileStatus(profileId, 'Running');
 
-                $.ajax({
-                    url: "/Index?handler=Run",
-                    method: "POST",
-                    data: { profileId: profileId },
-                    headers: {
-                        "RequestVerificationToken": token
-                    },
-                    success: function (response) {
-                        if (!response.success && response.error) {
-                            if (window.steamConsole) {
-                                window.steamConsole.addLine("Lỗi: " + response.error, 'error');
-                            }
-                        }
-                    },
-                    error: function (xhr, status, error) {
+            if (window.steamConsole) {
+                window.steamConsole.clear();
+                window.steamConsole.setProfileId(profileId);
+                window.steamConsole.addLine(`Đang chuẩn bị chạy profile: ${profileName} (ID: ${profileId})`, 'success');
+            }
+
+            $.ajax({
+                url: "/Index?handler=Run",
+                method: "POST",
+                data: { profileId: profileId },
+                headers: {
+                    "RequestVerificationToken": token
+                },
+                success: function (response) {
+                    if (!response.success && response.error) {
                         if (window.steamConsole) {
-                            window.steamConsole.addLine("Lỗi khi gửi yêu cầu: " + (xhr.responseText || error), 'error');
+                            window.steamConsole.addLine("Lỗi: " + response.error, 'error');
                         }
+                        updateProfileStatus(profileId, 'Error');
                     }
-                });
-            });
-
-            $(".stop-btn").click(function () {
-                const profileId = $(this).data("id");
-                $(`tr[data-profile-id="${profileId}"]`).removeClass('table-success');
-
-                if (window.steamConsole) {
-                    window.steamConsole.addLine(`Đang dừng profile ID: ${profileId}...`, 'warning');
+                },
+                error: function (xhr, status, error) {
+                    if (window.steamConsole) {
+                        window.steamConsole.addLine("Lỗi khi gửi yêu cầu: " + (xhr.responseText || error), 'error');
+                    }
+                    updateProfileStatus(profileId, 'Error');
                 }
-                updateActiveProfileBadge(null);
-
-                $.ajax({
-                    url: "/Index?handler=Stop",
-                    method: "POST",
-                    data: { profileId: profileId },
-                    headers: {
-                        "RequestVerificationToken": token
-                    },
-                    success: function (response) {
-                        if (response.success) {
-                            if (window.steamConsole) {
-                                window.steamConsole.addLine(`Đã dừng profile ID: ${profileId} thành công`, 'success');
-                            }
-                        } else if (response.error) {
-                            if (window.steamConsole) {
-                                windowincs.steamConsole.addLine("Lỗi: " + response.error, 'error');
-                            }
-                        }
-                    },
-                    error: function (xhr, status, error) {
-                        if (window.steamConsole) {
-                            window.steamConsole.addLine("Lỗi khi gửi yêu cầu dừng: " + (xhr.responseText || error), 'error');
-                        }
-                    }
-                });
             });
+        });
+
+        $(".stop-btn").click(function () {
+            const profileId = $(this).data("id");
+            $(`tr[data-profile-id="${profileId}"]`).removeClass('table-success');
+
+            // Cập nhật trạng thái ngay lập tức
+            updateProfileStatus(profileId, 'Stopped');
+
+            if (window.steamConsole) {
+                window.steamConsole.addLine(`Đang dừng profile ID: ${profileId}...`, 'warning');
+            }
+            updateActiveProfileBadge(null);
+
+            $.ajax({
+                url: "/Index?handler=Stop",
+                method: "POST",
+                data: { profileId: profileId },
+                headers: {
+                    "RequestVerificationToken": token
+                },
+                success: function (response) {
+                    if (response.success) {
+                        if (window.steamConsole) {
+                            window.steamConsole.addLine(`Đã dừng profile ID: ${profileId} thành công`, 'success');
+                        }
+                    } else if (response.error) {
+                        if (window.steamConsole) {
+                            window.steamConsole.addLine("Lỗi: " + response.error, 'error');
+                        }
+                        updateProfileStatus(profileId, 'Error');
+                    }
+                },
+                error: function (xhr, status, error) {
+                    if (window.steamConsole) {
+                        window.steamConsole.addLine("Lỗi khi gửi yêu cầu dừng: " + (xhr.responseText || error), 'error');
+                    }
+                    updateProfileStatus(profileId, 'Error');
+                }
+            });
+        });
 
             $(".delete-btn").click(function () {
                 if (confirm("Bạn có chắc chắn muốn xóa cấu hình này?")) {
