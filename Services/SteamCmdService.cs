@@ -781,13 +781,13 @@ namespace SteamCmdWebAPI.Services
                     if (successMessages.Count > 0)
                     {
                         success = true;
-                        string exitMessage = $"Cập nhật thành công game {profile.AppID}";
+                        string exitMessage = $"Cập nhật thành công game {profile.Name}";
                         await _hubContext.Clients.All.SendAsync("ReceiveLog", exitMessage);
                         AddLog(new LogEntry(DateTime.Now, profile.Name, "Success", exitMessage));
                     }
                     else
                     {
-                        string exitMessage = $"Quá trình cập nhật game {profile.AppID} không thành công";
+                        string exitMessage = $"Quá trình cập nhật game {profile.Name} không thành công";
                         await _hubContext.Clients.All.SendAsync("ReceiveLog", exitMessage);
                         AddLog(new LogEntry(DateTime.Now, profile.Name, "Error", exitMessage));
                     }
