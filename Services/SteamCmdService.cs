@@ -42,10 +42,6 @@ namespace SteamCmdWebAPI.Services
         private HashSet<string> _recentLogMessages = new HashSet<string>();
         private readonly int _maxRecentLogMessages = 100;
 
-        private readonly object _steamCmdLock = new object();
-        private volatile bool _isRunning = false;
-        private int _currentRunningProfileId = -1;
-
         public class LogEntry
         {
             public DateTime Timestamp { get; set; }
@@ -485,32 +481,13 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<bool> RunProfileAsync(int id)
         {
-            // Kiểm tra xem có profile nào đang chạy không
-            if (_isRunning)
-            {
-                await SafeSendLogAsync($"Profile {id}", "Warning", $"Đã có profile khác đang chạy. Vui lòng đợi hoặc dừng profile đang chạy trước.");
-                return false;
-            }
-
             try
             {
-                lock (_steamCmdLock)
-                {
-                    if (_isRunning)
-                    {
-                        return false;
-                    }
-                    _isRunning = true;
-                    _currentRunningProfileId = id;
-                }
-
                 var profile = await _profileService.GetProfileById(id);
                 if (profile == null)
                 {
                     _logger.LogError("Không tìm thấy profile ID {ProfileId}", id);
                     await SafeSendLogAsync($"Profile {id}", "Error", $"Không tìm thấy profile với ID {id}");
-                    _isRunning = false;
-                    _currentRunningProfileId = -1;
                     return false;
                 }
 
@@ -623,13 +600,24 @@ namespace SteamCmdWebAPI.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi chạy profile {ProfileId}: {Message}", id, ex.Message);
-                // Xử lý lỗi...
+
+                try
+                {
+                    var profile = await _profileService.GetProfileById(id);
+                    if (profile != null)
+                    {
+                        await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi chạy {profile.Name}: {ex.Message}");
+
+                        profile.Status = "Stopped";
+                        profile.StopTime = DateTime.Now;
+                        profile.Pid = 0;
+                        await _profileService.UpdateProfile(profile);
+                    }
+                }
+                catch { }
+
+                _steamCmdProcesses.TryRemove(id, out _);
                 return false;
-            }
-            finally
-            {
-                _isRunning = false;
-                _currentRunningProfileId = -1;
             }
         }
 
@@ -907,7 +895,7 @@ namespace SteamCmdWebAPI.Services
                 // Đợi để đảm bảo tài nguyên được giải phóng
                 await Task.Delay(RetryDelayMs * 2);
 
-                // Chạy từng profile lần lượt, đảm bảo profile trước kết thúc mới chạy profile sau
+                // Chạy từng profile
                 foreach (var profile in profiles)
                 {
                     if (_cancelAutoRun) break;
@@ -919,28 +907,7 @@ namespace SteamCmdWebAPI.Services
 
                     try
                     {
-                        // Đảm bảo không có profile nào đang chạy
-                        if (_isRunning)
-                        {
-                            await KillAllSteamCmdProcessesAsync();
-                            await Task.Delay(RetryDelayMs);
-                        }
-
-                        // Đặt khóa trước khi chạy mỗi profile
-                        lock (_steamCmdLock)
-                        {
-                            _isRunning = true;
-                            _currentRunningProfileId = profile.Id;
-                        }
-
-                        bool success = await RunSteamCmdProcessAsync(profile, profile.Id);
-
-                        // Cập nhật trạng thái profile
-                        profile.Status = "Stopped";
-                        profile.StopTime = DateTime.Now;
-                        profile.Pid = 0;
-                        profile.LastRun = DateTime.UtcNow;
-                        await _profileService.UpdateProfile(profile);
+                        bool success = await RunProfileAsync(profile.Id);
 
                         if (!success)
                         {
@@ -948,10 +915,9 @@ namespace SteamCmdWebAPI.Services
                                 $"Chạy profile {profile.Name} không thành công");
                         }
 
-                        // Đợi giữa các lần chạy và đảm bảo dọn dẹp trước khi chạy profile tiếp theo
+                        // Đợi giữa các lần chạy
                         if (_currentProfileIndex < profiles.Count)
                         {
-                            await RemoveSteamAppsSymLinkAsync();
                             await Task.Delay(3000);
                         }
                     }
@@ -959,11 +925,6 @@ namespace SteamCmdWebAPI.Services
                     {
                         _logger.LogError(ex, "Lỗi khi chạy profile {ProfileName}", profile.Name);
                         await SafeSendLogAsync(profile.Name, "Error", $"Lỗi: {ex.Message}");
-                    }
-                    finally
-                    {
-                        _isRunning = false;
-                        _currentRunningProfileId = -1;
                     }
                 }
 
@@ -978,8 +939,6 @@ namespace SteamCmdWebAPI.Services
             {
                 _isRunningAllProfiles = false;
                 _cancelAutoRun = false;
-                _isRunning = false;
-                _currentRunningProfileId = -1;
             }
         }
 
