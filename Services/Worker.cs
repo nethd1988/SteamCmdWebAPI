@@ -32,9 +32,9 @@ namespace SteamCmdWebAPI
         public override async Task StartAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("Dịch vụ SteamCmdWebAPI đang khởi động...");
-            
+
             // Đảm bảo thư mục data có đủ quyền
-            try 
+            try
             {
                 var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
                 string dataDir = Path.Combine(baseDirectory, "data");
@@ -43,7 +43,7 @@ namespace SteamCmdWebAPI
                     Directory.CreateDirectory(dataDir);
                     _logger.LogInformation("Đã tạo thư mục data tại {0}", dataDir);
                 }
-                
+
                 // Cấp quyền đầy đủ cho thư mục data
                 SetFullPermissionsForEveryone(dataDir);
                 _logger.LogInformation("Đã cấp quyền đầy đủ cho thư mục {0}", dataDir);
@@ -52,10 +52,10 @@ namespace SteamCmdWebAPI
             {
                 _logger.LogError(ex, "Lỗi khi thiết lập quyền cho thư mục: {Message}", ex.Message);
             }
-            
+
             await base.StartAsync(cancellationToken);
         }
-        
+
         private void SetFullPermissionsForEveryone(string path)
         {
             try
@@ -75,7 +75,7 @@ namespace SteamCmdWebAPI
 
                 dirSecurity.AddAccessRule(rule);
                 dirInfo.SetAccessControl(dirSecurity);
-                
+
                 // Đặt quyền cho các thư mục con
                 foreach (var subDir in Directory.GetDirectories(path, "*", SearchOption.AllDirectories))
                 {
@@ -88,7 +88,7 @@ namespace SteamCmdWebAPI
                         _logger.LogWarning(ex, "Không thể đặt quyền cho thư mục {Dir}: {Message}", subDir, ex.Message);
                     }
                 }
-                
+
                 // Đặt quyền cho các file
                 foreach (var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
                 {
@@ -107,7 +107,7 @@ namespace SteamCmdWebAPI
                 _logger.LogError(ex, "Lỗi khi đặt quyền cho thư mục {Path}: {Message}", path, ex.Message);
             }
         }
-        
+
         private void SetFullPermissionsForDirectory(string dirPath)
         {
             DirectoryInfo dirInfo = new DirectoryInfo(dirPath);
@@ -125,7 +125,7 @@ namespace SteamCmdWebAPI
             dirSecurity.AddAccessRule(rule);
             dirInfo.SetAccessControl(dirSecurity);
         }
-        
+
         private void SetFullPermissionsForFile(string filePath)
         {
             FileInfo fileInfo = new FileInfo(filePath);
