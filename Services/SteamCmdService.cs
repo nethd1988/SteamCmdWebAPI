@@ -328,10 +328,47 @@ namespace SteamCmdWebAPI.Services
         {
             string steamCmdDir = Path.Combine(Directory.GetCurrentDirectory(), "steamcmd");
             string zipPath = Path.Combine(steamCmdDir, "steamcmd.zip");
+            string steamCmdPath = Path.Combine(steamCmdDir, "steamcmd.exe");
             string downloadUrl = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
 
             try
             {
+                // Kill tất cả tiến trình steamcmd.exe trước khi cài đặt
+                await KillAllSteamCmdProcessesAsync();
+                await Task.Delay(5000); // Đợi 5 giây để đảm bảo các tiến trình đã bị kill
+
+                // Kiểm tra nếu file steamcmd.exe đang tồn tại và không thể xoá
+                if (File.Exists(steamCmdPath))
+                {
+                    try
+                    {
+                        // Thử mở file để kiểm tra xem có bị khoá không
+                        using (var fileStream = new FileStream(steamCmdPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                        {
+                            // File không bị khoá, có thể đóng fileStream
+                        }
+                    }
+                    catch (IOException)
+                    {
+                        // File đang bị khoá, thử xoá lại sau khi kill tiến trình
+                        CmdHelper.RunCommand("taskkill /F /IM steamcmd.exe", 10000);
+                        await Task.Delay(2000);
+
+                        // Thử xoá file
+                        try
+                        {
+                            File.Delete(steamCmdPath);
+                            await Task.Delay(1000);
+                        }
+                        catch
+                        {
+                            // Nếu vẫn không xoá được, thông báo lỗi
+                            _logger.LogError($"Không thể xoá file steamcmd.exe hiện tại. File đang bị khoá.");
+                            await SafeSendLogAsync("System", "Error", $"Không thể xoá file steamcmd.exe hiện tại. File đang bị khoá bởi tiến trình khác.");
+                        }
+                    }
+                }
+
                 if (!Directory.Exists(steamCmdDir))
                 {
                     Directory.CreateDirectory(steamCmdDir);
@@ -339,11 +376,19 @@ namespace SteamCmdWebAPI.Services
                     await SafeSendLogAsync("System", "Info", $"Đã tạo thư mục steamcmd: {steamCmdDir}");
                 }
 
+                // Tải xuống steamcmd.zip
                 using (var httpClient = new HttpClient())
                 {
                     httpClient.Timeout = TimeSpan.FromMinutes(5);
                     await SafeSendLogAsync("System", "Info", $"Đang tải SteamCMD từ {downloadUrl}...");
                     _logger.LogInformation("Bắt đầu tải SteamCMD từ {Url}", downloadUrl);
+
+                    // Thử xoá file zip cũ nếu tồn tại
+                    if (File.Exists(zipPath))
+                    {
+                        try { File.Delete(zipPath); } catch { }
+                    }
+
                     var response = await httpClient.GetAsync(downloadUrl);
                     response.EnsureSuccessStatusCode();
                     using (var fs = new FileStream(zipPath, FileMode.Create))
@@ -353,15 +398,51 @@ namespace SteamCmdWebAPI.Services
                     await SafeSendLogAsync("System", "Info", "Đã tải xong SteamCMD, đang giải nén...");
                 }
 
-                System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, steamCmdDir, true);
-                await SafeSendLogAsync("System", "Success", "Đã cài đặt SteamCMD thành công");
+                // Đảm bảo không có file cũ nào đang chạy trước khi giải nén
+                await KillAllSteamCmdProcessesAsync();
+                await Task.Delay(3000);
+
+                try
+                {
+                    // Giải nén
+                    System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, steamCmdDir, true);
+                    await SafeSendLogAsync("System", "Success", "Đã cài đặt SteamCMD thành công");
+                }
+                catch (IOException ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi giải nén: {Message}", ex.Message);
+                    await SafeSendLogAsync("System", "Error", $"Lỗi khi giải nén: {ex.Message}");
+
+                    // Thử phương pháp giải nén thủ công
+                    await SafeSendLogAsync("System", "Info", "Đang thử phương pháp giải nén thủ công...");
+                    CmdHelper.RunCommand($"powershell -command \"Expand-Archive -Path '{zipPath}' -DestinationPath '{steamCmdDir}' -Force\"", 60000);
+                }
 
                 try { File.Delete(zipPath); }
                 catch (Exception ex) { _logger.LogWarning(ex, "Không thể xóa file zip"); }
 
-                if (!File.Exists(GetSteamCmdPath()))
+                // Kiểm tra lại sau khi cài đặt
+                if (!File.Exists(steamCmdPath))
                 {
                     throw new Exception("Cài đặt thất bại. Không tìm thấy steamcmd.exe sau khi cài đặt.");
+                }
+
+                // Kiểm tra file có thể thực thi
+                try
+                {
+                    FileInfo fileInfo = new FileInfo(steamCmdPath);
+                    if (fileInfo.Length < 10000) // Kiểm tra kích thước tối thiểu
+                    {
+                        throw new Exception("File steamcmd.exe được tạo nhưng có kích thước không hợp lệ.");
+                    }
+
+                    await SafeSendLogAsync("System", "Success", "Đã cài đặt SteamCMD thành công");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi kiểm tra file steamcmd.exe: {Message}", ex.Message);
+                    await SafeSendLogAsync("System", "Error", $"Lỗi khi kiểm tra file steamcmd.exe: {ex.Message}");
+                    throw;
                 }
             }
             catch (Exception ex)
@@ -610,6 +691,7 @@ namespace SteamCmdWebAPI.Services
                         await SafeSendLogAsync(profile.Name, "Info", "SteamCMD executable installed. Performing initial self-setup run...");
 
                         // --- NEW STEP: Initial SteamCMD self-setup run ---
+                        // Trong phương thức RunProfileAsync, phần "Initial SteamCMD self-setup run"
                         try
                         {
                             string steamCmdPath = GetSteamCmdPath();
@@ -619,7 +701,7 @@ namespace SteamCmdWebAPI.Services
                                 FileName = steamCmdPath,
                                 Arguments = "+quit", // Simple command to make it start and exit
                                 UseShellExecute = false,
-                                RedirectStandardOutput = true, // Capture output to potentially check for "Loading Steam API...OK"
+                                RedirectStandardOutput = true,
                                 RedirectStandardError = true,
                                 CreateNoWindow = true,
                                 WorkingDirectory = Path.GetDirectoryName(steamCmdPath)
@@ -632,44 +714,72 @@ namespace SteamCmdWebAPI.Services
 
                                 initialProcess.Start();
 
-                                // Optional: Read and log output during initial setup if needed for debugging
-                                // initialProcess.OutputDataReceived += (sender, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogInformation($"Initial SteamCMD Output: {e.Data}"); };
-                                // initialProcess.ErrorDataReceived += (sender, e) => { if (!string.IsNullOrEmpty(e.Data)) _logger.LogError($"Initial SteamCMD Error: {e.Data}"); };
-                                // initialProcess.BeginOutputReadLine();
-                                // initialProcess.BeginErrorReadLine();
+                                // Theo dõi output để kiểm tra "Loading Steam API...OK"
+                                bool apiLoaded = false;
+                                var outputBuilder = new StringBuilder();
+
+                                initialProcess.OutputDataReceived += (sender, e) => {
+                                    if (!string.IsNullOrEmpty(e.Data))
+                                    {
+                                        outputBuilder.AppendLine(e.Data);
+                                        if (e.Data.Contains("Loading Steam API...OK"))
+                                        {
+                                            apiLoaded = true;
+                                        }
+                                        _logger.LogInformation($"Initial SteamCMD Output: {e.Data}");
+                                    }
+                                };
+
+                                initialProcess.ErrorDataReceived += (sender, e) => {
+                                    if (!string.IsNullOrEmpty(e.Data))
+                                    {
+                                        outputBuilder.AppendLine(e.Data);
+                                        _logger.LogError($"Initial SteamCMD Error: {e.Data}");
+                                    }
+                                };
+
+                                initialProcess.BeginOutputReadLine();
+                                initialProcess.BeginErrorReadLine();
 
                                 // Wait for the initial setup process to exit
-                                // Use a reasonable timeout for this initial setup
-                                bool exited = initialProcess.WaitForExit(120000); // Wait up to 120 seconds (2 minutes)
+                                bool exited = initialProcess.WaitForExit(180000); // Tăng thời gian chờ lên 3 phút
 
                                 if (!exited)
                                 {
                                     _logger.LogError("Initial SteamCMD self-setup timed out.");
                                     await SafeSendLogAsync(profile.Name, "Error", "Initial SteamCMD self-setup timed out.");
-                                    // Attempt to kill the hung process
                                     try { initialProcess.Kill(); } catch { }
                                     profile.Status = "Stopped";
                                     profile.StopTime = DateTime.Now;
                                     await _profileService.UpdateProfile(profile);
-                                    return false; // Fail if initial setup times out
+                                    return false;
                                 }
 
-                                if (initialProcess.ExitCode == 0)
+                                // Kiểm tra cả mã thoát và thông báo "Loading Steam API...OK"
+                                if (initialProcess.ExitCode == 0 && apiLoaded)
                                 {
-                                    _logger.LogInformation("Initial SteamCMD self-setup completed successfully.");
-                                    await SafeSendLogAsync(profile.Name, "Success", "Initial SteamCMD self-setup completed successfully.");
+                                    _logger.LogInformation("Initial SteamCMD self-setup completed successfully and Steam API loaded OK.");
+                                    await SafeSendLogAsync(profile.Name, "Success", "Initial SteamCMD self-setup completed successfully and Steam API loaded OK.");
+                                }
+                                else if (initialProcess.ExitCode == 0 && !apiLoaded)
+                                {
+                                    _logger.LogError("Initial SteamCMD self-setup completed but Steam API loading not confirmed.");
+                                    await SafeSendLogAsync(profile.Name, "Error", "Initial SteamCMD self-setup completed but Steam API loading not confirmed. Output: " + outputBuilder.ToString());
+                                    profile.Status = "Stopped";
+                                    profile.StopTime = DateTime.Now;
+                                    await _profileService.UpdateProfile(profile);
+                                    return false;
                                 }
                                 else
                                 {
                                     _logger.LogError($"Initial SteamCMD self-setup failed with exit code {initialProcess.ExitCode}.");
-                                    await SafeSendLogAsync(profile.Name, "Error", $"Initial SteamCMD self-setup failed with exit code {initialProcess.ExitCode}.");
+                                    await SafeSendLogAsync(profile.Name, "Error", $"Initial SteamCMD self-setup failed with exit code {initialProcess.ExitCode}. Output: " + outputBuilder.ToString());
                                     profile.Status = "Stopped";
                                     profile.StopTime = DateTime.Now;
                                     await _profileService.UpdateProfile(profile);
-                                    return false; // Fail if initial setup returns non-zero exit code
+                                    return false;
                                 }
                             }
-                            // --- END NEW STEP ---
                         }
                         catch (Exception ex)
                         {
@@ -678,7 +788,7 @@ namespace SteamCmdWebAPI.Services
                             profile.Status = "Stopped";
                             profile.StopTime = DateTime.Now;
                             await _profileService.UpdateProfile(profile);
-                            return false; // Fail if an exception occurs during initial setup run
+                            return false;
                         }
                     }
                 }
@@ -757,7 +867,7 @@ namespace SteamCmdWebAPI.Services
 
                 if (success)
                 {
-                    await SafeSendLogAsync(profile.Name, "Success", $"Successfully ran {profile.Name}");
+                    await SafeSendLogAsync(profile.Name, "Success", $"Successfully Game {profile.Name}");
                 }
                 else
                 {
