@@ -169,10 +169,9 @@ namespace SteamCmdWebAPI.Pages
                     UpdateInfos.Add(viewModel);
                 }
 
-                // Sắp xếp danh sách (theo NeedsUpdate và tên)
+                // Sắp xếp danh sách theo thời gian cập nhật mới nhất (giảm dần)
                 UpdateInfos = UpdateInfos
-                    .OrderByDescending(vm => vm.NeedsUpdate)
-                    .ThenBy(vm => vm.ApiInfo.Name)
+                    .OrderByDescending(vm => vm.CurrentUpdateDateTime)
                     .ToList();
             }
             catch (Exception ex)
