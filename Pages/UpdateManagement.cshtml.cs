@@ -19,8 +19,7 @@ namespace SteamCmdWebAPI.Pages
         private readonly SteamApiService _steamApiService;
         private readonly ProfileService _profileService;
         private readonly SteamCmdService _steamCmdService;
-        private readonly IServiceProvider _serviceProvider;
-        private readonly string _settingsFilePath;
+        private readonly UpdateCheckService _updateCheckService; // Inject UpdateCheckService directly
 
         [TempData]
         public string StatusMessage { get; set; }
@@ -30,97 +29,49 @@ namespace SteamCmdWebAPI.Pages
 
         public List<AppUpdateInfo> UpdateInfos { get; set; } = new List<AppUpdateInfo>();
 
+        // Properties for Auto Update Check Settings - Match SettingsPageModel
         [BindProperty]
-        public UpdateCheckSettings Settings { get; set; } = new UpdateCheckSettings();
+        public bool UpdateCheckEnabled { get; set; }
+        [BindProperty]
+        public int UpdateCheckIntervalMinutes { get; set; } = 60; // Default to match SettingsPageModel
+        [BindProperty] // Keep this property for the checkbox
+        public bool AutoUpdateProfiles { get; set; }
+
 
         public UpdateManagementModel(
             ILogger<UpdateManagementModel> logger,
             SteamApiService steamApiService,
             ProfileService profileService,
             SteamCmdService steamCmdService,
-            IServiceProvider serviceProvider)
+            UpdateCheckService updateCheckService) // Inject UpdateCheckService
         {
             _logger = logger;
             _steamApiService = steamApiService;
             _profileService = profileService;
             _steamCmdService = steamCmdService;
-            _serviceProvider = serviceProvider;
+            _updateCheckService = updateCheckService; // Assign injected service
 
-            var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-            string dataDir = Path.Combine(baseDirectory, "data");
-            if (!Directory.Exists(dataDir))
-            {
-                Directory.CreateDirectory(dataDir);
-            }
-
-            _settingsFilePath = Path.Combine(dataDir, "update_check_settings.json");
-            LoadSettings();
+            // Removed file path and file loading/saving logic from here,
+            // as UpdateCheckService is the source of truth.
         }
 
-        private void LoadSettings()
-        {
-            try
-            {
-                // Thử lấy từ service trước
-                var updateCheckService = _serviceProvider.GetService<UpdateCheckService>();
-                if (updateCheckService != null)
-                {
-                    Settings = updateCheckService.GetCurrentSettings();
-                    return;
-                }
-
-                // Nếu không có service, đọc từ file
-                if (System.IO.File.Exists(_settingsFilePath))
-                {
-                    string json = System.IO.File.ReadAllText(_settingsFilePath);
-                    Settings = JsonConvert.DeserializeObject<UpdateCheckSettings>(json) ?? new UpdateCheckSettings();
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi khi tải cài đặt kiểm tra cập nhật");
-                Settings = new UpdateCheckSettings();
-            }
-        }
-
-        private async Task SaveSettings()
-        {
-            try
-            {
-                // Log trước khi lưu để debug
-                _logger.LogInformation("Lưu cài đặt: Enabled={0}, IntervalMinutes={1}, AutoUpdateProfiles={2}",
-                    Settings.Enabled, Settings.IntervalMinutes, Settings.AutoUpdateProfiles);
-
-                // Lưu file
-                string json = JsonConvert.SerializeObject(Settings, Formatting.Indented);
-                await System.IO.File.WriteAllTextAsync(_settingsFilePath, json);
-
-                // Cập nhật service nếu có thể
-                var updateCheckService = _serviceProvider.GetService<UpdateCheckService>();
-                if (updateCheckService != null)
-                {
-                    updateCheckService.UpdateSettings(
-                        Settings.Enabled,
-                        TimeSpan.FromMinutes(Settings.IntervalMinutes),
-                        Settings.AutoUpdateProfiles);
-                    _logger.LogInformation("Đã cập nhật service thành công");
-                }
-                else
-                {
-                    _logger.LogWarning("Không tìm thấy UpdateCheckService để cập nhật");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi khi lưu cài đặt kiểm tra cập nhật");
-                throw;
-            }
-        }
+        // Removed private LoadSettings() and SaveSettings() methods
 
         public async Task OnGetAsync()
         {
             try
             {
+                // Load settings from the service
+                var currentSettings = _updateCheckService.GetCurrentSettings();
+                UpdateCheckEnabled = currentSettings.Enabled;
+                UpdateCheckIntervalMinutes = currentSettings.IntervalMinutes;
+                AutoUpdateProfiles = currentSettings.AutoUpdateProfiles; // Load AutoUpdateProfiles setting
+
+                // Ensure interval is within reasonable bounds for the UI
+                if (UpdateCheckIntervalMinutes < 10) UpdateCheckIntervalMinutes = 10;
+                if (UpdateCheckIntervalMinutes > 1440) UpdateCheckIntervalMinutes = 1440;
+
+
                 var profiles = await _profileService.GetAllProfiles();
 
                 // Lấy thông tin cập nhật từ cache cho tất cả các profile
@@ -128,6 +79,7 @@ namespace SteamCmdWebAPI.Pages
                 {
                     if (!string.IsNullOrEmpty(profile.AppID))
                     {
+                        // Use GetAppUpdateInfo which utilizes the cache
                         var info = await _steamApiService.GetAppUpdateInfo(profile.AppID);
                         if (info != null)
                         {
@@ -136,40 +88,64 @@ namespace SteamCmdWebAPI.Pages
                     }
                 }
 
-                // Sắp xếp theo thời gian cập nhật gần nhất
-                UpdateInfos = UpdateInfos.OrderByDescending(i => i.LastUpdateDateTime).ToList();
+                // Sắp xếp theo thời gian kiểm tra lần cuối (hoặc cập nhật gần nhất, tùy ý)
+                UpdateInfos = UpdateInfos.OrderByDescending(i => i.LastChecked).ToList();
+                // Alternatively, sort by LastUpdateDateTime:
+                // UpdateInfos = UpdateInfos.OrderByDescending(i => i.LastUpdateDateTime ?? DateTime.MinValue).ToList();
+
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi tải thông tin cập nhật");
-                StatusMessage = $"Lỗi khi tải thông tin cập nhật: {ex.Message}";
+                _logger.LogError(ex, "Lỗi khi tải thông tin cập nhật hoặc cài đặt");
+                StatusMessage = $"Lỗi khi tải thông tin: {ex.Message}";
                 IsSuccess = false;
             }
         }
 
-        public async Task<IActionResult> OnPostSaveSettingsAsync(bool enabled, int intervalMinutes, bool autoUpdateProfiles)
+        // Renamed handler to match the form in the CSHTML
+        public async Task<IActionResult> OnPostSaveUpdateCheckSettingsAsync()
         {
             try
             {
-                Settings.Enabled = enabled;
-                Settings.IntervalMinutes = intervalMinutes;
-                Settings.AutoUpdateProfiles = autoUpdateProfiles;
+                // Validation for UpdateCheckIntervalMinutes - Match SettingsPageModel
+                if (UpdateCheckIntervalMinutes < 10 || UpdateCheckIntervalMinutes > 1440) // Example range: 10 mins to 24 hours
+                {
+                    StatusMessage = "Khoảng thời gian kiểm tra (phút) phải từ 10 đến 1440.";
+                    IsSuccess = false;
+                    // Reload data for the page
+                    await OnGetAsync();
+                    return Page(); // Return Page() to show validation error on the same page
+                }
 
-                await SaveSettings();
+                // Use UpdateCheckService to update settings
+                _updateCheckService.UpdateSettings(
+                    UpdateCheckEnabled, // Use BindProperty value
+                    TimeSpan.FromMinutes(UpdateCheckIntervalMinutes), // Use BindProperty value
+                    AutoUpdateProfiles // Use BindProperty value for AutoUpdateProfiles
+                );
 
-                StatusMessage = "Đã lưu cài đặt kiểm tra cập nhật thành công.";
+                StatusMessage = $"Đã lưu cài đặt kiểm tra cập nhật: {(UpdateCheckEnabled ? "Bật" : "Tắt")}, {UpdateCheckIntervalMinutes} phút/lần, Tự động cập nhật: {(AutoUpdateProfiles ? "Bật" : "Tắt")}.";
                 IsSuccess = true;
 
-                return RedirectToPage();
+                // Reload data for the page after successful save
+                await OnGetAsync();
+                return Page(); // Return Page() instead of RedirectToPage() to keep TempData messages
+
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi lưu cài đặt kiểm tra cập nhật");
                 StatusMessage = $"Lỗi khi lưu cài đặt: {ex.Message}";
                 IsSuccess = false;
-                return RedirectToPage();
+                // Reload data for the page on error
+                await OnGetAsync();
+                return Page(); // Return Page() to show error message
             }
         }
+
+        // OnPostCheckUpdatesAsync, OnPostClearCacheAsync, OnPostUpdateAppAsync remain mostly the same,
+        // but ensure they use the injected _steamApiService and _steamCmdService correctly.
+        // The logic within these handlers seems fine based on previous analysis.
 
         public async Task<IActionResult> OnPostCheckUpdatesAsync()
         {
@@ -177,28 +153,94 @@ namespace SteamCmdWebAPI.Pages
             {
                 var profiles = await _profileService.GetAllProfiles();
                 int checkedCount = 0;
-                int updatedCount = 0;
+                int gamesNeedingUpdateCount = 0; // Count games needing update, not just profiles queued
 
-                // Kiểm tra cập nhật cho tất cả profile
+                // Use the new logic from UpdateCheckService's CheckForUpdatesAsync conceptually
+                // We can't directly call CheckForUpdatesAsync as it's private and part of the background service loop.
+                // Replicate the core check logic here for a manual trigger.
+
                 foreach (var profile in profiles)
                 {
-                    if (!string.IsNullOrEmpty(profile.AppID))
+                    if (string.IsNullOrEmpty(profile.AppID) || string.IsNullOrEmpty(profile.InstallDirectory))
                     {
-                        checkedCount++;
-                        bool hasUpdate = await _steamApiService.HasAppUpdate(profile.AppID);
+                        _logger.LogWarning("Bỏ qua profile {0} trong kiểm tra thủ công do thiếu AppID hoặc Thư mục cài đặt.", profile.Name);
+                        continue;
+                    }
 
-                        if (hasUpdate && (profile.AutoRun || !Settings.AutoUpdateProfiles))
+                    checkedCount++;
+                    _logger.LogInformation("Kiểm tra cập nhật thủ công cho profile: {0} (AppID: {1})", profile.Name, profile.AppID);
+
+                    long localChangeNumber = -1;
+                    string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
+
+                    // 1. Đọc ChangeNumber từ manifest cục bộ
+                    try
+                    {
+                        var manifestData = await _steamCmdService.ReadAppManifest(steamappsDir, profile.AppID);
+                        if (manifestData != null && manifestData.TryGetValue("ChangeNumber", out string changeNumberStr) && long.TryParse(changeNumberStr, out localChangeNumber))
                         {
-                            updatedCount++;
-                            await _steamCmdService.QueueProfileForUpdate(profile.Id);
+                            _logger.LogInformation("Manifest cục bộ cho AppID {1} ({0}) có ChangeNumber: {2}", profile.Name, profile.AppID, localChangeNumber);
                         }
+                        else
+                        {
+                            _logger.LogInformation("Không tìm thấy ChangeNumber trong manifest cục bộ cho AppID {1} ({0}) hoặc manifest không tồn tại. Coi như cần kiểm tra/cài đặt.", profile.Name, profile.AppID);
+                            localChangeNumber = -1;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi đọc manifest cục bộ cho profile {0} (AppID: {1}) trong kiểm tra thủ công", profile.Name, profile.AppID);
+                        localChangeNumber = -1;
+                    }
+
+                    // 2. Lấy thông tin mới nhất từ Steam API (force refresh for manual check)
+                    long latestApiChangeNumber = -1;
+                    var latestAppInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID, forceRefresh: true); // Force refresh for manual check
+
+                    if (latestAppInfo != null)
+                    {
+                        latestApiChangeNumber = latestAppInfo.ChangeNumber;
+                        _logger.LogInformation("Steam API cho AppID {1} ({0}) có ChangeNumber mới nhất: {2}", profile.Name, profile.AppID, latestApiChangeNumber);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Không thể lấy thông tin Steam API cho AppID {1} ({0}) trong kiểm tra thủ công.", profile.Name, profile.AppID);
+                        continue; // Cannot check accurately without API info
+                    }
+
+                    // 3. So sánh ChangeNumber
+                    bool needsUpdate = false;
+                    if (latestApiChangeNumber > localChangeNumber)
+                    {
+                        _logger.LogInformation("Phát hiện cập nhật cho profile {0} (AppID: {1}): API ChangeNumber ({2}) > Local ChangeNumber ({3})",
+                            profile.Name, profile.AppID, latestApiChangeNumber, localChangeNumber);
+                        needsUpdate = true;
+                        gamesNeedingUpdateCount++; // Increment count for games needing update
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Không có cập nhật mới cho profile {0} (AppID: {1}): API ChangeNumber ({2}) <= Local ChangeNumber ({3})",
+                           profile.Name, profile.AppID, latestApiChangeNumber, localChangeNumber);
+                    }
+
+                    // 4. If needs update and AutoUpdateProfiles is enabled (from current settings), queue it
+                    // Note: Manual check button should probably queue regardless of AutoUpdateProfiles setting,
+                    // but let's follow the original logic's intent related to AutoRun.
+                    // The original logic seemed to queue if hasUpdate AND (profile.AutoRun OR !Settings.AutoUpdateProfiles)
+                    // This seems counter-intuitive. A manual check should just queue if an update is found.
+                    // Let's simplify: if needsUpdate, queue it.
+                    if (needsUpdate)
+                    {
+                        _logger.LogInformation("Kiểm tra thủ công phát hiện cập nhật. Đang thêm profile {0} (ID: {1}) vào hàng đợi...",
+                            profile.Name, profile.Id);
+                        await _steamCmdService.QueueProfileForUpdate(profile.Id);
                     }
                 }
 
                 return new JsonResult(new
                 {
                     success = true,
-                    message = $"Đã kiểm tra {checkedCount} game, phát hiện {updatedCount} game có cập nhật mới."
+                    message = $"Đã kiểm tra {checkedCount} game. Phát hiện {gamesNeedingUpdateCount} game có cập nhật mới. Các game cần cập nhật đã được thêm vào hàng đợi (nếu có)."
                 });
             }
             catch (Exception ex)
@@ -212,15 +254,12 @@ namespace SteamCmdWebAPI.Pages
         {
             try
             {
-                // Xóa tệp cache
-                var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-                string cacheFilePath = Path.Combine(baseDirectory, "data", "steam_app_updates.json");
+                // The cache is managed by SteamApiService.
+                // We need a way to tell SteamApiService to clear its cache.
+                // Call the ClearCacheAsync method on the injected SteamApiService
+                await _steamApiService.ClearCacheAsync(); // This line should now work
 
-                if (System.IO.File.Exists(cacheFilePath))
-                {
-                    System.IO.File.Delete(cacheFilePath);
-                    _logger.LogInformation("Đã xóa tệp cache cập nhật");
-                }
+                _logger.LogInformation("Đã yêu cầu xóa cache cập nhật từ SteamApiService");
 
                 return new JsonResult(new { success = true, message = "Đã xóa cache cập nhật." });
             }

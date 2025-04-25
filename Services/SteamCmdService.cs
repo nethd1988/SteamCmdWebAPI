@@ -26,6 +26,7 @@ namespace SteamCmdWebAPI.Services
         private readonly SettingsService _settingsService;
         private readonly EncryptionService _encryptionService;
         private readonly LogFileReader _logFileReader;
+        private readonly SteamApiService _steamApiService; // Inject SteamApiService
 
         private const int MaxLogEntries = 5000;
         // Increased delays for robustness
@@ -78,7 +79,8 @@ namespace SteamCmdWebAPI.Services
             ProfileService profileService,
             SettingsService settingsService,
             EncryptionService encryptionService,
-            LogFileReader logFileReader)
+            LogFileReader logFileReader,
+            SteamApiService steamApiService) // Inject SteamApiService
         {
             _logger = logger;
             _hubContext = hubContext;
@@ -86,6 +88,7 @@ namespace SteamCmdWebAPI.Services
             _settingsService = settingsService;
             _encryptionService = encryptionService;
             _logFileReader = logFileReader;
+            _steamApiService = steamApiService; // Assign injected service
 
             _scheduleTimer = new System.Timers.Timer(60000);
             _scheduleTimer.Elapsed += async (s, e) => await CheckScheduleAsync();
@@ -645,9 +648,6 @@ namespace SteamCmdWebAPI.Services
         /// <summary>
         /// Processes the update queue sequentially.
         /// </summary>
-        /// <summary>
-        /// Processes the update queue sequentially.
-        /// </summary>
         private async Task ProcessUpdateQueueAsync()
         {
             // Prevent concurrent execution of the processor itself
@@ -691,16 +691,16 @@ namespace SteamCmdWebAPI.Services
                         if (success)
                         {
                             _logger.LogInformation("Đã xử lý cập nhật thành công cho {ProfileName} (ID: {ProfileId})", profileName, profileId);
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật thành công cho {profileName} (ID: {profileId})");
+                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật thành công cho {profile.Name} (ID: {profileId})");
                         }
                         else
                         {
                             _logger.LogWarning("Xử lý cập nhật không thành công cho {ProfileName} (ID: {ProfileId})", profileName, profileId);
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật KHÔNG thành công cho {profileName} (ID: {profileId}). Kiểm tra log.");
+                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật KHÔNG thành công cho {profile.Name} (ID: {profileId}). Kiểm tra log.");
                         }
 
                         _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Waiting 3000ms before next item..."); // Added log
-                                                                                                                          // Wait briefly before processing the next item
+                        // Wait briefly before processing the next item
                         await Task.Delay(3000); // Giữ dòng chờ này giúp tránh quá tải hệ thống khi xử lý nhiều profile liên tiếp
                         _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Finished wait."); // Added log
                     }
@@ -760,8 +760,9 @@ namespace SteamCmdWebAPI.Services
             await SafeSendLogAsync(profile.Name, "Info", $"Chuẩn bị cập nhật '{profile.Name}' (AppID: {profile.AppID})...");
 
             // Stop any potentially running processes (redundant if called by queue processor, but safe)
-            // await StopAllProfilesAsync(); // Already called by ProcessUpdateQueueAsync
-            // await Task.Delay(RetryDelayMs);
+            await KillAllSteamCmdProcessesAsync(); // Ensure SteamCMD is stopped before starting a new process
+            await Task.Delay(RetryDelayMs);
+
 
             // 1. Check/Install SteamCMD
             if (!await IsSteamCmdInstalled())
@@ -867,7 +868,12 @@ namespace SteamCmdWebAPI.Services
 
 
             // --- Get Game Names for Logging ---
-            var appNamesForLog = await GetAppNamesAsync(linkedSteamappsDir, appIdsToUpdateInitial);
+            var appNamesForLog = new Dictionary<string, string>();
+            foreach (var appId in appIdsToUpdateInitial)
+            {
+                var appInfo = await _steamApiService.GetAppUpdateInfo(appId); // Use SteamApiService to get info/name
+                appNamesForLog[appId] = appInfo?.Name ?? appId; // Use name from API if available, else AppID
+            }
 
 
             // --- First Run: Update all identified App IDs (NO validate) ---
@@ -1004,6 +1010,8 @@ namespace SteamCmdWebAPI.Services
 
         /// <summary>
         /// Helper to get game names for a list of App IDs. Prioritizes manifest, falls back to API.
+        /// NOTE: This helper is less critical now that UpdateCheckService handles core update logic.
+        /// It's kept here for logging within SteamCmdService's execution flow.
         /// </summary>
         private async Task<Dictionary<string, string>> GetAppNamesAsync(string steamappsDir, List<string> appIds)
         {
@@ -1011,7 +1019,7 @@ namespace SteamCmdWebAPI.Services
             foreach (var appId in appIds)
             {
                 string gameName = appId; // Default
-                var manifestData = await ReadAppManifest(steamappsDir, appId);
+                var manifestData = await ReadAppManifest(steamappsDir, appId); // Use the now public ReadAppManifest
                 if (manifestData != null && manifestData.TryGetValue("name", out var nameValue) && !string.IsNullOrWhiteSpace(nameValue))
                 {
                     gameName = nameValue;
@@ -1019,7 +1027,7 @@ namespace SteamCmdWebAPI.Services
                 else
                 {
                     // Fallback to API only if manifest name is missing/empty
-                    var appInfo = await GetSteamAppInfo(appId); // Consider adding a small delay or caching here if hitting API rate limits
+                    var appInfo = await _steamApiService.GetAppUpdateInfo(appId); // Use injected SteamApiService
                     if (appInfo != null && !string.IsNullOrEmpty(appInfo.Name))
                     {
                         gameName = appInfo.Name;
@@ -1192,8 +1200,9 @@ namespace SteamCmdWebAPI.Services
                             _logger.LogError($"Phát hiện lỗi cập nhật thời gian thực cho App ID {failedAppId} (trạng thái 0x204) trong log của profile '{profile.Name}'.");
                             // Get name async and log - Fire and forget style to not block output handling
                             _ = Task.Run(async () => {
-                                var nameMap = await GetAppNamesAsync(Path.Combine(steamCmdDir, "steamapps"), new List<string> { failedAppId });
-                                string gameName = nameMap.GetValueOrDefault(failedAppId, failedAppId);
+                                // Use SteamApiService to get the name
+                                var appInfo = await _steamApiService.GetAppUpdateInfo(failedAppId);
+                                string gameName = appInfo?.Name ?? failedAppId;
                                 await SafeSendLogAsync(profile.Name, "Error", $"Lỗi thời gian thực: Cập nhật thất bại '{gameName}' ({failedAppId}, 0x204).");
                             });
                         }
@@ -1272,9 +1281,10 @@ namespace SteamCmdWebAPI.Services
 
         /// <summary>
         /// Reads and parses an appmanifest_XXXXXX.acf file using robust regex.
+        /// Made public to be accessible by UpdateCheckService.
         /// </summary>
         /// <returns>Dictionary of key-value pairs or null on error/not found.</returns>
-        private async Task<Dictionary<string, string>> ReadAppManifest(string steamappsDir, string appId)
+        public async Task<Dictionary<string, string>> ReadAppManifest(string steamappsDir, string appId) // Made Public
         {
             string manifestFilePath = Path.Combine(steamappsDir, $"appmanifest_{appId}.acf");
             if (!File.Exists(manifestFilePath))
@@ -1363,7 +1373,7 @@ namespace SteamCmdWebAPI.Services
 
                 // Ensure a clean state before queueing all
                 _logger.LogInformation("RunAllProfilesAsync: Calling StopAllProfilesAsync as preparation..."); // Added log
-                await StopAllProfilesAsync(); // Stop current + kill all steamcmd (This no longer sets _cancelAutoRun = true)
+                await StopAllProfilesAsync(); // Stop current + kill all steamcmd
                 _logger.LogInformation("RunAllProfilesAsync: StopAllProfilesAsync preparation completed. Waiting {Delay}ms...", RetryDelayMs); // Added log
                 await Task.Delay(RetryDelayMs);
 
@@ -1479,119 +1489,6 @@ namespace SteamCmdWebAPI.Services
             _logger.LogInformation("Đã hoàn thành tắt dịch vụ SteamCMD.");
             await SafeSendLogAsync("System", "Success", "Đã hoàn thành dừng process.");
             // Note: Actual application shutdown (e.g., Environment.Exit) is handled elsewhere
-        }
-
-
-        // --- Steam API Info ---
-        /// <summary>
-        /// Gets app update info from api.steamcmd.net
-        /// </summary>
-        public async Task<AppUpdateInfo> GetSteamAppInfo(string appID)
-        {
-            if (string.IsNullOrWhiteSpace(appID) || !int.TryParse(appID, out _))
-            {
-                _logger.LogWarning("Yêu cầu lấy thông tin Steam với AppID không hợp lệ: '{AppID}'", appID);
-                return null;
-            }
-
-            using (var client = new HttpClient())
-            {
-                try
-                {
-                    // Use a standard user agent
-                    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
-                    client.Timeout = TimeSpan.FromSeconds(30); // Set a reasonable timeout
-
-                    string url = $"https://api.steamcmd.net/v1/info/{appID}";
-                    HttpResponseMessage response = await client.GetAsync(url);
-
-                    // Check for common non-success codes before EnsureSuccessStatusCode
-                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                    {
-                        _logger.LogWarning("Không tìm thấy thông tin cho AppID {AppID} (404 Not Found)", appID);
-                        return null;
-                    }
-                    // Add other status codes to handle if needed (e.g., 429 Too Many Requests)
-
-                    response.EnsureSuccessStatusCode(); // Throw for other errors (5xx etc.)
-
-                    string json = await response.Content.ReadAsStringAsync();
-                    dynamic data = JsonConvert.DeserializeObject(json); // Using dynamic for simplicity
-
-                    // Check structure carefully
-                    if (data?.status == "success" && data?.data?[appID] != null)
-                    {
-                        var gameData = data.data[appID];
-                        var appInfo = new AppUpdateInfo { AppID = appID };
-
-                        // Extract common fields safely
-                        appInfo.Name = gameData.common?.name?.ToString() ?? "Không xác định";
-                        appInfo.ChangeNumber = gameData._change_number?.ToObject<long>() ?? 0;
-
-                        // Extract extended fields safely
-                        appInfo.Developer = gameData.extended?.developer?.ToString() ?? "Không có thông tin";
-                        appInfo.Publisher = gameData.extended?.publisher?.ToString() ?? "Không có thông tin";
-
-                        // Extract update time from public branch safely
-                        string timeUpdatedStr = gameData.depots?.branches?.@public?.timeupdated?.ToString();
-                        if (long.TryParse(timeUpdatedStr, out long timestamp) && timestamp > 0)
-                        {
-                            DateTime updateTimeUtc = DateTimeOffset.FromUnixTimeSeconds(timestamp).UtcDateTime;
-                            DateTime updateTimeLocal = updateTimeUtc.ToLocalTime(); // Convert to server's local time
-                            appInfo.LastUpdate = updateTimeLocal.ToString("dd/MM/yyyy HH:mm:ss zzz"); // Include timezone offset
-                            appInfo.LastUpdateDateTime = updateTimeLocal;
-                            appInfo.UpdateDays = (int)Math.Floor((DateTime.Now - updateTimeLocal).TotalDays);
-                            // Check if update was within the last 7 days (inclusive of today)
-                            appInfo.HasRecentUpdate = appInfo.UpdateDays >= 0 && appInfo.UpdateDays <= 7;
-                        }
-                        else
-                        {
-                            appInfo.LastUpdate = "Không có thông tin";
-                            appInfo.LastUpdateDateTime = null;
-                            appInfo.UpdateDays = -1; // Indicate unknown
-                            appInfo.HasRecentUpdate = false;
-                        }
-
-                        return appInfo;
-                    }
-                    else // Status was not success or data structure unexpected
-                    {
-                        _logger.LogWarning("Phản hồi API Steam thành công nhưng dữ liệu không hợp lệ hoặc không tìm thấy cho AppID {AppID}. Phản hồi: {JsonResponse}", appID, json.Length > 500 ? json.Substring(0, 500) + "..." : json);
-                        return null;
-                    }
-                }
-                catch (HttpRequestException httpEx)
-                {
-                    _logger.LogError(httpEx, "Lỗi HTTP khi lấy thông tin Steam App {AppID}: {Message}", appID, httpEx.Message);
-                    return null;
-                }
-                catch (JsonException jsonEx)
-                {
-                    _logger.LogError(jsonEx, "Lỗi JSON khi phân tích phản hồi Steam API cho App {AppID}: {Message}", appID, jsonEx.Message);
-                    return null;
-                }
-                catch (Exception ex) // Catch-all for other unexpected errors
-                {
-                    _logger.LogError(ex, "Lỗi không mong muốn khi lấy thông tin Steam App {AppID}: {Message}", appID, ex.Message);
-                    return null;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Class to hold Steam app update information.
-        /// </summary>
-        public class AppUpdateInfo
-        {
-            public string AppID { get; set; }
-            public string Name { get; set; }
-            public string LastUpdate { get; set; } = "Không có thông tin";
-            public DateTime? LastUpdateDateTime { get; set; }
-            public int UpdateDays { get; set; } // Days ago (-1 if unknown)
-            public bool HasRecentUpdate { get; set; } // Updated within last 7 days?
-            public string Developer { get; set; } = "Không có thông tin";
-            public string Publisher { get; set; } = "Không có thông tin";
-            public long ChangeNumber { get; set; }
         }
     } // End class SteamCmdService
 } // End namespace SteamCmdWebAPI.Services

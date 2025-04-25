@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting; // Added for IHostedService
 
 namespace SteamCmdWebAPI.Services
 {
@@ -12,16 +13,17 @@ namespace SteamCmdWebAPI.Services
             services.AddSingleton<ProfileService>();
             services.AddSingleton<SettingsService>();
             services.AddSingleton<ServerSettingsService>();
-            services.AddSingleton<SteamCmdService>();
-            services.AddSingleton<TcpClientService>();
             services.AddSingleton<LogFileReader>();
-            services.AddSingleton<SteamApiService>();
+            services.AddSingleton<SteamApiService>(); // Đăng ký SteamApiService trước
+            services.AddSingleton<SteamCmdService>(); // SteamCmdService cần SteamApiService, nên đăng ký sau
+            services.AddSingleton<TcpClientService>();
 
-            // Cấu hình AutoRun
+
+            // Cấu hình AutoRun và UpdateCheck
             services.AddSingleton<AutoRunConfiguration>();
-            services.AddHostedService<AutoRunService>();
-            services.AddHostedService<AutoRunBackgroundService>();
-            services.AddHostedService<UpdateCheckService>();
+            services.AddHostedService<AutoRunService>(); // Nếu vẫn cần dịch vụ này
+            services.AddHostedService<AutoRunBackgroundService>(); // Nếu vẫn cần dịch vụ này
+            services.AddHostedService<UpdateCheckService>(); // UpdateCheckService cần SteamApiService và SteamCmdService
 
             return services;
         }

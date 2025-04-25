@@ -7,6 +7,7 @@
 <div class="container">
     <h1>Quản lý cập nhật game</h1>
 
+    @* Hiển thị thông báo thành công/lỗi *@
     @if (!string.IsNullOrEmpty(Model.StatusMessage))
     {
         <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
@@ -19,35 +20,30 @@
             <h5 class="mb-0">Cài đặt kiểm tra cập nhật</h5>
         </div>
         <div class="card-body">
-            <form method="post" asp-page-handler="SaveSettings">
+            @* Form để lưu cài đặt kiểm tra cập nhật - Match Settings page handler *@
+            <form method="post" asp-page-handler="SaveUpdateCheckSettings">
+                @Html.AntiForgeryToken()
                 <div class="row">
                     <div class="col-md-4">
                         <div class="form-check mb-3">
-                            <input type="checkbox" class="form-check-input" id="enabled" name="Enabled"
-                                   value="true" @(Model.Settings.Enabled ? "checked" : "") />
-                            <input type="hidden" name="Enabled" value="false" /> <!-- Thêm input hidden -->
-                            <label class="form-check-label" for="enabled">Kích hoạt kiểm tra cập nhật tự động</label>
+                            @* Use asp-for to bind to the model property *@
+                            <input type="checkbox" class="form-check-input" id="updateCheckEnabled" asp-for="UpdateCheckEnabled" />
+                            <label class="form-check-label" for="updateCheckEnabled">Kích hoạt kiểm tra cập nhật tự động</label>
                         </div>
                     </div>
                     <div class="col-md-4">
                         <div class="mb-3">
-                            <label for="intervalMinutes" class="form-label">Khoảng thời gian kiểm tra (phút)</label>
-                            <select class="form-select" id="intervalMinutes" name="IntervalMinutes">
-                                @foreach (var minutes in new[] { 5, 10, 15, 30, 60, 120, 240, 480 })
-                                {
-                                    <option value="@minutes" selected="@(Model.Settings.IntervalMinutes == minutes)">
-                                        @minutes phút
-                                    </option>
-                                }
-                            </select>
+                            <label for="updateCheckIntervalMinutes" class="form-label">Khoảng thời gian kiểm tra (phút)</label>
+                            @* Use input type="number" instead of select, matching Settings page *@
+                            <input type="number" class="form-control" id="updateCheckIntervalMinutes" asp-for="UpdateCheckIntervalMinutes" min="10" max="1440" step="10" />
+                            <small class="form-text text-muted">Hệ thống sẽ kiểm tra cập nhật mới sau mỗi khoảng thời gian này (tối thiểu 10 phút, tối đa 1440 phút).</small>
                         </div>
                     </div>
                     <div class="col-md-4">
                         <div class="form-check mb-3">
-                            <input type="checkbox" class="form-check-input" id="autoUpdateProfiles" name="AutoUpdateProfiles"
-                                   value="true" @(Model.Settings.AutoUpdateProfiles ? "checked" : "") />
-                            <input type="hidden" name="AutoUpdateProfiles" value="false" /> <!-- Thêm input hidden -->
-                            <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật (chỉ với profiles chọn AutoRun)</label>
+                            @* Keep this checkbox for AutoUpdateProfiles *@
+                            <input type="checkbox" class="form-check-input" id="autoUpdateProfiles" asp-for="AutoUpdateProfiles" />
+                            <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật profile khi có cập nhật mới</label>
                         </div>
                     </div>
                 </div>
@@ -58,20 +54,24 @@
 
     <div class="card mb-4">
         <div class="card-header bg-primary text-white">
-            <h5 class="mb-0">Thông tin cập nhật</h5>
+            <h5 class="mb-0">Thao tác thủ công</h5>
         </div>
         <div class="card-body">
             <div class="mb-3">
-                <p>Hệ thống kiểm tra cập nhật tự động mỗi @Model.Settings.IntervalMinutes phút. Khi phát hiện có bản cập nhật mới cho các profile đánh dấu tự động chạy (AutoRun), hệ thống sẽ tự động đưa chúng vào hàng đợi cập nhật.</p>
-                <button id="checkUpdatesBtn" class="btn btn-primary">Kiểm tra cập nhật ngay</button>
-                <button id="clearCacheBtn" class="btn btn-secondary">Xóa cache cập nhật</button>
+                <p>Sử dụng các nút dưới đây để kiểm tra cập nhật ngay lập tức hoặc xóa cache thông tin cập nhật.</p>
+                <button id="checkUpdatesBtn" class="btn btn-primary"><i class="bi bi-cloud-download"></i> Kiểm tra cập nhật ngay</button>
+                <button id="clearCacheBtn" class="btn btn-secondary"><i class="bi bi-trash"></i> Xóa cache cập nhật</button>
+            </div>
+            <div class="alert alert-info">
+                <strong>Lưu ý:</strong> "Kiểm tra cập nhật ngay" sẽ kiểm tra tất cả profile và thêm các game có cập nhật mới vào hàng đợi. "Xóa cache cập nhật" sẽ buộc hệ thống tải lại thông tin từ "Gà Luộc" ở lần kiểm tra tiếp theo.
             </div>
         </div>
     </div>
 
+
     <div class="card">
         <div class="card-header bg-success text-white">
-            <h5 class="mb-0">Danh sách cập nhật gần đây</h5>
+            <h5 class="mb-0">Thông tin cập nhật game đã kiểm tra</h5>
         </div>
         <div class="card-body">
             <div class="table-responsive">
@@ -80,9 +80,10 @@
                         <tr>
                             <th>App ID</th>
                             <th>Tên game</th>
-                            <th>Cập nhật gần nhất</th>
-                            <th>Kiểm tra lần cuối</th>
-                            <th>Có bản cập nhật mới</th>
+                            <th>Cập nhật gần nhất (API)</th>
+                            <th>ChangeNumber (API)</th>
+                            <th>Kiểm tra lần cuối (Cache)</th>
+                            <th>Có bản cập nhật mới (so với cài đặt)</th>
                             <th>Thao tác</th>
                         </tr>
                     </thead>
@@ -91,20 +92,51 @@
                         {
                             foreach (var info in Model.UpdateInfos)
                             {
+                                // Logic để xác định "Có bản cập nhật mới" cần so sánh API ChangeNumber với Local Manifest ChangeNumber.
+                                // Thông tin này không có sẵn trực tiếp trong AppUpdateInfo object.
+                                // Để hiển thị chính xác ở đây, bạn sẽ cần:
+                                // 1. Trong OnGetAsync, đọc manifest cục bộ cho từng profile.
+                                // 2. So sánh ChangeNumber từ manifest với info.ChangeNumber từ API.
+                                // 3. Thêm một thuộc tính HasNewUpdate (bool) vào AppUpdateInfo hoặc tạo một ViewModel mới
+                                //    chứa cả AppUpdateInfo và trạng thái cập nhật.
+                                // Tạm thời, cột này chỉ dựa vào info.HasRecentUpdate (cập nhật trong 7 ngày qua theo API),
+                                // điều này KHÔNG chính xác là "Có bản cập nhật mới so với cài đặt".
+                                // Cần chỉnh sửa OnGetAsync và/hoặc AppUpdateInfo để hiển thị đúng.
+
+                                // Placeholder for actual update status check:
+                                bool needsUpdateBasedOnManifest = false;
+                                // Example (requires reading manifest in OnGet):
+                                // if (info.ChangeNumber > localManifestChangeNumber) needsUpdateBasedOnManifest = true;
+
+
                                 <tr>
                                     <td>@info.AppID</td>
                                     <td>@info.Name</td>
-                                    <td>@info.LastUpdate</td>
+                                    <td>@(info.LastUpdateDateTime.HasValue ? info.LastUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") : info.LastUpdate)</td>
+                                    <td>@info.ChangeNumber</td>
                                     <td>@(info.LastChecked.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss"))</td>
                                     <td>
-                                        @if (info.HasRecentUpdate)
+                                        @* Đây cần logic so sánh ChangeNumber API vs Manifest *@
+                                        @* Tạm thời hiển thị trạng thái dựa trên API LastUpdateDateTime (không chính xác) *@
+                                        @if (info.HasRecentUpdate) // This is based on API LastUpdate within 7 days, not manifest comparison
+                                        {
+                                            <span class="badge bg-warning">API Mới (7 ngày)</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">API Cũ (7 ngày)</span>
+                                        }
+                                        @* Cần thay thế bằng logic dựa trên needsUpdateBasedOnManifest *@
+                                        @* Ví dụ:
+                                        @if (needsUpdateBasedOnManifest)
                                         {
                                             <span class="badge bg-success">Có cập nhật mới</span>
                                         }
                                         else
                                         {
-                                            <span class="badge bg-secondary">Không có cập nhật mới</span>
+                                            <span class="badge bg-secondary">Đã cập nhật</span>
                                         }
+                                        *@
                                     </td>
                                     <td>
                                         <button class="btn btn-sm btn-primary update-btn" data-appid="@info.AppID">Cập nhật</button>
@@ -115,7 +147,7 @@
                         else
                         {
                             <tr>
-                                <td colspan="6" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
+                                <td colspan="7" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
                             </tr>
                         }
                     </tbody>
@@ -134,7 +166,7 @@
             // Kiểm tra cập nhật ngay
             $("#checkUpdatesBtn").click(function() {
                 $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split'></i> Đang kiểm tra...");
-                
+
                 $.ajax({
                     url: "/UpdateManagement?handler=CheckUpdates",
                     method: "POST",
@@ -143,8 +175,10 @@
                     },
                     success: function(response) {
                         if (response.success) {
-                            alert("Đã kiểm tra cập nhật thành công. Trang sẽ tải lại.");
-                            location.reload();
+                            // alert("Đã kiểm tra cập nhật thành công. Trang sẽ tải lại.");
+                            // Use a more user-friendly notification or update the UI dynamically
+                            alert(response.message); // Show message from server
+                            location.reload(); // Reload to show updated info in the table
                         } else {
                             alert("Lỗi: " + (response.message || "Không thể kiểm tra cập nhật"));
                         }
@@ -153,16 +187,16 @@
                         alert("Lỗi khi kiểm tra cập nhật: " + error);
                     },
                     complete: function() {
-                        $("#checkUpdatesBtn").prop("disabled", false).html("Kiểm tra cập nhật ngay");
+                        $("#checkUpdatesBtn").prop("disabled", false).html("<i class='bi bi-cloud-download'></i> Kiểm tra cập nhật ngay");
                     }
                 });
             });
 
             // Xóa cache cập nhật
             $("#clearCacheBtn").click(function() {
-                if (confirm("Bạn có chắc muốn xóa cache cập nhật không?")) {
+                if (confirm("Bạn có chắc muốn xóa cache cập nhật không? Thao tác này sẽ buộc hệ thống kiểm tra lại thông tin từ Steam API ở lần kiểm tra tiếp theo.")) {
                     $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split'></i> Đang xóa...");
-                    
+
                     $.ajax({
                         url: "/UpdateManagement?handler=ClearCache",
                         method: "POST",
@@ -171,8 +205,9 @@
                         },
                         success: function(response) {
                             if (response.success) {
-                                alert("Đã xóa cache cập nhật thành công. Trang sẽ tải lại.");
-                                location.reload();
+                                // alert("Đã xóa cache cập nhật thành công. Trang sẽ tải lại.");
+                                alert(response.message); // Show message from server
+                                location.reload(); // Reload to show updated info (likely empty or old cache info)
                             } else {
                                 alert("Lỗi: " + (response.message || "Không thể xóa cache cập nhật"));
                             }
@@ -181,7 +216,7 @@
                             alert("Lỗi khi xóa cache cập nhật: " + error);
                         },
                         complete: function() {
-                            $("#clearCacheBtn").prop("disabled", false).html("Xóa cache cập nhật");
+                            $("#clearCacheBtn").prop("disabled", false).html("<i class='bi bi-trash'></i> Xóa cache cập nhật");
                         }
                     });
                 }
@@ -191,9 +226,9 @@
             $(".update-btn").click(function() {
                 var appId = $(this).data("appid");
                 var button = $(this);
-                
+
                 button.prop("disabled", true).html("<i class='bi bi-hourglass-split'></i> Đang cập nhật...");
-                
+
                 $.ajax({
                     url: "/UpdateManagement?handler=UpdateApp",
                     method: "POST",
@@ -203,7 +238,8 @@
                     },
                     success: function(response) {
                         if (response.success) {
-                            alert("Đã thêm vào hàng đợi cập nhật thành công.");
+                            alert(response.message); // Show message from server
+                            // No reload needed here, user should check log for update progress
                         } else {
                             alert("Lỗi: " + (response.message || "Không thể cập nhật game"));
                         }

@@ -11,63 +11,108 @@
         <a asp-page="/Index" class="btn btn-primary">Quay lại trang chính</a>
     </div>
 
+    @* Phần hướng dẫn nằm ở đây *@
     <div class="card mb-3">
         <div class="card-header bg-success text-white">
             <h5 class="mb-0">Hướng dẫn</h5>
         </div>
         <div class="card-body">
-            <h6>Cách cấu hình tự động chạy</h6>
+            <h6>Cách cấu hình tự động chạy tất cả Profile</h6>
             <ul>
                 <li><strong>Kích hoạt tự động chạy:</strong> Bật/tắt tính năng tự động chạy cho toàn bộ hệ thống.</li>
-                <li><strong>Khoảng thời gian chạy:</strong> Đặt chu kỳ chạy tự động (1-48 tiếng). Ví dụ: nếu chọn 2 tiếng, hệ thống sẽ chạy cấu hình mỗi 2 tiếng một lần.</li>
+                <li><strong>Khoảng thời gian chạy:</strong> Đặt chu kỳ chạy tự động (1-48 tiếng). Hệ thống sẽ kiểm tra và chạy các profile được đánh dấu "Tự động chạy khi khởi động" theo khoảng thời gian này, tính từ lần chạy cuối cùng hoặc khi ứng dụng khởi động.</li>
             </ul>
             <div class="alert alert-info">
-                <strong>Lưu ý:</strong> Khoảng thời gian chạy được tính từ thời điểm cài đặt hoặc khởi động hệ thống. Ví dụ: nếu chọn 1 giờ, hệ thống sẽ chạy mỗi 1 giờ một lần; nếu chọn 2 giờ, hệ thống sẽ chạy mỗi 2 giờ một lần, v.v.
+                <strong>Lưu ý:</strong> Cài đặt này chỉ kích hoạt lịch chạy định kỳ. Bạn cần bật tùy chọn "Tự động chạy khi khởi động" cho từng cấu hình cụ thể mà bạn muốn hệ thống tự động chạy.
             </div>
+
+            <h6 class="mt-4">Cách cấu hình kiểm tra cập nhật tự động</h6>
+            <ul>
+                <li><strong>Kích hoạt kiểm tra cập nhật:</strong> Bật/tắt tính năng tự động kiểm tra xem game có bản cập nhật mới trên Steam hay không.</li>
+                <li><strong>Khoảng thời gian kiểm tra:</strong> Đặt chu kỳ hệ thống sẽ kiểm tra cập nhật mới (ví dụ: 60 phút một lần).</li>
+                <li>Khi phát hiện có cập nhật mới và tính năng "Tự động chạy khi có cập nhật" được bật trong cài đặt kiểm tra cập nhật (hiện đang liên kết với "Kích hoạt kiểm tra cập nhật"), hệ thống sẽ tự động thêm profile tương ứng vào hàng đợi cập nhật.</li>
+            </ul>
             <div class="alert alert-info">
-                <strong>Lưu ý:</strong> Ngoài cài đặt chung này, bạn cũng cần bật tùy chọn "Tự động chạy khi khởi động" cho từng cấu hình cụ thể mà bạn muốn hệ thống tự động chạy.
+                <strong>Lưu ý:</strong> Tính năng kiểm tra cập nhật tự động cần kết nối internet để truy vấn thông tin từ Sever Checker Gà Luộc.
             </div>
+        </div>
+    </div>
+    @* Kết thúc phần hướng dẫn *@
+
+    @* Hiển thị thông báo thành công/lỗi *@
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success">@TempData["SuccessMessage"]</div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger">@TempData["ErrorMessage"]</div>
+    }
+
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5>Cấu hình tự động chạy tất cả Profile</h5>
+
+            <form method="post" asp-page-handler="SaveAutoRunSettings">
+                @Html.AntiForgeryToken()
+                <div class="form-check mb-3">
+                    <input type="checkbox" class="form-check-input" id="autoRunEnabled" asp-for="AutoRunEnabled" />
+                    <label class="form-check-label" for="autoRunEnabled">Kích hoạt tự động chạy</label>
+                </div>
+                <div class="form-group mb-3">
+                    <label for="autoRunIntervalHours">Khoảng thời gian chạy (tiếng)</label>
+                    <select class="form-control" id="autoRunIntervalHours" asp-for="AutoRunIntervalHours">
+                        @for (int hour = 1; hour <= 48; hour++)
+                        {
+                            <option value="@hour">@hour tiếng</option>
+                        }
+                    </select>
+                    <small class="form-text text-muted">Hệ thống sẽ chạy tất cả profile được đánh dấu "Tự động chạy khi khởi động" theo khoảng thời gian này.</small>
+                </div>
+                <button type="submit" class="btn btn-success">Lưu cấu hình tự động chạy</button>
+            </form>
         </div>
     </div>
 
     <div class="card mb-3">
         <div class="card-body">
-            <h5>Cấu hình tự động chạy</h5>
+            <h5>Cấu hình kiểm tra cập nhật tự động</h5>
 
-            @if (TempData["SuccessMessage"] != null)
-            {
-                <div class="alert alert-success">@TempData["SuccessMessage"]</div>
-            }
-
-            @if (TempData["ErrorMessage"] != null)
-            {
-                <div class="alert alert-danger">@TempData["ErrorMessage"]</div>
-            }
-
-            <form method="post" asp-page-handler="SaveDirect">
+            <form method="post" asp-page-handler="SaveUpdateCheckSettings">
                 @Html.AntiForgeryToken()
                 <div class="form-check mb-3">
-                    <input type="checkbox" class="form-check-input" id="autoRunEnabled" name="autoRunEnabled" value="true" @(Model.AutoRunEnabled ? "checked" : "") />
-                    <label class="form-check-label" for="autoRunEnabled">Kích hoạt tự động chạy</label>
+                    <input type="checkbox" class="form-check-input" id="updateCheckEnabled" asp-for="UpdateCheckEnabled" />
+                    <label class="form-check-label" for="updateCheckEnabled">Kích hoạt kiểm tra cập nhật tự động</label>
                 </div>
                 <div class="form-group mb-3">
-                    <label for="autoRunInterval">Khoảng thời gian chạy (tiếng)</label>
-                    <select class="form-control" id="autoRunInterval" name="autoRunInterval">
-                        @for (int hour = 1; hour <= 48; hour++)
-                        {
-                            if (Model.AutoRunIntervalHours == hour)
-                            {
-                                <option value="@hour" selected>@hour tiếng</option>
-                            }
-                            else
-                            {
-                                <option value="@hour">@hour tiếng</option>
-                            }
-                        }
-                    </select>
+                    <label for="updateCheckIntervalMinutes">Khoảng thời gian kiểm tra (phút)</label>
+                    <input type="number" class="form-control" id="updateCheckIntervalMinutes" asp-for="UpdateCheckIntervalMinutes" min="10" max="1440" step="10" />
+                    <small class="form-text text-muted">Hệ thống sẽ kiểm tra cập nhật mới sau mỗi khoảng thời gian này (tối thiểu 10 phút, tối đa 1440 phút).</small>
                 </div>
-                <button type="submit" class="btn btn-success">Lưu</button>
+                @* Nếu bạn muốn thêm tùy chọn riêng cho "Tự động cập nhật profile khi có update", thêm checkbox ở đây *@
+                @* <div class="form-check mb-3">
+                    <input type="checkbox" class="form-check-input" id="autoUpdateProfiles" asp-for="AutoUpdateProfiles" />
+                    <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật profile khi có cập nhật mới</label>
+                </div> *@
+                <button type="submit" class="btn btn-success">Lưu cấu hình kiểm tra cập nhật</button>
             </form>
         </div>
     </div>
+
+
 </div>
+
+@* Script để giữ giá trị đã chọn trong dropdown sau khi post *@
+@section Scripts {
+    <script>
+        $(document).ready(function () {
+            // Set selected option for AutoRunIntervalHours dropdown
+            var selectedAutoRunHour = @Model.AutoRunIntervalHours;
+            $('#autoRunIntervalHours option[value="' + selectedAutoRunHour + '"]').prop('selected', true);
+
+            // Set selected option for UpdateCheckIntervalMinutes input (for number input, value is set directly by asp-for)
+            // No extra script needed for number input unless you want to handle specific UI logic
+        });
+    </script>
+}
