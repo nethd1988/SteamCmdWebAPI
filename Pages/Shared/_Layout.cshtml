@@ -1,49 +1,27 @@
 ﻿<!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] - SteamAUTO</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <title>@ViewData["Title"] - Tên Ứng Dụng Của Bạn</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
-    <!-- Thêm script kiểm tra xác thực trước mọi script khác -->
-    <script src="~/js/auth-check.js" asp-append-version="true"></script>
-    <script>
-        // Tắt tất cả các popup mặc định
-        window.originalAlert = window.alert;
-        window.alert = function(message) {
-            console.log("Alert đã bị chặn: " + message);
-            return;
-        };
-
-        window.originalConfirm = window.confirm;
-        window.confirm = function(message) {
-            // Chỉ giữ lại popup xác nhận xóa
-            if (message && message.includes("chắc chắn") && message.includes("xóa")) {
-                return window.originalConfirm(message);
-            }
-            console.log("Confirm đã bị chặn: " + message);
-            return true;
-        };
-
-        window.onerror = function(message, source, lineno, colno, error) {
-            console.error("Lỗi được chặn:", message, source, lineno, colno, error);
-            return true;
-        };
-    </script>
+    <link rel="stylesheet" href="~/SteamCmdWebAPI.styles.css" asp-append-version="true" />
+    @* Liên kết đến Bootstrap Icons *@
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
 </head>
 <body>
     <header>
         <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
             <div class="container">
-                <a class="navbar-brand" asp-area="" asp-page="/Index">SteamAUTO</a>
+                <a class="navbar-brand" asp-area="" asp-page="/Index">Tên Ứng Dụng Của Bạn</a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
                         aria-expanded="false" aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
                 </button>
-                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
+                <div class="navbar-collapse collapse d-sm-in-line pb-3">
                     <ul class="navbar-nav flex-grow-1">
+                        @* ĐOẠN MÃ CÁC MỤC ĐIỀU HƯỚNG CỦA BẠN SẼ ĐƯỢC ĐẶT Ở ĐÂY *@
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-page="/Index"><i class="bi bi-house"></i> Trang chủ</a>
                         </li>
@@ -54,34 +32,16 @@
                             <a class="nav-link text-dark" asp-area="" asp-page="/Settings"><i class="bi bi-gear"></i> Cài đặt chung</a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-page="/UpdateManagement"><i class="bi bi-cloud-download"></i> Quản lý cập nhật</a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-page="/ServerSettings"><i class="bi bi-server"></i> Cài đặt Server</a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-page="/Logs"><i class="bi bi-journal-text"></i> Xem Logs</a>
                         </li>
+                        @* KẾT THÚC ĐOẠN MÃ CÁC MỤC ĐIỀU HƯỚNG *@
                     </ul>
-                    <div class="navbar-nav ms-auto">
-                        @if (User.Identity.IsAuthenticated)
-                        {
-                            <li class="nav-item dropdown">
-                                <a class="nav-link dropdown-toggle text-dark" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="bi bi-person-circle"></i> @User.Identity.Name
-                                </a>
-                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                                    <li><a class="dropdown-item" asp-page="/ChangePassword"><i class="bi bi-key"></i> Đổi mật khẩu</a></li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" id="btn-check-session" href="#"><i class="bi bi-arrow-clockwise"></i> Kiểm tra phiên</a></li>
-                                    <li><a class="dropdown-item" asp-page="/Logout"><i class="bi bi-box-arrow-right"></i> Đăng xuất</a></li>
-                                </ul>
-                            </li>
-                        }
-                        else
-                        {
-                            <li class="nav-item">
-                                <a class="nav-link text-dark" asp-area="" asp-page="/Login"><i class="bi bi-box-arrow-in-right"></i> Đăng nhập</a>
-                            </li>
-                        }
-                    </div>
                 </div>
             </div>
         </nav>
@@ -94,134 +54,13 @@
 
     <footer class="border-top footer text-muted">
         <div class="container">
-            &copy; @DateTime.Now.Year - SteamAUTO - <a asp-area="" asp-page="/Privacy">Thông tin thêm</a>
+            &copy; 2023 - Tên Ứng Dụng Của Bạn - <a asp-area="" asp-page="/Privacy">Privacy</a>
         </div>
     </footer>
 
-    <div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
-
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
-
-    <script type="text/javascript">
-        $(document).ready(function() {
-            // Xóa tất cả các dialog mỗi 100ms để đảm bảo không có popup hiển thị
-            setInterval(function() {
-                // Xóa các modal Bootstrap
-                $('.modal').modal('hide');
-                $('.modal-backdrop').remove();
-                $('body').removeClass('modal-open');
-                $('body').css('padding-right', '');
-
-                // Xóa các alert dialog
-                const dialogElements = document.querySelectorAll('[role="dialog"], .alert-dialog, [role="alertdialog"]');
-                dialogElements.forEach(element => {
-                    element.remove();
-                });
-            }, 100);
-
-            // Xử lý lỗi Ajax
-            $(document).ajaxError(function(event, jqXHR, settings, thrownError) {
-                console.error("Ajax error:", thrownError, jqXHR.responseText);
-                return false;
-            });
-
-            // Quan sát DOM để xóa popup khi xuất hiện
-            const observer = new MutationObserver(function(mutations) {
-                mutations.forEach(function(mutation) {
-                    if (mutation.addedNodes && mutation.addedNodes.length > 0) {
-                        for (let i = 0; i < mutation.addedNodes.length; i++) {
-                            const node = mutation.addedNodes[i];
-                            if (node.nodeType === 1) {
-                                // Xóa các popup dialog
-                                if (node.classList && (
-                                    node.classList.contains('modal') ||
-                                    node.classList.contains('alert-dialog') ||
-                                    (node.hasAttribute('role') &&
-                                     (node.getAttribute('role') === 'dialog' ||
-                                      node.getAttribute('role') === 'alertdialog'))
-                                )) {
-                                    node.remove();
-                                }
-
-                                // Tự động click nút OK hoặc Close
-                                const closeButtons = node.querySelectorAll('button.ok, button.close, button[type="button"]');
-                                closeButtons.forEach(button => {
-                                    if (button.innerText && (button.innerText.includes('OK') || button.innerText.includes('Close'))) {
-                                        setTimeout(() => button.click(), 50);
-                                    }
-                                });
-                            }
-                        }
-                    }
-                });
-            });
-
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true
-            });
-
-            // Khởi tạo các tooltip
-            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-                return new bootstrap.Tooltip(tooltipTriggerEl)
-            });
-
-            // Hiển thị thông báo toast
-            window.showToast = function(message, type = 'success', duration = 3000) {
-                const toastEl = document.createElement('div');
-                toastEl.className = `toast align-items-center text-white bg-${type} border-0`;
-                toastEl.setAttribute('role', 'alert');
-                toastEl.setAttribute('aria-live', 'assertive');
-                toastEl.setAttribute('aria-atomic', 'true');
-
-                toastEl.innerHTML = `
-                    <div class="d-flex">
-                        <div class="toast-body">
-                            ${message}
-                        </div>
-                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-                    </div>
-                `;
-
-                document.getElementById('toast-container').appendChild(toastEl);
-
-                const toast = new bootstrap.Toast(toastEl, {
-                    autohide: true,
-                    delay: duration
-                });
-
-                toast.show();
-
-                return toast;
-            };
-
-            // Kiểm tra phiên đăng nhập khi nhấn nút kiểm tra phiên
-            $('#btn-check-session').on('click', function(e) {
-                e.preventDefault();
-
-                $.ajax({
-                    url: '/api/Auth/check-session',
-                    method: 'GET',
-                    success: function(response) {
-                        if (response.authenticated) {
-                            showToast('Phiên làm việc hợp lệ', 'success');
-                        } else {
-                            showToast('Phiên làm việc đã hết hạn, chuyển hướng...', 'danger');
-                            setTimeout(function() {
-                                window.location.href = '/Login';
-                            }, 2000);
-                        }
-                    },
-                    error: function() {
-                        showToast('Không thể kiểm tra phiên đăng nhập', 'warning');
-                    }
-                });
-            });
-        });
-    </script>
 
     @await RenderSectionAsync("Scripts", required: false)
 </body>

@@ -15,11 +15,13 @@ namespace SteamCmdWebAPI.Services
             services.AddSingleton<SteamCmdService>();
             services.AddSingleton<TcpClientService>();
             services.AddSingleton<LogFileReader>();
+            services.AddSingleton<SteamApiService>();
 
             // Cấu hình AutoRun
             services.AddSingleton<AutoRunConfiguration>();
             services.AddHostedService<AutoRunService>();
             services.AddHostedService<AutoRunBackgroundService>();
+            services.AddHostedService<UpdateCheckService>();
 
             return services;
         }

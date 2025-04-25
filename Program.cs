@@ -17,6 +17,7 @@ using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication;
+using SteamCmdWebAPI.Models;
 
 namespace SteamCmdWebAPI
 {
@@ -87,6 +88,14 @@ namespace SteamCmdWebAPI
             builder.Services.AddSingleton<SteamCmdService>();
             builder.Services.AddSingleton<TcpClientService>();
 
+            // Đăng ký các dịch vụ mới
+            builder.Services.AddSingleton<SteamApiService>();
+            builder.Services.AddSingleton<UpdateCheckService>();
+            builder.Services.AddHostedService(provider => provider.GetRequiredService<UpdateCheckService>());
+
+            // Đăng ký model mới
+            builder.Services.Configure<UpdateCheckSettings>(builder.Configuration.GetSection("UpdateCheckSettings"));
+
             // Đăng ký dịch vụ Worker
             builder.Services.AddHostedService<Worker>();
 
@@ -138,9 +147,9 @@ namespace SteamCmdWebAPI
                         OnValidatePrincipal = async context =>
                         {
                             var userService = context.HttpContext.RequestServices.GetRequiredService<UserService>();
-                            var userIdClaim = context.Principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+                            var userIdClaim = context.Principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
 
-                            if (userIdClaim != null && int.TryParse(userIdClaim.Value, out int userId))
+                            if (userIdClaim != null && int.TryParse(userIdClaim, out int userId))
                             {
                                 var user = userService.GetUserById(userId);
                                 if (user == null)

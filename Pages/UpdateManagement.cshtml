@@ -1,0 +1,221 @@
+@page
+@model SteamCmdWebAPI.Pages.UpdateManagementModel
+@{
+    ViewData["Title"] = "Quản lý cập nhật";
+}
+
+<div class="container">
+    <h1>Quản lý cập nhật game</h1>
+
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
+            @Model.StatusMessage
+        </div>
+    }
+
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">Cài đặt kiểm tra cập nhật</h5>
+        </div>
+        <div class="card-body">
+            <form method="post" asp-page-handler="SaveSettings">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-check mb-3">
+                            <input type="checkbox" class="form-check-input" id="enabled" name="Enabled"
+                                   value="true" @(Model.Settings.Enabled ? "checked" : "") />
+                            <input type="hidden" name="Enabled" value="false" /> <!-- Thêm input hidden -->
+                            <label class="form-check-label" for="enabled">Kích hoạt kiểm tra cập nhật tự động</label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="mb-3">
+                            <label for="intervalMinutes" class="form-label">Khoảng thời gian kiểm tra (phút)</label>
+                            <select class="form-select" id="intervalMinutes" name="IntervalMinutes">
+                                @foreach (var minutes in new[] { 5, 10, 15, 30, 60, 120, 240, 480 })
+                                {
+                                    <option value="@minutes" selected="@(Model.Settings.IntervalMinutes == minutes)">
+                                        @minutes phút
+                                    </option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check mb-3">
+                            <input type="checkbox" class="form-check-input" id="autoUpdateProfiles" name="AutoUpdateProfiles"
+                                   value="true" @(Model.Settings.AutoUpdateProfiles ? "checked" : "") />
+                            <input type="hidden" name="AutoUpdateProfiles" value="false" /> <!-- Thêm input hidden -->
+                            <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật (chỉ với profiles chọn AutoRun)</label>
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Lưu cài đặt</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">Thông tin cập nhật</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <p>Hệ thống kiểm tra cập nhật tự động mỗi @Model.Settings.IntervalMinutes phút. Khi phát hiện có bản cập nhật mới cho các profile đánh dấu tự động chạy (AutoRun), hệ thống sẽ tự động đưa chúng vào hàng đợi cập nhật.</p>
+                <button id="checkUpdatesBtn" class="btn btn-primary">Kiểm tra cập nhật ngay</button>
+                <button id="clearCacheBtn" class="btn btn-secondary">Xóa cache cập nhật</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0">Danh sách cập nhật gần đây</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover">
+                    <thead>
+                        <tr>
+                            <th>App ID</th>
+                            <th>Tên game</th>
+                            <th>Cập nhật gần nhất</th>
+                            <th>Kiểm tra lần cuối</th>
+                            <th>Có bản cập nhật mới</th>
+                            <th>Thao tác</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (Model.UpdateInfos != null && Model.UpdateInfos.Any())
+                        {
+                            foreach (var info in Model.UpdateInfos)
+                            {
+                                <tr>
+                                    <td>@info.AppID</td>
+                                    <td>@info.Name</td>
+                                    <td>@info.LastUpdate</td>
+                                    <td>@(info.LastChecked.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss"))</td>
+                                    <td>
+                                        @if (info.HasRecentUpdate)
+                                        {
+                                            <span class="badge bg-success">Có cập nhật mới</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">Không có cập nhật mới</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-primary update-btn" data-appid="@info.AppID">Cập nhật</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            // Lấy token CSRF
+            var token = $('input[name="__RequestVerificationToken"]').val();
+
+            // Kiểm tra cập nhật ngay
+            $("#checkUpdatesBtn").click(function() {
+                $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split'></i> Đang kiểm tra...");
+                
+                $.ajax({
+                    url: "/UpdateManagement?handler=CheckUpdates",
+                    method: "POST",
+                    headers: {
+                        "RequestVerificationToken": token
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            alert("Đã kiểm tra cập nhật thành công. Trang sẽ tải lại.");
+                            location.reload();
+                        } else {
+                            alert("Lỗi: " + (response.message || "Không thể kiểm tra cập nhật"));
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        alert("Lỗi khi kiểm tra cập nhật: " + error);
+                    },
+                    complete: function() {
+                        $("#checkUpdatesBtn").prop("disabled", false).html("Kiểm tra cập nhật ngay");
+                    }
+                });
+            });
+
+            // Xóa cache cập nhật
+            $("#clearCacheBtn").click(function() {
+                if (confirm("Bạn có chắc muốn xóa cache cập nhật không?")) {
+                    $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split'></i> Đang xóa...");
+                    
+                    $.ajax({
+                        url: "/UpdateManagement?handler=ClearCache",
+                        method: "POST",
+                        headers: {
+                            "RequestVerificationToken": token
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                alert("Đã xóa cache cập nhật thành công. Trang sẽ tải lại.");
+                                location.reload();
+                            } else {
+                                alert("Lỗi: " + (response.message || "Không thể xóa cache cập nhật"));
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            alert("Lỗi khi xóa cache cập nhật: " + error);
+                        },
+                        complete: function() {
+                            $("#clearCacheBtn").prop("disabled", false).html("Xóa cache cập nhật");
+                        }
+                    });
+                }
+            });
+
+            // Cập nhật game theo App ID
+            $(".update-btn").click(function() {
+                var appId = $(this).data("appid");
+                var button = $(this);
+                
+                button.prop("disabled", true).html("<i class='bi bi-hourglass-split'></i> Đang cập nhật...");
+                
+                $.ajax({
+                    url: "/UpdateManagement?handler=UpdateApp",
+                    method: "POST",
+                    data: { appId: appId },
+                    headers: {
+                        "RequestVerificationToken": token
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            alert("Đã thêm vào hàng đợi cập nhật thành công.");
+                        } else {
+                            alert("Lỗi: " + (response.message || "Không thể cập nhật game"));
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        alert("Lỗi khi cập nhật game: " + error);
+                    },
+                    complete: function() {
+                        button.prop("disabled", false).html("Cập nhật");
+                    }
+                });
+            });
+        });
+    </script>
+}
