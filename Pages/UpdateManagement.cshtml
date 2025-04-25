@@ -81,31 +81,37 @@
                             <th>App ID</th>
                             <th>Tên game</th>
                             <th>Cập nhật gần nhất (API)</th>
-                            <th>ChangeNumber (API)</th>
-                            <th>ChangeNumber (Cài đặt)</th> @* Added column for local ChangeNumber *@
-                            <th>Có bản cập nhật mới (so với cài đặt)</th>
+                            <th>ChangeNumber (Lần 1)</th>
+                            <th>ChangeNumber (Lần 2)</th>
+                            <th>Dung lượng</th>
+                            <th>Trạng thái cập nhật</th>
                             <th>Thao tác</th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (Model.UpdateInfos != null && Model.UpdateInfos.Any())
                         {
-                            foreach (var vm in Model.UpdateInfos) @* Iterate over ViewModel *@
+                            foreach (var vm in Model.UpdateInfos)
                             {
                                 <tr>
                                     <td>@vm.ApiInfo.AppID</td>
                                     <td>@vm.ApiInfo.Name</td>
                                     <td>@(vm.ApiInfo.LastUpdateDateTime.HasValue ? vm.ApiInfo.LastUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") : vm.ApiInfo.LastUpdate)</td>
-                                    <td>@vm.ApiInfo.ChangeNumber</td>
-                                    <td>@(vm.LocalChangeNumber == -1 ? "Chưa cài đặt / Lỗi đọc" : vm.LocalChangeNumber.ToString())</td> @* Display local ChangeNumber *@
+                                    <td>@vm.PreviousApiChangeNumber</td>
+                                    <td>@vm.CurrentApiChangeNumber</td>
+                                    <td>@vm.FormattedSize</td>
                                     <td>
-                                        @if (vm.NeedsUpdate) @* Use NeedsUpdate from ViewModel *@
+                                        @if (vm.NeedsUpdate)
                                         {
-                                            <span class="badge bg-success">Có cập nhật mới</span>
+                                            <span class="badge bg-success">@(vm.LastUpdateStatus ?? "Có cập nhật mới")</span>
+                                        }
+                                        else if (vm.HasChangedSinceLastCheck)
+                                        {
+                                            <span class="badge bg-warning">Thay đổi ChangeNumber</span>
                                         }
                                         else
                                         {
-                                            <span class="badge bg-secondary">Đã cập nhật</span>
+                                            <span class="badge bg-secondary">@(vm.LastUpdateStatus ?? "Đã cập nhật")</span>
                                         }
                                     </td>
                                     <td>
@@ -117,7 +123,7 @@
                         else
                         {
                             <tr>
-                                <td colspan="7" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
+                                <td colspan="8" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
                             </tr>
                         }
                     </tbody>
@@ -145,8 +151,6 @@
                     },
                     success: function(response) {
                         if (response.success) {
-                            // alert("Đã kiểm tra cập nhật thành công. Trang sẽ tải lại.");
-                            // Use a more user-friendly notification or update the UI dynamically
                             alert(response.message); // Show message from server
                             location.reload(); // Reload to show updated info in the table
                         } else {
@@ -175,7 +179,6 @@
                         },
                         success: function(response) {
                             if (response.success) {
-                                // alert("Đã xóa cache cập nhật thành công. Trang sẽ tải lại.");
                                 alert(response.message); // Show message from server
                                 location.reload(); // Reload to show updated info (likely empty or old cache info)
                             } else {
