@@ -9,6 +9,8 @@ using SteamCmdWebAPI.Hubs;
 using SteamCmdWebAPI.Models;
 using SteamCmdWebAPI.Services;
 using Microsoft.AspNetCore.Authorization;
+using System.IO;
+using System.Linq;
 
 namespace SteamCmdWebAPI.Pages
 {
@@ -19,19 +21,24 @@ namespace SteamCmdWebAPI.Pages
         private readonly IHubContext<LogHub> _hubContext;
         private readonly SteamCmdService _steamCmdService;
         private readonly ProfileService _profileService;
+        private readonly SteamApiService _steamApiService;
 
         public List<SteamCmdProfile> Profiles { get; set; } = new List<SteamCmdProfile>();
+        // Thêm Dictionary để lưu thông tin dung lượng game
+        public Dictionary<string, string> GameSizes { get; set; } = new Dictionary<string, string>();
 
         public IndexModel(
             ILogger<IndexModel> logger,
             IHubContext<LogHub> hubContext,
             SteamCmdService steamCmdService,
-            ProfileService profileService)
+            ProfileService profileService,
+            SteamApiService steamApiService)
         {
             _logger = logger;
             _hubContext = hubContext;
             _steamCmdService = steamCmdService;
             _profileService = profileService;
+            _steamApiService = steamApiService;
         }
 
         public async Task OnGetAsync()
@@ -39,8 +46,72 @@ namespace SteamCmdWebAPI.Pages
             _logger.LogInformation("Đang tải danh sách profiles...");
             Profiles = await _profileService.GetAllProfiles();
             _logger.LogInformation("Đã tải {0} profiles", Profiles.Count);
+
+            // Lấy dung lượng từng game
+            GameSizes = new Dictionary<string, string>();
+            foreach (var profile in Profiles)
+            {
+                try
+                {
+                    // Kiểm tra dung lượng từ cache API
+                    var appInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID);
+                    long sizeOnDisk = 0;
+
+                    if (appInfo != null && appInfo.SizeOnDisk > 0)
+                    {
+                        sizeOnDisk = appInfo.SizeOnDisk;
+                    }
+                    else if (!string.IsNullOrEmpty(profile.InstallDirectory))
+                    {
+                        // Nếu không có trong cache API, đọc từ manifest
+                        string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
+                        var manifestData = await _steamCmdService.ReadAppManifest(steamappsDir, profile.AppID);
+                        if (manifestData != null && manifestData.TryGetValue("SizeOnDisk", out string sizeOnDiskStr) &&
+                            long.TryParse(sizeOnDiskStr, out long manifestSize))
+                        {
+                            sizeOnDisk = manifestSize;
+                            // Cập nhật thông tin trong API cache
+                            if (appInfo != null)
+                            {
+                                await _steamApiService.UpdateSizeOnDiskFromManifest(profile.AppID, sizeOnDisk);
+                            }
+                        }
+                    }
+
+                    // Định dạng dung lượng
+                    if (sizeOnDisk > 0)
+                    {
+                        string formattedSize = FormatFileSize(sizeOnDisk);
+                        GameSizes[profile.AppID] = formattedSize;
+                    }
+                    else
+                    {
+                        GameSizes[profile.AppID] = "Không xác định";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi lấy dung lượng cho game {AppID}", profile.AppID);
+                    GameSizes[profile.AppID] = "Lỗi";
+                }
+            }
         }
 
+        // Hàm định dạng dung lượng file
+        private string FormatFileSize(long bytes)
+        {
+            string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+            double len = bytes;
+            int order = 0;
+            while (len >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                len = len / 1024;
+            }
+            return string.Format("{0:0.##} {1}", len, sizes[order]);
+        }
+
+        // Sửa lỗi "not all code paths return a value"
         public async Task<IActionResult> OnPostRunAsync(int profileId)
         {
             try
@@ -51,7 +122,7 @@ namespace SteamCmdWebAPI.Pages
                 var profile = await _profileService.GetProfileById(profileId);
                 if (profile == null)
                 {
-                    return new JsonResult(new { success = false }) { StatusCode = 404 };
+                    return new JsonResult(new { success = false, error = "Không tìm thấy profile" }) { StatusCode = 404 };
                 }
 
                 bool success = await _steamCmdService.RunProfileAsync(profileId);
@@ -61,11 +132,11 @@ namespace SteamCmdWebAPI.Pages
             {
                 // Ghi log lỗi ở mức Debug để giảm thiểu thông báo
                 _logger.LogDebug(ex, "Lỗi khi chạy profile ID {ProfileId}", profileId);
-                return new JsonResult(new { success = false }) { StatusCode = 500 };
+                return new JsonResult(new { success = false, error = ex.Message }) { StatusCode = 500 };
             }
         }
 
-        // Sửa OnPostRunAllAsync
+        // Sửa lỗi "not all code paths return a value"
         public async Task<IActionResult> OnPostRunAllAsync()
         {
             try

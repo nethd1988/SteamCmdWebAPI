@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] - Tên Ứng Dụng Của Bạn</title>
+    <title>@ViewData["Title"] - SteamAUTO</title>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/SteamCmdWebAPI.styles.css" asp-append-version="true" />
@@ -14,14 +14,13 @@
     <header>
         <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
             <div class="container">
-                <a class="navbar-brand" asp-area="" asp-page="/Index">Tên Ứng Dụng Của Bạn</a>
+                <a class="navbar-brand" asp-area="" asp-page="/Index">SteamAUTO</a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
                         aria-expanded="false" aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
                 </button>
                 <div class="navbar-collapse collapse d-sm-in-line pb-3">
                     <ul class="navbar-nav flex-grow-1">
-                        @* ĐOẠN MÃ CÁC MỤC ĐIỀU HƯỚNG CỦA BẠN SẼ ĐƯỢC ĐẶT Ở ĐÂY *@
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-page="/Index"><i class="bi bi-house"></i> Trang chủ</a>
                         </li>
@@ -40,7 +39,6 @@
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-page="/Logs"><i class="bi bi-journal-text"></i> Xem Logs</a>
                         </li>
-                        @* KẾT THÚC ĐOẠN MÃ CÁC MỤC ĐIỀU HƯỚNG *@
                     </ul>
                 </div>
             </div>
@@ -54,7 +52,7 @@
 
     <footer class="border-top footer text-muted">
         <div class="container">
-            &copy; 2023 - Tên Ứng Dụng Của Bạn - <a asp-area="" asp-page="/Privacy">Privacy</a>
+            &copy; @DateTime.Now.Year - SteamAUTO
         </div>
     </footer>
 

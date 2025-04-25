@@ -26,6 +26,10 @@ namespace SteamCmdWebAPI.Pages
         // Thông tin ChangeNumber từ các lần gọi API
         public long PreviousApiChangeNumber => ApiInfo?.LastCheckedChangeNumber ?? 0;
         public long CurrentApiChangeNumber => ApiInfo?.ChangeNumber ?? 0;
+
+        // Thông tin thời gian cập nhật từ các lần gọi API
+        public DateTime? PreviousUpdateDateTime => ApiInfo?.LastCheckedUpdateDateTime;
+        public DateTime? CurrentUpdateDateTime => ApiInfo?.LastUpdateDateTime;
     }
 
     public class UpdateManagementModel : PageModel
@@ -144,11 +148,20 @@ namespace SteamCmdWebAPI.Pages
                     }
 
                     // 3. Kiểm tra ChangeNumber giữa các lần gọi API
-                    if (apiInfo.LastCheckedChangeNumber > 0 &&
-                        apiInfo.ChangeNumber != apiInfo.LastCheckedChangeNumber)
+                    if (apiInfo.LastCheckedChangeNumber > 0 && apiInfo.ChangeNumber != apiInfo.LastCheckedChangeNumber)
                     {
                         viewModel.HasChangedSinceLastCheck = true;
                         viewModel.LastUpdateStatus = "ChangeNumber thay đổi từ lần kiểm tra trước";
+                        viewModel.NeedsUpdate = true;
+                    }
+
+                    // 4. Kiểm tra thời gian cập nhật giữa các lần gọi API
+                    else if (apiInfo.LastCheckedUpdateDateTime.HasValue &&
+                            apiInfo.LastUpdateDateTime.HasValue &&
+                            apiInfo.LastUpdateDateTime.Value != apiInfo.LastCheckedUpdateDateTime.Value)
+                    {
+                        viewModel.HasChangedSinceLastCheck = true;
+                        viewModel.LastUpdateStatus = "Thời gian cập nhật thay đổi từ lần kiểm tra trước";
                         viewModel.NeedsUpdate = true;
                     }
 
@@ -226,6 +239,11 @@ namespace SteamCmdWebAPI.Pages
                     checkedCount++;
                     _logger.LogInformation("Kiểm tra cập nhật thủ công cho profile: {0} (AppID: {1})", profile.Name, profile.AppID);
 
+                    // Lấy thông tin API đã cached trước
+                    var cachedAppInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID, forceRefresh: false);
+                    long previousChangeNumber = cachedAppInfo?.LastCheckedChangeNumber ?? 0;
+                    DateTime? previousUpdateDateTime = cachedAppInfo?.LastCheckedUpdateDateTime;
+
                     // Lấy thông tin API mới nhất (force refresh)
                     var latestAppInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID, forceRefresh: true);
                     if (latestAppInfo == null)
@@ -235,22 +253,36 @@ namespace SteamCmdWebAPI.Pages
                         continue;
                     }
 
-                    // Kiểm tra cập nhật dựa trên ChangeNumber
+                    // Kiểm tra cập nhật dựa trên ChangeNumber và thời gian cập nhật
                     bool needsUpdate = false;
                     string updateReason = "";
 
                     // Kiểm tra ChangeNumber giữa các lần gọi API
-                    if (latestAppInfo.LastCheckedChangeNumber > 0 &&
-                        latestAppInfo.ChangeNumber != latestAppInfo.LastCheckedChangeNumber)
+                    if (previousChangeNumber > 0 && latestAppInfo.ChangeNumber != previousChangeNumber)
                     {
                         needsUpdate = true;
-                        updateReason = $"ChangeNumber API thay đổi: {latestAppInfo.LastCheckedChangeNumber} -> {latestAppInfo.ChangeNumber}";
+                        updateReason = $"ChangeNumber API thay đổi: {previousChangeNumber} -> {latestAppInfo.ChangeNumber}";
+                        _logger.LogInformation("Phát hiện thay đổi ChangeNumber cho {0} (AppID: {1}): {2} -> {3}",
+                            profile.Name, profile.AppID, previousChangeNumber, latestAppInfo.ChangeNumber);
                     }
-                    else if (latestAppInfo.LastCheckedChangeNumber == 0)
+                    // Kiểm tra thời gian cập nhật giữa các lần gọi API
+                    else if (previousUpdateDateTime.HasValue &&
+                            latestAppInfo.LastUpdateDateTime.HasValue &&
+                            latestAppInfo.LastUpdateDateTime.Value != previousUpdateDateTime.Value)
+                    {
+                        needsUpdate = true;
+                        updateReason = $"Thời gian cập nhật thay đổi: {previousUpdateDateTime.Value:dd/MM/yyyy HH:mm:ss} -> {latestAppInfo.LastUpdateDateTime.Value:dd/MM/yyyy HH:mm:ss}";
+                        _logger.LogInformation("Phát hiện thay đổi thời gian cập nhật cho {0} (AppID: {1}): {2:dd/MM/yyyy HH:mm:ss} -> {3:dd/MM/yyyy HH:mm:ss}",
+                            profile.Name, profile.AppID,
+                            previousUpdateDateTime.Value,
+                            latestAppInfo.LastUpdateDateTime.Value);
+                    }
+                    else if (previousChangeNumber == 0 || !previousUpdateDateTime.HasValue)
                     {
                         // Lần đầu tiên kiểm tra, ghi nhận ChangeNumber hiện tại
-                        _logger.LogInformation("Lần đầu tiên kiểm tra {0} (AppID: {1}). Ghi nhận ChangeNumber: {2}",
-                            profile.Name, profile.AppID, latestAppInfo.ChangeNumber);
+                        _logger.LogInformation("Lần đầu tiên kiểm tra {0} (AppID: {1}). Ghi nhận ChangeNumber: {2}, Thời gian cập nhật: {3}",
+                            profile.Name, profile.AppID, latestAppInfo.ChangeNumber,
+                            latestAppInfo.LastUpdateDateTime.HasValue ? latestAppInfo.LastUpdateDateTime.Value.ToString("dd/MM/yyyy HH:mm:ss") : "không có");
                     }
 
                     // Cập nhật SizeOnDisk từ manifest (nếu có)
@@ -260,6 +292,8 @@ namespace SteamCmdWebAPI.Pages
                         long.TryParse(sizeOnDiskStr, out long sizeOnDisk))
                     {
                         await _steamApiService.UpdateSizeOnDiskFromManifest(profile.AppID, sizeOnDisk);
+                        _logger.LogInformation("Đã cập nhật SizeOnDisk = {0} bytes từ manifest cho AppID {1}",
+                            sizeOnDisk, profile.AppID);
                     }
 
                     // Xử lý kết quả
@@ -277,6 +311,9 @@ namespace SteamCmdWebAPI.Pages
                             profile.Name, profile.AppID);
                     }
                 }
+
+                // Đảm bảo lưu cache sau khi cập nhật
+                await _steamApiService.SaveCachedAppInfo();
 
                 return new JsonResult(new
                 {

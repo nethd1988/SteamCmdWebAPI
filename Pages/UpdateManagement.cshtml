@@ -68,7 +68,6 @@
         </div>
     </div>
 
-
     <div class="card">
         <div class="card-header bg-success text-white">
             <h5 class="mb-0">Thông tin cập nhật game đã kiểm tra</h5>
@@ -80,9 +79,10 @@
                         <tr>
                             <th>App ID</th>
                             <th>Tên game</th>
-                            <th>Cập nhật gần nhất (API)</th>
-                            <th>ChangeNumber (Lần 1)</th>
-                            <th>ChangeNumber (Lần 2)</th>
+                            <th>Cập nhật gần nhất (Lần trước)</th>
+                            <th>Cập nhật gần nhất (Hiện tại)</th>
+                            <th>ChangeNumber (Lần trước)</th>
+                            <th>ChangeNumber (Hiện tại)</th>
                             <th>Dung lượng</th>
                             <th>Trạng thái cập nhật</th>
                             <th>Thao tác</th>
@@ -96,18 +96,25 @@
                                 <tr>
                                     <td>@vm.ApiInfo.AppID</td>
                                     <td>@vm.ApiInfo.Name</td>
+                                    <td>@(vm.ApiInfo.LastCheckedUpdateDateTime.HasValue ? vm.ApiInfo.LastCheckedUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") : "Chưa có")</td>
                                     <td>@(vm.ApiInfo.LastUpdateDateTime.HasValue ? vm.ApiInfo.LastUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") : vm.ApiInfo.LastUpdate)</td>
-                                    <td>@vm.PreviousApiChangeNumber</td>
-                                    <td>@vm.CurrentApiChangeNumber</td>
+                                    <td>@vm.ApiInfo.LastCheckedChangeNumber</td>
+                                    <td>@vm.ApiInfo.ChangeNumber</td>
                                     <td>@vm.FormattedSize</td>
                                     <td>
                                         @if (vm.NeedsUpdate)
                                         {
                                             <span class="badge bg-success">@(vm.LastUpdateStatus ?? "Có cập nhật mới")</span>
                                         }
-                                        else if (vm.HasChangedSinceLastCheck)
+                                        else if (vm.ApiInfo.LastCheckedChangeNumber > 0 && vm.ApiInfo.ChangeNumber != vm.ApiInfo.LastCheckedChangeNumber)
                                         {
                                             <span class="badge bg-warning">Thay đổi ChangeNumber</span>
+                                        }
+                                        else if (vm.ApiInfo.LastCheckedUpdateDateTime.HasValue &&
+                                        vm.ApiInfo.LastUpdateDateTime.HasValue &&
+                                        vm.ApiInfo.LastUpdateDateTime.Value != vm.ApiInfo.LastCheckedUpdateDateTime.Value)
+                                        {
+                                            <span class="badge bg-warning">Thay đổi thời gian cập nhật</span>
                                         }
                                         else
                                         {
@@ -123,7 +130,7 @@
                         else
                         {
                             <tr>
-                                <td colspan="8" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
+                                <td colspan="9" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
                             </tr>
                         }
                     </tbody>

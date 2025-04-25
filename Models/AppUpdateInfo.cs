@@ -6,6 +6,7 @@ namespace SteamCmdWebAPI.Models
         public string Name { get; set; }
         public string LastUpdate { get; set; } = "Không có thông tin";
         public DateTime? LastUpdateDateTime { get; set; }
+        public DateTime? LastCheckedUpdateDateTime { get; set; } // Trường mới: Thời gian cập nhật từ lần kiểm tra trước
         public int UpdateDays { get; set; } // Days ago (-1 if unknown)
         public bool HasRecentUpdate { get; set; } // Updated within last 7 days?
         public string Developer { get; set; } = "Không có thông tin";

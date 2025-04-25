@@ -1298,7 +1298,8 @@ namespace SteamCmdWebAPI.Services
                 string content = await File.ReadAllTextAsync(manifestFilePath);
                 var manifestData = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-                var regex = new Regex(@"""(?<key>\w+)""\s+""(?<value>[^""]*)""", RegexOptions.Compiled);
+                // Regex cải tiến để bắt các giá trị trong ngoặc kép, kể cả giá trị có khoảng trắng và ký tự đặc biệt
+                var regex = new Regex(@"""(?<key>[^""]+)""\s+""(?<value>[^""]*)""", RegexOptions.Compiled);
                 var matches = regex.Matches(content);
 
                 foreach (Match match in matches)
@@ -1306,6 +1307,20 @@ namespace SteamCmdWebAPI.Services
                     if (match.Success)
                     {
                         manifestData[match.Groups["key"].Value] = match.Groups["value"].Value;
+                    }
+                }
+
+                // Thêm phần đọc SizeOnDisk nếu không có
+                if (!manifestData.ContainsKey("SizeOnDisk"))
+                {
+                    // Tìm trong các giá trị "size" hoặc "installsize" nếu có
+                    foreach (var key in new[] { "size", "installsize", "download_size" })
+                    {
+                        if (manifestData.ContainsKey(key) && long.TryParse(manifestData[key], out long size))
+                        {
+                            manifestData["SizeOnDisk"] = size.ToString();
+                            break;
+                        }
                     }
                 }
 
