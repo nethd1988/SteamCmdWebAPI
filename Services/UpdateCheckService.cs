@@ -199,46 +199,37 @@ namespace SteamCmdWebAPI.Services
                     continue;
                 }
 
-                // Kiểm tra manifest từ thư mục cài đặt
-                string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
-                var manifestData = await _steamCmdService.ReadAppManifest(steamappsDir, profile.AppID);
-
-                // Kiểm tra cập nhật
+                // Kiểm tra cập nhật chỉ dựa vào sự thay đổi ChangeNumber
                 bool needsUpdate = false;
                 string updateReason = "";
 
-                // 1. Kiểm tra ChangeNumber giữa các lần gọi API
+                // Kiểm tra ChangeNumber giữa các lần gọi API
                 if (latestAppInfo.LastCheckedChangeNumber > 0 && latestAppInfo.ChangeNumber != latestAppInfo.LastCheckedChangeNumber)
                 {
                     needsUpdate = true;
                     updateReason = $"ChangeNumber API thay đổi: {latestAppInfo.LastCheckedChangeNumber} -> {latestAppInfo.ChangeNumber}";
+                    _logger.LogInformation("Phát hiện thay đổi ChangeNumber cho {0} (AppID: {1}): {2} -> {3}",
+                        profile.Name, profile.AppID, latestAppInfo.LastCheckedChangeNumber, latestAppInfo.ChangeNumber);
+                }
+                else if (latestAppInfo.LastCheckedChangeNumber == 0)
+                {
+                    // Trường hợp lần đầu tiên kiểm tra (không có LastCheckedChangeNumber)
+                    _logger.LogInformation("Đây là lần đầu tiên kiểm tra {0} (AppID: {1}). Ghi nhận ChangeNumber hiện tại: {2}",
+                        profile.Name, profile.AppID, latestAppInfo.ChangeNumber);
+                }
+                else
+                {
+                    _logger.LogInformation("Không có thay đổi ChangeNumber cho {0} (AppID: {1}): vẫn là {2}",
+                        profile.Name, profile.AppID, latestAppInfo.ChangeNumber);
                 }
 
-                // 2. Kiểm tra LastUpdated từ manifest
-                if (!needsUpdate && manifestData != null && latestAppInfo.LastUpdateDateTime.HasValue)
+                // Cập nhật SizeOnDisk từ manifest nếu có thể
+                string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
+                var manifestData = await _steamCmdService.ReadAppManifest(steamappsDir, profile.AppID);
+                if (manifestData != null && manifestData.TryGetValue("SizeOnDisk", out string sizeOnDiskStr) &&
+                    long.TryParse(sizeOnDiskStr, out long sizeOnDisk))
                 {
-                    if (manifestData.TryGetValue("LastUpdated", out string lastUpdatedStr) &&
-                        long.TryParse(lastUpdatedStr, out long lastUpdatedTimestamp))
-                    {
-                        var lastUpdatedDateTime = DateTimeOffset.FromUnixTimeSeconds(lastUpdatedTimestamp).DateTime;
-
-                        if (latestAppInfo.LastUpdateDateTime.Value > lastUpdatedDateTime)
-                        {
-                            needsUpdate = true;
-                            updateReason = $"Thời gian cập nhật API ({latestAppInfo.LastUpdateDateTime.Value}) > Local ({lastUpdatedDateTime})";
-                        }
-                    }
-                    else
-                    {
-                        // Nếu không tìm thấy LastUpdated trong manifest, đây có thể là cài đặt mới
-                        needsUpdate = true;
-                        updateReason = "Không tìm thấy thông tin LastUpdated trong manifest";
-                    }
-                }
-                else if (!needsUpdate && manifestData == null)
-                {
-                    needsUpdate = true;
-                    updateReason = "Không tìm thấy manifest cục bộ";
+                    await _steamApiService.UpdateSizeOnDiskFromManifest(profile.AppID, sizeOnDisk);
                 }
 
                 if (needsUpdate)
@@ -248,7 +239,8 @@ namespace SteamCmdWebAPI.Services
 
                     if (autoUpdateEnabled)
                     {
-                        _logger.LogInformation("AutoUpdateProfiles được bật. Đang thêm profile {0} (ID: {1}) vào hàng đợi cập nhật...", profile.Name, profile.Id);
+                        _logger.LogInformation("AutoUpdateProfiles được bật. Đang thêm profile {0} (ID: {1}) vào hàng đợi cập nhật...",
+                            profile.Name, profile.Id);
                         await _steamCmdService.QueueProfileForUpdate(profile.Id);
                     }
                     else

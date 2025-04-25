@@ -13,7 +13,7 @@ using Newtonsoft.Json;
 
 namespace SteamCmdWebAPI.Pages
 {
-    // ViewModel để kết hợp thông tin API với trạng thái cập nhật cục bộ
+    // ViewModel để kết hợp thông tin API với trạng thái cập nhật
     public class AppUpdateViewModel
     {
         public AppUpdateInfo ApiInfo { get; set; }
@@ -21,7 +21,6 @@ namespace SteamCmdWebAPI.Pages
         public bool HasChangedSinceLastCheck { get; set; }
         public long SizeOnDisk { get; set; }
         public string LastUpdateStatus { get; set; }
-        public DateTime? LocalLastUpdated { get; set; }
         public string FormattedSize => SizeOnDisk > 0 ? $"{(SizeOnDisk / 1024.0 / 1024.0 / 1024.0):F2} GB" : "Không xác định";
 
         // Thông tin ChangeNumber từ các lần gọi API
@@ -84,7 +83,7 @@ namespace SteamCmdWebAPI.Pages
 
                 var profiles = await _profileService.GetAllProfiles();
 
-                // Xử lý từng profile để lấy thông tin API và trạng thái cục bộ
+                // Xử lý từng profile để lấy thông tin API và trạng thái cập nhật
                 foreach (var profile in profiles)
                 {
                     if (string.IsNullOrEmpty(profile.AppID) || string.IsNullOrEmpty(profile.InstallDirectory))
@@ -118,20 +117,18 @@ namespace SteamCmdWebAPI.Pages
                         ApiInfo = apiInfo,
                         NeedsUpdate = false,
                         HasChangedSinceLastCheck = false,
-                        SizeOnDisk = 0,
-                        LastUpdateStatus = "Không xác định"
+                        SizeOnDisk = apiInfo.SizeOnDisk,
+                        LastUpdateStatus = "Đã cập nhật"
                     };
 
-                    string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
-
-                    // 2. Đọc Manifest cục bộ
+                    // 2. Đọc Manifest cục bộ để lấy thông tin SizeOnDisk (nếu chưa có)
                     try
                     {
-                        var manifestData = await _steamCmdService.ReadAppManifest(steamappsDir, profile.AppID);
-                        if (manifestData != null)
+                        if (viewModel.SizeOnDisk == 0)
                         {
-                            // Lấy SizeOnDisk
-                            if (manifestData.TryGetValue("SizeOnDisk", out string sizeOnDiskStr) &&
+                            string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
+                            var manifestData = await _steamCmdService.ReadAppManifest(steamappsDir, profile.AppID);
+                            if (manifestData != null && manifestData.TryGetValue("SizeOnDisk", out string sizeOnDiskStr) &&
                                 long.TryParse(sizeOnDiskStr, out long sizeOnDisk))
                             {
                                 viewModel.SizeOnDisk = sizeOnDisk;
@@ -139,45 +136,20 @@ namespace SteamCmdWebAPI.Pages
                                 // Cập nhật SizeOnDisk vào API Info để cache lại
                                 await _steamApiService.UpdateSizeOnDiskFromManifest(profile.AppID, sizeOnDisk);
                             }
-
-                            // Kiểm tra ChangeNumber từ các lần gọi API
-                            if (apiInfo.LastCheckedChangeNumber > 0 &&
-                                apiInfo.ChangeNumber != apiInfo.LastCheckedChangeNumber)
-                            {
-                                viewModel.HasChangedSinceLastCheck = true;
-                                viewModel.LastUpdateStatus = "ChangeNumber thay đổi từ lần kiểm tra trước";
-                                viewModel.NeedsUpdate = true;
-                            }
-
-                            // Kiểm tra LastUpdated
-                            if (manifestData.TryGetValue("LastUpdated", out string lastUpdatedStr) &&
-                                long.TryParse(lastUpdatedStr, out long lastUpdatedTimestamp))
-                            {
-                                var lastUpdatedDateTime = DateTimeOffset.FromUnixTimeSeconds(lastUpdatedTimestamp).DateTime;
-                                viewModel.LocalLastUpdated = lastUpdatedDateTime;
-
-                                if (apiInfo.LastUpdateDateTime.HasValue &&
-                                    apiInfo.LastUpdateDateTime.Value > lastUpdatedDateTime)
-                                {
-                                    viewModel.LastUpdateStatus = "Thời gian cập nhật mới hơn";
-                                    viewModel.NeedsUpdate = true;
-                                }
-                                else if (!viewModel.NeedsUpdate && !viewModel.HasChangedSinceLastCheck)
-                                {
-                                    viewModel.LastUpdateStatus = "Đã cập nhật";
-                                }
-                            }
-                        }
-                        else
-                        {
-                            viewModel.NeedsUpdate = true;
-                            viewModel.LastUpdateStatus = "Không tìm thấy manifest";
                         }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Lỗi khi đọc manifest cục bộ cho profile {0} (AppID: {1})", profile.Name, profile.AppID);
-                        viewModel.LastUpdateStatus = "Lỗi đọc manifest";
+                    }
+
+                    // 3. Kiểm tra ChangeNumber giữa các lần gọi API
+                    if (apiInfo.LastCheckedChangeNumber > 0 &&
+                        apiInfo.ChangeNumber != apiInfo.LastCheckedChangeNumber)
+                    {
+                        viewModel.HasChangedSinceLastCheck = true;
+                        viewModel.LastUpdateStatus = "ChangeNumber thay đổi từ lần kiểm tra trước";
+                        viewModel.NeedsUpdate = true;
                     }
 
                     // Thêm vào danh sách
@@ -254,10 +226,7 @@ namespace SteamCmdWebAPI.Pages
                     checkedCount++;
                     _logger.LogInformation("Kiểm tra cập nhật thủ công cho profile: {0} (AppID: {1})", profile.Name, profile.AppID);
 
-                    bool needsUpdate = false;
-                    string updateReason = "";
-
-                    // 1. Lấy thông tin API mới nhất (force refresh)
+                    // Lấy thông tin API mới nhất (force refresh)
                     var latestAppInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID, forceRefresh: true);
                     if (latestAppInfo == null)
                     {
@@ -266,47 +235,34 @@ namespace SteamCmdWebAPI.Pages
                         continue;
                     }
 
-                    // 2. Kiểm tra ChangeNumber giữa các lần gọi API
+                    // Kiểm tra cập nhật dựa trên ChangeNumber
+                    bool needsUpdate = false;
+                    string updateReason = "";
+
+                    // Kiểm tra ChangeNumber giữa các lần gọi API
                     if (latestAppInfo.LastCheckedChangeNumber > 0 &&
                         latestAppInfo.ChangeNumber != latestAppInfo.LastCheckedChangeNumber)
                     {
                         needsUpdate = true;
                         updateReason = $"ChangeNumber API thay đổi: {latestAppInfo.LastCheckedChangeNumber} -> {latestAppInfo.ChangeNumber}";
                     }
-
-                    // 3. Kiểm tra LastUpdated từ manifest
-                    if (!needsUpdate)
+                    else if (latestAppInfo.LastCheckedChangeNumber == 0)
                     {
-                        string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
-                        var manifestData = await _steamCmdService.ReadAppManifest(steamappsDir, profile.AppID);
-
-                        if (manifestData != null && latestAppInfo.LastUpdateDateTime.HasValue)
-                        {
-                            if (manifestData.TryGetValue("LastUpdated", out string lastUpdatedStr) &&
-                                long.TryParse(lastUpdatedStr, out long lastUpdatedTimestamp))
-                            {
-                                var lastUpdatedDateTime = DateTimeOffset.FromUnixTimeSeconds(lastUpdatedTimestamp).DateTime;
-
-                                if (latestAppInfo.LastUpdateDateTime.Value > lastUpdatedDateTime)
-                                {
-                                    needsUpdate = true;
-                                    updateReason = $"Thời gian cập nhật API ({latestAppInfo.LastUpdateDateTime.Value}) > Local ({lastUpdatedDateTime})";
-                                }
-                            }
-                            else
-                            {
-                                needsUpdate = true;
-                                updateReason = "Không tìm thấy thông tin LastUpdated trong manifest";
-                            }
-                        }
-                        else if (manifestData == null)
-                        {
-                            needsUpdate = true;
-                            updateReason = "Không tìm thấy manifest cục bộ";
-                        }
+                        // Lần đầu tiên kiểm tra, ghi nhận ChangeNumber hiện tại
+                        _logger.LogInformation("Lần đầu tiên kiểm tra {0} (AppID: {1}). Ghi nhận ChangeNumber: {2}",
+                            profile.Name, profile.AppID, latestAppInfo.ChangeNumber);
                     }
 
-                    // 4. Xử lý kết quả
+                    // Cập nhật SizeOnDisk từ manifest (nếu có)
+                    string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
+                    var manifestData = await _steamCmdService.ReadAppManifest(steamappsDir, profile.AppID);
+                    if (manifestData != null && manifestData.TryGetValue("SizeOnDisk", out string sizeOnDiskStr) &&
+                        long.TryParse(sizeOnDiskStr, out long sizeOnDisk))
+                    {
+                        await _steamApiService.UpdateSizeOnDiskFromManifest(profile.AppID, sizeOnDisk);
+                    }
+
+                    // Xử lý kết quả
                     if (needsUpdate)
                     {
                         gamesNeedingUpdateCount++;
