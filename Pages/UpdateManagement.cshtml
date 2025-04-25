@@ -63,7 +63,7 @@
                 <button id="clearCacheBtn" class="btn btn-secondary"><i class="bi bi-trash"></i> Xóa cache cập nhật</button>
             </div>
             <div class="alert alert-info">
-                <strong>Lưu ý:</strong> "Kiểm tra cập nhật ngay" sẽ kiểm tra tất cả profile và thêm các game có cập nhật mới vào hàng đợi. "Xóa cache cập nhật" sẽ buộc hệ thống tải lại thông tin từ "Gà Luộc" ở lần kiểm tra tiếp theo.
+                <strong>Lưu ý:</strong> "Kiểm tra cập nhật ngay" sẽ kiểm tra tất cả profile và thêm các game có cập nhật mới vào hàng đợi. "Xóa cache cập nhật" sẽ buộc hệ thống tải lại thông tin từ Steam API ở lần kiểm tra tiếp theo.
             </div>
         </div>
     </div>
@@ -82,7 +82,7 @@
                             <th>Tên game</th>
                             <th>Cập nhật gần nhất (API)</th>
                             <th>ChangeNumber (API)</th>
-                            <th>Kiểm tra lần cuối (Cache)</th>
+                            <th>ChangeNumber (Cài đặt)</th> @* Added column for local ChangeNumber *@
                             <th>Có bản cập nhật mới (so với cài đặt)</th>
                             <th>Thao tác</th>
                         </tr>
@@ -90,45 +90,16 @@
                     <tbody>
                         @if (Model.UpdateInfos != null && Model.UpdateInfos.Any())
                         {
-                            foreach (var info in Model.UpdateInfos)
+                            foreach (var vm in Model.UpdateInfos) @* Iterate over ViewModel *@
                             {
-                                // Logic để xác định "Có bản cập nhật mới" cần so sánh API ChangeNumber với Local Manifest ChangeNumber.
-                                // Thông tin này không có sẵn trực tiếp trong AppUpdateInfo object.
-                                // Để hiển thị chính xác ở đây, bạn sẽ cần:
-                                // 1. Trong OnGetAsync, đọc manifest cục bộ cho từng profile.
-                                // 2. So sánh ChangeNumber từ manifest với info.ChangeNumber từ API.
-                                // 3. Thêm một thuộc tính HasNewUpdate (bool) vào AppUpdateInfo hoặc tạo một ViewModel mới
-                                //    chứa cả AppUpdateInfo và trạng thái cập nhật.
-                                // Tạm thời, cột này chỉ dựa vào info.HasRecentUpdate (cập nhật trong 7 ngày qua theo API),
-                                // điều này KHÔNG chính xác là "Có bản cập nhật mới so với cài đặt".
-                                // Cần chỉnh sửa OnGetAsync và/hoặc AppUpdateInfo để hiển thị đúng.
-
-                                // Placeholder for actual update status check:
-                                bool needsUpdateBasedOnManifest = false;
-                                // Example (requires reading manifest in OnGet):
-                                // if (info.ChangeNumber > localManifestChangeNumber) needsUpdateBasedOnManifest = true;
-
-
                                 <tr>
-                                    <td>@info.AppID</td>
-                                    <td>@info.Name</td>
-                                    <td>@(info.LastUpdateDateTime.HasValue ? info.LastUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") : info.LastUpdate)</td>
-                                    <td>@info.ChangeNumber</td>
-                                    <td>@(info.LastChecked.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss"))</td>
+                                    <td>@vm.ApiInfo.AppID</td>
+                                    <td>@vm.ApiInfo.Name</td>
+                                    <td>@(vm.ApiInfo.LastUpdateDateTime.HasValue ? vm.ApiInfo.LastUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") : vm.ApiInfo.LastUpdate)</td>
+                                    <td>@vm.ApiInfo.ChangeNumber</td>
+                                    <td>@(vm.LocalChangeNumber == -1 ? "Chưa cài đặt / Lỗi đọc" : vm.LocalChangeNumber.ToString())</td> @* Display local ChangeNumber *@
                                     <td>
-                                        @* Đây cần logic so sánh ChangeNumber API vs Manifest *@
-                                        @* Tạm thời hiển thị trạng thái dựa trên API LastUpdateDateTime (không chính xác) *@
-                                        @if (info.HasRecentUpdate) // This is based on API LastUpdate within 7 days, not manifest comparison
-                                        {
-                                            <span class="badge bg-warning">API Mới (7 ngày)</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge bg-secondary">API Cũ (7 ngày)</span>
-                                        }
-                                        @* Cần thay thế bằng logic dựa trên needsUpdateBasedOnManifest *@
-                                        @* Ví dụ:
-                                        @if (needsUpdateBasedOnManifest)
+                                        @if (vm.NeedsUpdate) @* Use NeedsUpdate from ViewModel *@
                                         {
                                             <span class="badge bg-success">Có cập nhật mới</span>
                                         }
@@ -136,10 +107,9 @@
                                         {
                                             <span class="badge bg-secondary">Đã cập nhật</span>
                                         }
-                                        *@
                                     </td>
                                     <td>
-                                        <button class="btn btn-sm btn-primary update-btn" data-appid="@info.AppID">Cập nhật</button>
+                                        <button class="btn btn-sm btn-primary update-btn" data-appid="@vm.ApiInfo.AppID">Cập nhật</button>
                                     </td>
                                 </tr>
                             }

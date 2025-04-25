@@ -13,6 +13,14 @@ using Newtonsoft.Json;
 
 namespace SteamCmdWebAPI.Pages
 {
+    // ViewModel to combine API info with local update status
+    public class AppUpdateViewModel
+    {
+        public AppUpdateInfo ApiInfo { get; set; }
+        public bool NeedsUpdate { get; set; }
+        public long LocalChangeNumber { get; set; } = -1; // Add local change number for display
+    }
+
     public class UpdateManagementModel : PageModel
     {
         private readonly ILogger<UpdateManagementModel> _logger;
@@ -27,7 +35,8 @@ namespace SteamCmdWebAPI.Pages
         [TempData]
         public bool IsSuccess { get; set; }
 
-        public List<AppUpdateInfo> UpdateInfos { get; set; } = new List<AppUpdateInfo>();
+        // Change list type to the new ViewModel
+        public List<AppUpdateViewModel> UpdateInfos { get; set; } = new List<AppUpdateViewModel>();
 
         // Properties for Auto Update Check Settings - Match SettingsPageModel
         [BindProperty]
@@ -55,8 +64,6 @@ namespace SteamCmdWebAPI.Pages
             // as UpdateCheckService is the source of truth.
         }
 
-        // Removed private LoadSettings() and SaveSettings() methods
-
         public async Task OnGetAsync()
         {
             try
@@ -74,25 +81,68 @@ namespace SteamCmdWebAPI.Pages
 
                 var profiles = await _profileService.GetAllProfiles();
 
-                // Lấy thông tin cập nhật từ cache cho tất cả các profile
+                // Process each profile to get API info and local status
                 foreach (var profile in profiles)
                 {
-                    if (!string.IsNullOrEmpty(profile.AppID))
+                    if (string.IsNullOrEmpty(profile.AppID) || string.IsNullOrEmpty(profile.InstallDirectory))
                     {
-                        // Use GetAppUpdateInfo which utilizes the cache
-                        var info = await _steamApiService.GetAppUpdateInfo(profile.AppID);
-                        if (info != null)
+                        _logger.LogWarning("Bỏ qua profile {0} do thiếu AppID hoặc Thư mục cài đặt.", profile.Name);
+                        continue;
+                    }
+
+                    // 1. Get API Info
+                    var apiInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID);
+
+                    if (apiInfo != null)
+                    {
+                        long localChangeNumber = -1;
+                        string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
+
+                        // 2. Read Local Manifest ChangeNumber
+                        try
                         {
-                            UpdateInfos.Add(info);
+                            var manifestData = await _steamCmdService.ReadAppManifest(steamappsDir, profile.AppID);
+                            if (manifestData != null && manifestData.TryGetValue("ChangeNumber", out string changeNumberStr) && long.TryParse(changeNumberStr, out localChangeNumber))
+                            {
+                                // Successfully read local change number
+                            }
+                            // If manifest not found or ChangeNumber missing/invalid, localChangeNumber remains -1
                         }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi đọc manifest cục bộ cho profile {0} (AppID: {1})", profile.Name, profile.AppID);
+                            // localChangeNumber remains -1 on error
+                        }
+
+                        // 3. Compare ChangeNumbers
+                        bool needsUpdate = apiInfo.ChangeNumber > localChangeNumber;
+
+                        // 4. Create ViewModel and Add to List
+                        UpdateInfos.Add(new AppUpdateViewModel
+                        {
+                            ApiInfo = apiInfo,
+                            NeedsUpdate = needsUpdate,
+                            LocalChangeNumber = localChangeNumber // Store local number for display
+                        });
+                    }
+                    else
+                    {
+                        // If API info could not be retrieved, still show the entry but indicate status
+                        UpdateInfos.Add(new AppUpdateViewModel
+                        {
+                            ApiInfo = new AppUpdateInfo { AppID = profile.AppID, Name = profile.Name, LastUpdate = "Không thể lấy thông tin API" },
+                            NeedsUpdate = false, // Cannot determine if update is needed without API info
+                            LocalChangeNumber = -1 // Unknown local status
+                        });
+                        _logger.LogWarning("Không thể lấy thông tin API cho AppID {1} ({0}).", profile.Name, profile.AppID);
                     }
                 }
 
-                // Sắp xếp theo thời gian kiểm tra lần cuối (hoặc cập nhật gần nhất, tùy ý)
-                UpdateInfos = UpdateInfos.OrderByDescending(i => i.LastChecked).ToList();
-                // Alternatively, sort by LastUpdateDateTime:
-                // UpdateInfos = UpdateInfos.OrderByDescending(i => i.LastUpdateDateTime ?? DateTime.MinValue).ToList();
-
+                // Sort the list (e.g., by AppID or Name, or NeedsUpdate status)
+                // Sorting by AppID or Name might be more stable for the UI
+                UpdateInfos = UpdateInfos.OrderBy(vm => vm.ApiInfo.Name).ToList();
+                // Or sort by update status (items needing update first)
+                // UpdateInfos = UpdateInfos.OrderByDescending(vm => vm.NeedsUpdate).ThenBy(vm => vm.ApiInfo.Name).ToList();
             }
             catch (Exception ex)
             {
@@ -102,7 +152,6 @@ namespace SteamCmdWebAPI.Pages
             }
         }
 
-        // Renamed handler to match the form in the CSHTML
         public async Task<IActionResult> OnPostSaveUpdateCheckSettingsAsync()
         {
             try
@@ -143,10 +192,6 @@ namespace SteamCmdWebAPI.Pages
             }
         }
 
-        // OnPostCheckUpdatesAsync, OnPostClearCacheAsync, OnPostUpdateAppAsync remain mostly the same,
-        // but ensure they use the injected _steamApiService and _steamCmdService correctly.
-        // The logic within these handlers seems fine based on previous analysis.
-
         public async Task<IActionResult> OnPostCheckUpdatesAsync()
         {
             try
@@ -155,8 +200,6 @@ namespace SteamCmdWebAPI.Pages
                 int checkedCount = 0;
                 int gamesNeedingUpdateCount = 0; // Count games needing update, not just profiles queued
 
-                // Use the new logic from UpdateCheckService's CheckForUpdatesAsync conceptually
-                // We can't directly call CheckForUpdatesAsync as it's private and part of the background service loop.
                 // Replicate the core check logic here for a manual trigger.
 
                 foreach (var profile in profiles)
@@ -223,12 +266,7 @@ namespace SteamCmdWebAPI.Pages
                            profile.Name, profile.AppID, latestApiChangeNumber, localChangeNumber);
                     }
 
-                    // 4. If needs update and AutoUpdateProfiles is enabled (from current settings), queue it
-                    // Note: Manual check button should probably queue regardless of AutoUpdateProfiles setting,
-                    // but let's follow the original logic's intent related to AutoRun.
-                    // The original logic seemed to queue if hasUpdate AND (profile.AutoRun OR !Settings.AutoUpdateProfiles)
-                    // This seems counter-intuitive. A manual check should just queue if an update is found.
-                    // Let's simplify: if needsUpdate, queue it.
+                    // 4. If needs update, queue it for manual check
                     if (needsUpdate)
                     {
                         _logger.LogInformation("Kiểm tra thủ công phát hiện cập nhật. Đang thêm profile {0} (ID: {1}) vào hàng đợi...",

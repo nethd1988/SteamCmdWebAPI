@@ -1284,43 +1284,20 @@ namespace SteamCmdWebAPI.Services
         /// Made public to be accessible by UpdateCheckService.
         /// </summary>
         /// <returns>Dictionary of key-value pairs or null on error/not found.</returns>
-        public async Task<Dictionary<string, string>> ReadAppManifest(string steamappsDir, string appId) // Made Public
+        public async Task<Dictionary<string, string>> ReadAppManifest(string steamappsDir, string appId)
         {
             string manifestFilePath = Path.Combine(steamappsDir, $"appmanifest_{appId}.acf");
             if (!File.Exists(manifestFilePath))
             {
-                // This is expected if an app failed to download, log as Info or Debug level
-                _logger.LogInformation($"File manifest không tồn tại cho App ID {appId}: {manifestFilePath} (Có thể do chưa cài đặt/lỗi tải).");
+                _logger.LogInformation($"File manifest không tồn tại cho App ID {appId}: {manifestFilePath}");
                 return null;
             }
 
             try
             {
-                // Read content with retry for potential locks
-                string content = null;
-                for (int i = 0; i < 3; i++)
-                {
-                    try
-                    {
-                        content = await File.ReadAllTextAsync(manifestFilePath);
-                        break; // Success
-                    }
-                    catch (IOException ioEx) when (i < 2) // Retry on IO error (likely lock)
-                    {
-                        _logger.LogWarning(ioEx, "Tạm thời không đọc được file manifest {ManifestFile} (lần {Attempt}), thử lại...", manifestFilePath, i + 1);
-                        await Task.Delay(500 + i * 500); // Wait longer each retry
-                    }
-                }
-                if (content == null)
-                {
-                    _logger.LogError($"Không thể đọc file manifest {manifestFilePath} sau nhiều lần thử.");
-                    return null; // Failed to read after retries
-                }
+                string content = await File.ReadAllTextAsync(manifestFilePath);
+                var manifestData = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-
-                // Regex to parse ACF key-value pairs (handles nested structures minimally)
-                var manifestData = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // Case-insensitive keys
-                // This regex focuses on top-level key-value pairs. Needs enhancement for true nested parsing.
                 var regex = new Regex(@"""(?<key>\w+)""\s+""(?<value>[^""]*)""", RegexOptions.Compiled);
                 var matches = regex.Matches(content);
 
@@ -1328,16 +1305,16 @@ namespace SteamCmdWebAPI.Services
                 {
                     if (match.Success)
                     {
-                        // Use OrdinalIgnoreCase dictionary, so ContainsKey check is less critical unless duplicate keys are expected
                         manifestData[match.Groups["key"].Value] = match.Groups["value"].Value;
                     }
                 }
+
                 return manifestData;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Lỗi khi đọc hoặc phân tích cú pháp file manifest {manifestFilePath}");
-                return null; // Return null on parsing error
+                _logger.LogError(ex, $"Lỗi khi đọc file manifest {manifestFilePath}");
+                return null;
             }
         }
 
