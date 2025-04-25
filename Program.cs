@@ -88,6 +88,7 @@ namespace SteamCmdWebAPI
             builder.Services.AddSingleton<SteamCmdService>();
             builder.Services.AddSingleton<TcpClientService>();
 
+
             // Đăng ký các dịch vụ mới
             builder.Services.AddSingleton<SteamApiService>();
             builder.Services.AddSingleton<UpdateCheckService>();

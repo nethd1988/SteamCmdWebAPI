@@ -90,11 +90,10 @@
                     <input type="number" class="form-control" id="updateCheckIntervalMinutes" asp-for="UpdateCheckIntervalMinutes" min="10" max="1440" step="10" />
                     <small class="form-text text-muted">Hệ thống sẽ kiểm tra cập nhật mới sau mỗi khoảng thời gian này (tối thiểu 10 phút, tối đa 1440 phút).</small>
                 </div>
-                @* Nếu bạn muốn thêm tùy chọn riêng cho "Tự động cập nhật profile khi có update", thêm checkbox ở đây *@
-                @* <div class="form-check mb-3">
+                <div class="form-check mb-3">
                     <input type="checkbox" class="form-check-input" id="autoUpdateProfiles" asp-for="AutoUpdateProfiles" />
                     <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật profile khi có cập nhật mới</label>
-                </div> *@
+                </div>
                 <button type="submit" class="btn btn-success">Lưu cấu hình kiểm tra cập nhật</button>
             </form>
         </div>

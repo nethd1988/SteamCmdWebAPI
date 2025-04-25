@@ -7,7 +7,6 @@
 <div class="container">
     <h1>Quản lý cập nhật game</h1>
 
-    @* Hiển thị thông báo thành công/lỗi *@
     @if (!string.IsNullOrEmpty(Model.StatusMessage))
     {
         <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
@@ -20,13 +19,11 @@
             <h5 class="mb-0">Cài đặt kiểm tra cập nhật</h5>
         </div>
         <div class="card-body">
-            @* Form để lưu cài đặt kiểm tra cập nhật - Match Settings page handler *@
             <form method="post" asp-page-handler="SaveUpdateCheckSettings">
                 @Html.AntiForgeryToken()
                 <div class="row">
                     <div class="col-md-4">
                         <div class="form-check mb-3">
-                            @* Use asp-for to bind to the model property *@
                             <input type="checkbox" class="form-check-input" id="updateCheckEnabled" asp-for="UpdateCheckEnabled" />
                             <label class="form-check-label" for="updateCheckEnabled">Kích hoạt kiểm tra cập nhật tự động</label>
                         </div>
@@ -34,14 +31,12 @@
                     <div class="col-md-4">
                         <div class="mb-3">
                             <label for="updateCheckIntervalMinutes" class="form-label">Khoảng thời gian kiểm tra (phút)</label>
-                            @* Use input type="number" instead of select, matching Settings page *@
                             <input type="number" class="form-control" id="updateCheckIntervalMinutes" asp-for="UpdateCheckIntervalMinutes" min="10" max="1440" step="10" />
                             <small class="form-text text-muted">Hệ thống sẽ kiểm tra cập nhật mới sau mỗi khoảng thời gian này (tối thiểu 10 phút, tối đa 1440 phút).</small>
                         </div>
                     </div>
                     <div class="col-md-4">
                         <div class="form-check mb-3">
-                            @* Keep this checkbox for AutoUpdateProfiles *@
                             <input type="checkbox" class="form-check-input" id="autoUpdateProfiles" asp-for="AutoUpdateProfiles" />
                             <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật profile khi có cập nhật mới</label>
                         </div>
@@ -63,7 +58,8 @@
                 <button id="clearCacheBtn" class="btn btn-secondary"><i class="bi bi-trash"></i> Xóa cache cập nhật</button>
             </div>
             <div class="alert alert-info">
-                <strong>Lưu ý:</strong> "Kiểm tra cập nhật ngay" sẽ kiểm tra tất cả profile và thêm các game có cập nhật mới vào hàng đợi. "Xóa cache cập nhật" sẽ buộc hệ thống tải lại thông tin từ Steam API ở lần kiểm tra tiếp theo.
+                <strong>Lưu ý:</strong> "Kiểm tra cập nhật ngay" sẽ kiểm tra tất cả profile và thêm các game có cập nhật mới vào hàng đợi.
+                "Xóa cache cập nhật" sẽ buộc hệ thống tải lại thông tin từ Steam API ở lần kiểm tra tiếp theo.
             </div>
         </div>
     </div>
@@ -158,8 +154,8 @@
                     },
                     success: function(response) {
                         if (response.success) {
-                            alert(response.message); // Show message from server
-                            location.reload(); // Reload to show updated info in the table
+                            alert(response.message);
+                            location.reload();
                         } else {
                             alert("Lỗi: " + (response.message || "Không thể kiểm tra cập nhật"));
                         }
@@ -186,8 +182,8 @@
                         },
                         success: function(response) {
                             if (response.success) {
-                                alert(response.message); // Show message from server
-                                location.reload(); // Reload to show updated info (likely empty or old cache info)
+                                alert(response.message);
+                                location.reload();
                             } else {
                                 alert("Lỗi: " + (response.message || "Không thể xóa cache cập nhật"));
                             }
@@ -218,8 +214,7 @@
                     },
                     success: function(response) {
                         if (response.success) {
-                            alert(response.message); // Show message from server
-                            // No reload needed here, user should check log for update progress
+                            alert(response.message);
                         } else {
                             alert("Lỗi: " + (response.message || "Không thể cập nhật game"));
                         }

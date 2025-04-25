@@ -29,6 +29,10 @@ namespace SteamCmdWebAPI.Pages
         [BindProperty] // Use BindProperty for form data
         public int UpdateCheckIntervalMinutes { get; set; } = 60; // Mặc định 60 phút (1 giờ)
 
+        // *** ADD THIS PROPERTY ***
+        [BindProperty] // Add BindProperty to receive data from the form
+        public bool AutoUpdateProfiles { get; set; } // Define the missing property
+
         public SettingsPageModel(
             ILogger<SettingsPageModel> logger,
             IHubContext<LogHub> hubContext,
@@ -82,6 +86,9 @@ namespace SteamCmdWebAPI.Pages
             var updateCheckSettings = _updateCheckService.GetCurrentSettings();
             UpdateCheckEnabled = updateCheckSettings.Enabled;
             UpdateCheckIntervalMinutes = updateCheckSettings.IntervalMinutes;
+            // *** ALSO LOAD THE NEW PROPERTY ***
+            AutoUpdateProfiles = updateCheckSettings.AutoUpdateProfiles; // Load the initial value for the checkbox
+
             // Giới hạn UpdateCheckIntervalMinutes trong khoảng hợp lý (ví dụ 10 phút đến 1440 phút = 24 giờ)
             if (UpdateCheckIntervalMinutes < 10) UpdateCheckIntervalMinutes = 10;
             if (UpdateCheckIntervalMinutes > 1440) UpdateCheckIntervalMinutes = 1440;
@@ -91,14 +98,19 @@ namespace SteamCmdWebAPI.Pages
         }
 
         // Handler to save Auto Run Settings
-        public async Task<IActionResult> OnPostSaveAutoRunSettingsAsync() // Renamed handler
+        public async Task<IActionResult> OnPostSaveAutoRunSettingsAsync()
         {
+            _logger.LogInformation("SettingsPageModel: Handler OnPostSaveAutoRunSettingsAsync được kích hoạt.");
+            _logger.LogInformation("SettingsPageModel: Nhận giá trị từ form - AutoRunEnabled: {AutoRunEnabled}, AutoRunIntervalHours: {AutoRunIntervalHours}",
+                                   AutoRunEnabled, AutoRunIntervalHours);
+
             try
             {
                 // Validation for AutoRunIntervalHours
                 if (AutoRunIntervalHours < 1 || AutoRunIntervalHours > 48)
                 {
                     TempData["ErrorMessage"] = "Khoảng thời gian chạy tự động (giờ) phải từ 1 đến 48.";
+                    _logger.LogWarning("SettingsPageModel: Lỗi validation khoảng thời gian chạy tự động. Giá trị nhận được: {AutoRunIntervalHours}", AutoRunIntervalHours);
                     return RedirectToPage();
                 }
 
@@ -106,30 +118,32 @@ namespace SteamCmdWebAPI.Pages
                 {
                     AutoRunEnabled = AutoRunEnabled, // Use BindProperty value
                     AutoRunIntervalHours = AutoRunIntervalHours, // Use BindProperty value
-                    // ConvertIntervalHoursToString might not be needed anymore if AutoRunService uses AutoRunIntervalHours directly
-                    // AutoRunInterval = ConvertIntervalHoursToString(AutoRunIntervalHours)
                 };
 
-                await _settingsService.SaveSettingsAsync(settings);
+                _logger.LogInformation("SettingsPageModel: Gọi SettingsService.SaveSettingsAsync...");
+                await _settingsService.SaveSettingsAsync(settings); // Call to save
+                _logger.LogInformation("SettingsPageModel: SettingsService.SaveSettingsAsync hoàn thành.");
+
 
                 TempData["SuccessMessage"] = $"Cấu hình tự động chạy đã được cập nhật: {(AutoRunEnabled ? "Bật" : "Tắt")}, {AutoRunIntervalHours} giờ/lần";
+                _logger.LogInformation("SettingsPageModel: Lưu cấu hình tự động chạy thành công.");
                 return RedirectToPage();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi lưu cấu hình tự động chạy");
+                _logger.LogError(ex, "SettingsPageModel: Lỗi khi lưu cấu hình tự động chạy");
                 TempData["ErrorMessage"] = $"Lỗi khi lưu cấu hình tự động chạy: {ex.Message}";
                 return RedirectToPage();
             }
         }
 
         // Handler to save Update Check Settings
-        public async Task<IActionResult> OnPostSaveUpdateCheckSettingsAsync() // New handler
+        public async Task<IActionResult> OnPostSaveUpdateCheckSettingsAsync()
         {
             try
             {
                 // Validation for UpdateCheckIntervalMinutes
-                if (UpdateCheckIntervalMinutes < 10 || UpdateCheckIntervalMinutes > 1440) // Example range: 10 mins to 24 hours
+                if (UpdateCheckIntervalMinutes < 10 || UpdateCheckIntervalMinutes > 1440)
                 {
                     TempData["ErrorMessage"] = "Khoảng thời gian kiểm tra cập nhật (phút) phải từ 10 đến 1440.";
                     return RedirectToPage();
@@ -137,21 +151,19 @@ namespace SteamCmdWebAPI.Pages
 
                 // Use UpdateCheckService to update settings
                 _updateCheckService.UpdateSettings(
-                    UpdateCheckEnabled, // Use BindProperty value
-                    TimeSpan.FromMinutes(UpdateCheckIntervalMinutes), // Use BindProperty value
-                    true // Assuming AutoUpdateProfiles should be linked to UpdateCheckEnabled or be a separate setting if needed
-                         // For simplicity, linking AutoUpdateProfiles to UpdateCheckEnabled here.
-                         // If you need a separate checkbox for "Auto-update profiles when update found",
-                         // you'll need to add a property for it and pass that value.
+                    UpdateCheckEnabled,
+                    TimeSpan.FromMinutes(UpdateCheckIntervalMinutes),
+                    AutoUpdateProfiles // Sử dụng AutoUpdateProfiles từ form (this property is now defined)
                 );
 
-                TempData["SuccessMessage"] = $"Cấu hình kiểm tra cập nhật tự động đã được cập nhật: {(UpdateCheckEnabled ? "Bật" : "Tắt")}, {UpdateCheckIntervalMinutes} phút/lần";
+                TempData["SuccessMessage"] = $"Cấu hình kiểm tra cập nhật tự động đã được cập nhật: {(UpdateCheckEnabled ? "Bật" : "Tắt")}, " +
+                                            $"{UpdateCheckIntervalMinutes} phút/lần, Tự động cập nhật khi phát hiện: {(AutoUpdateProfiles ? "Bật" : "Tắt")}";
                 return RedirectToPage();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi lưu cấu hình kiểm tra cập nhật tự động");
-                TempData["ErrorMessage"] = $"Lỗi khi lưu cấu hình kiểm tra cập nhật tự động: {ex.Message}";
+                _logger.LogError(ex, "Lỗi khi lưu cài đặt kiểm tra cập nhật tự động");
+                TempData["ErrorMessage"] = $"Lỗi khi lưu cài đặt kiểm tra cập nhật tự động: {ex.Message}";
                 return RedirectToPage();
             }
         }

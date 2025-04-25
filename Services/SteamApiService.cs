@@ -75,6 +75,7 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        // Sửa phương thức GetAppUpdateInfo
         public async Task<AppUpdateInfo> GetAppUpdateInfo(string appId, bool forceRefresh = false)
         {
             if (string.IsNullOrWhiteSpace(appId) || !int.TryParse(appId, out _))
@@ -86,17 +87,13 @@ namespace SteamCmdWebAPI.Services
             AppUpdateInfo cachedInfo = null;
             bool isFromCache = false;
 
-            // Kiểm tra cache trước nếu không bắt buộc làm mới hoặc cache gần đây
+            // Kiểm tra cache
             if (_cachedAppInfo.TryGetValue(appId, out cachedInfo))
             {
                 isFromCache = true;
-                // Lưu lại ChangeNumber hiện tại và thời gian cập nhật làm giá trị lần kiểm tra trước nếu forceRefresh
                 if (forceRefresh && cachedInfo != null)
                 {
-                    _logger.LogInformation("Lưu ChangeNumber hiện tại ({0}) và thời gian cập nhật làm giá trị lần kiểm tra trước cho AppID {1}",
-                        cachedInfo.ChangeNumber, appId);
-
-                    // Tạo bản sao của thông tin cache hiện tại để giữ ChangeNumber cũ và thời gian cập nhật cũ
+                    // Lưu ChangeNumber hiện tại làm giá trị lần kiểm tra trước nếu forceRefresh
                     cachedInfo = new AppUpdateInfo
                     {
                         AppID = cachedInfo.AppID,
@@ -107,24 +104,22 @@ namespace SteamCmdWebAPI.Services
                         HasRecentUpdate = cachedInfo.HasRecentUpdate,
                         Developer = cachedInfo.Developer,
                         Publisher = cachedInfo.Publisher,
-                        LastCheckedChangeNumber = cachedInfo.ChangeNumber, // Lưu ChangeNumber hiện tại làm LastCheckedChangeNumber
+                        LastCheckedChangeNumber = cachedInfo.ChangeNumber,
                         ChangeNumber = cachedInfo.ChangeNumber,
-                        LastCheckedUpdateDateTime = cachedInfo.LastUpdateDateTime, // Lưu thời gian cập nhật hiện tại làm LastCheckedUpdateDateTime
+                        LastCheckedUpdateDateTime = cachedInfo.LastUpdateDateTime,
                         SizeOnDisk = cachedInfo.SizeOnDisk,
                         LastChecked = cachedInfo.LastChecked
                     };
                 }
-                // Nếu không bắt buộc làm mới và cache gần đây, trả về cache
                 else if ((DateTime.Now - cachedInfo.LastChecked).TotalMinutes < 10 && !forceRefresh)
                 {
-                    _logger.LogDebug("Sử dụng thông tin cache cho AppID {AppID} (kiểm tra gần đây)", appId);
                     return cachedInfo;
                 }
             }
 
             try
             {
-                // Gọi API để lấy thông tin mới
+                // Gọi API
                 string url = $"https://api.steamcmd.net/v1/info/{appId}";
                 HttpResponseMessage response = await _httpClient.GetAsync(url);
 
@@ -151,15 +146,11 @@ namespace SteamCmdWebAPI.Services
                     {
                         appInfo.LastCheckedChangeNumber = forceRefresh ? cachedInfo.ChangeNumber : cachedInfo.LastCheckedChangeNumber;
                         appInfo.LastCheckedUpdateDateTime = forceRefresh ? cachedInfo.LastUpdateDateTime : cachedInfo.LastCheckedUpdateDateTime;
-                        _logger.LogInformation("Sử dụng LastCheckedChangeNumber = {0}, LastCheckedUpdateDateTime = {1} cho AppID {2}",
-                            appInfo.LastCheckedChangeNumber,
-                            appInfo.LastCheckedUpdateDateTime.HasValue ? appInfo.LastCheckedUpdateDateTime.Value.ToString("dd/MM/yyyy HH:mm:ss") : "null",
-                            appId);
                     }
                     else
                     {
-                        appInfo.LastCheckedChangeNumber = 0; // Đặt 0 cho lần gọi API đầu tiên
-                        appInfo.LastCheckedUpdateDateTime = null; // Đặt null cho lần gọi API đầu tiên
+                        appInfo.LastCheckedChangeNumber = 0;
+                        appInfo.LastCheckedUpdateDateTime = null;
                     }
 
                     // Thiết lập các thuộc tính từ API
@@ -196,7 +187,7 @@ namespace SteamCmdWebAPI.Services
                     // Đánh dấu thời gian kiểm tra
                     appInfo.LastChecked = DateTime.Now;
 
-                    // Cập nhật cache với thông tin mới
+                    // Cập nhật cache
                     _cachedAppInfo[appId] = appInfo;
                     await SaveCachedAppInfo();
 

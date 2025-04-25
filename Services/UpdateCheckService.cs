@@ -66,11 +66,20 @@ namespace SteamCmdWebAPI.Services
                         _logger.LogInformation("Đã tải cài đặt kiểm tra cập nhật: Enabled={0}, IntervalMinutes={1}, AutoUpdateProfiles={2}",
                             _enabled, settings.IntervalMinutes, _autoUpdateProfiles);
                     }
+                    else
+                    {
+                        _logger.LogWarning("File settings kiểm tra cập nhật '{SettingsFilePath}' rỗng hoặc không hợp lệ. Sử dụng cài đặt mặc định.", _settingsFilePath);
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("File settings kiểm tra cập nhật '{SettingsFilePath}' không tồn tại. Sử dụng cài đặt mặc định: Enabled={0}, IntervalMinutes={1}, AutoUpdateProfiles={2}",
+                         _settingsFilePath, _enabled, _checkInterval.TotalMinutes, _autoUpdateProfiles);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi tải cài đặt kiểm tra cập nhật");
+                _logger.LogError(ex, "Lỗi khi tải cài đặt kiểm tra cập nhật từ '{SettingsFilePath}'", _settingsFilePath);
             }
         }
 
@@ -98,10 +107,11 @@ namespace SteamCmdWebAPI.Services
 
                 string json = JsonConvert.SerializeObject(settings, Formatting.Indented);
                 File.WriteAllText(_settingsFilePath, json);
+                _logger.LogInformation("Đã lưu cài đặt kiểm tra cập nhật vào '{SettingsFilePath}'", _settingsFilePath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi lưu cài đặt kiểm tra cập nhật");
+                _logger.LogError(ex, "Lỗi khi lưu cài đặt kiểm tra cập nhật vào '{SettingsFilePath}'", _settingsFilePath);
             }
         }
 
@@ -144,7 +154,8 @@ namespace SteamCmdWebAPI.Services
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Lỗi trong quá trình kiểm tra cập nhật tự động");
+                        // This catch block is for exceptions outside the per-profile loop
+                        _logger.LogError(ex, "Lỗi nghiêm trọng trong quá trình kiểm tra cập nhật tự động");
                     }
                 }
                 else
@@ -166,11 +177,14 @@ namespace SteamCmdWebAPI.Services
             {
                 autoUpdateEnabled = _autoUpdateProfiles;
             }
+            _logger.LogDebug("Cài đặt AutoUpdateProfiles hiện tại: {AutoUpdateProfiles}", autoUpdateEnabled);
 
             var profiles = await _profileService.GetAllProfiles();
-            var profilesToCheck = autoUpdateEnabled
-                ? profiles.Where(p => p.AutoRun).ToList()
-                : profiles;
+
+            // Sửa đổi: Bỏ qua việc lọc profile.AutoRun ở đây.
+            // UpdateCheckService chỉ phát hiện cập nhật và thêm vào hàng đợi
+            // Logic chỉ chạy các profile có AutoRun sẽ nằm ở dịch vụ chạy theo lịch (AutoRunService/SteamCmdService timer)
+            var profilesToCheck = profiles; // Kiểm tra tất cả các profile đã lưu
 
             if (!profilesToCheck.Any())
             {
@@ -183,80 +197,140 @@ namespace SteamCmdWebAPI.Services
 
             foreach (var profile in profilesToCheck)
             {
+                _logger.LogInformation("--- Đang xử lý profile '{ProfileName}' (ID: {ProfileId}, AppID: {AppId}) ---",
+                                     profile.Name, profile.Id, profile.AppID);
+
                 if (string.IsNullOrEmpty(profile.AppID) || string.IsNullOrEmpty(profile.InstallDirectory))
                 {
-                    _logger.LogWarning("Bỏ qua profile {0} do thiếu AppID hoặc Thư mục cài đặt.", profile.Name);
+                    _logger.LogWarning("Bỏ qua profile '{0}' (ID: {1}) do thiếu AppID hoặc Thư mục cài đặt.", profile.Name, profile.Id);
                     continue;
                 }
 
-                _logger.LogInformation("Kiểm tra cập nhật cho profile: {0} (AppID: {1})", profile.Name, profile.AppID);
-
-                // Lấy thông tin từ Steam API
-                var latestAppInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID, forceRefresh: true);
-                if (latestAppInfo == null)
+                try // Thêm try-catch cho từng profile
                 {
-                    _logger.LogWarning("Không thể lấy thông tin Steam API cho AppID {1} ({0}). Không thể kiểm tra cập nhật.", profile.Name, profile.AppID);
-                    continue;
-                }
+                    _logger.LogDebug("Đang lấy thông tin Steam API cho AppID: {AppId}", profile.AppID);
+                    // Lấy thông tin từ Steam API với force refresh
+                    var latestAppInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID, forceRefresh: true);
 
-                // Kiểm tra cập nhật chỉ dựa vào sự thay đổi ChangeNumber
-                bool needsUpdate = false;
-                string updateReason = "";
-
-                // Kiểm tra ChangeNumber giữa các lần gọi API
-                if (latestAppInfo.LastCheckedChangeNumber > 0 && latestAppInfo.ChangeNumber != latestAppInfo.LastCheckedChangeNumber)
-                {
-                    needsUpdate = true;
-                    updateReason = $"ChangeNumber API thay đổi: {latestAppInfo.LastCheckedChangeNumber} -> {latestAppInfo.ChangeNumber}";
-                    _logger.LogInformation("Phát hiện thay đổi ChangeNumber cho {0} (AppID: {1}): {2} -> {3}",
-                        profile.Name, profile.AppID, latestAppInfo.LastCheckedChangeNumber, latestAppInfo.ChangeNumber);
-                }
-                else if (latestAppInfo.LastCheckedChangeNumber == 0)
-                {
-                    // Trường hợp lần đầu tiên kiểm tra (không có LastCheckedChangeNumber)
-                    _logger.LogInformation("Đây là lần đầu tiên kiểm tra {0} (AppID: {1}). Ghi nhận ChangeNumber hiện tại: {2}",
-                        profile.Name, profile.AppID, latestAppInfo.ChangeNumber);
-                }
-                else
-                {
-                    _logger.LogInformation("Không có thay đổi ChangeNumber cho {0} (AppID: {1}): vẫn là {2}",
-                        profile.Name, profile.AppID, latestAppInfo.ChangeNumber);
-                }
-
-                // Cập nhật SizeOnDisk từ manifest nếu có thể
-                string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
-                var manifestData = await _steamCmdService.ReadAppManifest(steamappsDir, profile.AppID);
-                if (manifestData != null && manifestData.TryGetValue("SizeOnDisk", out string sizeOnDiskStr) &&
-                    long.TryParse(sizeOnDiskStr, out long sizeOnDisk))
-                {
-                    await _steamApiService.UpdateSizeOnDiskFromManifest(profile.AppID, sizeOnDisk);
-                }
-
-                if (needsUpdate)
-                {
-                    anyUpdatesFound = true;
-                    _logger.LogInformation("Phát hiện cập nhật cho profile {0} (AppID: {1}): {2}", profile.Name, profile.AppID, updateReason);
-
-                    if (autoUpdateEnabled)
+                    if (latestAppInfo == null)
                     {
-                        _logger.LogInformation("AutoUpdateProfiles được bật. Đang thêm profile {0} (ID: {1}) vào hàng đợi cập nhật...",
-                            profile.Name, profile.Id);
-                        await _steamCmdService.QueueProfileForUpdate(profile.Id);
+                        _logger.LogWarning("Không thể lấy thông tin Steam API cho AppID {1} ('{0}'). Không thể kiểm tra cập nhật cho profile này.", profile.Name, profile.AppID);
+                        continue;
+                    }
+
+                    _logger.LogDebug("Thông tin API cho {ProfileName} (AppID: {AppId}): ChangeNumber={ChangeNumber}, LastCheckedChangeNumber={LastCheckedChangeNumber}, LastUpdateDateTime={LastUpdateDateTime}, LastCheckedUpdateDateTime={LastCheckedUpdateDateTime}",
+                                    profile.Name, profile.AppID, latestAppInfo.ChangeNumber, latestAppInfo.LastCheckedChangeNumber,
+                                    latestAppInfo.LastUpdateDateTime, latestAppInfo.LastCheckedUpdateDateTime);
+
+
+                    // Kiểm tra cập nhật dựa vào ChangeNumber
+                    bool needsUpdate = false;
+                    string updateReason = "";
+
+                    // Kiểm tra ChangeNumber giữa các lần gọi API
+                    if (latestAppInfo.LastCheckedChangeNumber > 0 && latestAppInfo.ChangeNumber != latestAppInfo.LastCheckedChangeNumber)
+                    {
+                        needsUpdate = true;
+                        updateReason = $"ChangeNumber API thay đổi: {latestAppInfo.LastCheckedChangeNumber} -> {latestAppInfo.ChangeNumber}";
+                        _logger.LogInformation("==> Phát hiện thay đổi ChangeNumber cho '{0}' (AppID: {1}): {2}",
+                                               profile.Name, profile.AppID, updateReason);
+                    }
+                    // Kiểm tra thời gian cập nhật giữa các lần gọi API (Chỉ kiểm tra nếu ChangeNumber không đổi)
+                    // Đã bỏ qua kiểm tra thời gian cập nhật ở đây để chỉ tập trung vào ChangeNumber như yêu cầu ban đầu
+                    // else if (latestAppInfo.LastCheckedUpdateDateTime.HasValue &&
+                    //          latestAppInfo.LastUpdateDateTime.HasValue &&
+                    //          latestAppInfo.LastUpdateDateTime.Value != latestAppInfo.LastCheckedUpdateDateTime.Value)
+                    // {
+                    //     needsUpdate = true;
+                    //     updateReason = $"Thời gian cập nhật thay đổi: {latestAppInfo.LastCheckedUpdateDateTime.Value:dd/MM/yyyy HH:mm:ss} -> {latestAppInfo.LastUpdateDateTime.Value:dd/MM/yyyy HH:mm:ss}";
+                    //      _logger.LogInformation("==> Phát hiện thay đổi thời gian cập nhật cho '{0}' (AppID: {1}): {2}",
+                    //                                profile.Name, profile.AppID, updateReason);
+                    // }
+                    else if (latestAppInfo.LastCheckedChangeNumber == 0)
+                    {
+                        // Trường hợp lần đầu tiên kiểm tra (không có LastCheckedChangeNumber)
+                        _logger.LogInformation("Đây là lần đầu tiên kiểm tra '{0}' (AppID: {1}). Ghi nhận ChangeNumber hiện tại: {2}",
+                                               profile.Name, profile.AppID, latestAppInfo.ChangeNumber);
+                        // Không đánh dấu cần cập nhật ở đây, chỉ ghi nhận trạng thái ban đầu
                     }
                     else
                     {
-                        _logger.LogInformation("AutoUpdateProfiles đang tắt. Không tự động thêm profile {0} vào hàng đợi.", profile.Name);
+                        _logger.LogInformation("Không có thay đổi ChangeNumber cho '{0}' (AppID: {1}): vẫn là {2}",
+                                               profile.Name, profile.AppID, latestAppInfo.ChangeNumber);
+                    }
+
+                    // Cập nhật SizeOnDisk từ manifest nếu có thể
+                    // (Logic này không ảnh hưởng đến việc phát hiện needsUpdate, nhưng vẫn giữ để cập nhật thông tin)
+                    string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
+                    try
+                    {
+                        var manifestData = await _steamCmdService.ReadAppManifest(steamappsDir, profile.AppID);
+                        if (manifestData != null && manifestData.TryGetValue("SizeOnDisk", out string sizeOnDiskStr) &&
+                            long.TryParse(sizeOnDiskStr, out long sizeOnDisk))
+                        {
+                            await _steamApiService.UpdateSizeOnDiskFromManifest(profile.AppID, sizeOnDisk);
+                        }
+                        else
+                        {
+                            _logger.LogDebug("Không thể đọc SizeOnDisk từ manifest cho '{ProfileName}' (AppID: {AppId})", profile.Name, profile.AppID);
+                        }
+                    }
+                    catch (Exception manifestEx)
+                    {
+                        _logger.LogWarning(manifestEx, "Lỗi khi đọc manifest cho '{ProfileName}' (AppID: {AppId}). Bỏ qua cập nhật SizeOnDisk.", profile.Name, profile.AppID);
+                    }
+
+
+                    if (needsUpdate)
+                    {
+                        anyUpdatesFound = true; // Đánh dấu rằng có ít nhất 1 profile cần cập nhật
+
+                        if (autoUpdateEnabled)
+                        {
+                            _logger.LogInformation("--> AutoUpdateProfiles được bật. Đang thêm profile '{0}' (ID: {1}, AppID: {2}) VÀO HÀNG ĐỢI cập nhật...",
+                                profile.Name, profile.Id, profile.AppID);
+
+                            // Thực hiện gọi QueueProfileForUpdate
+                            bool queueSuccess = await _steamCmdService.QueueProfileForUpdate(profile.Id);
+
+                            if (queueSuccess)
+                            {
+                                _logger.LogInformation("--> Đã thêm profile '{0}' (ID: {1}) vào hàng đợi thành công.", profile.Name, profile.Id);
+                            }
+                            else
+                            {
+                                _logger.LogError("--> LỖI: Không thể thêm profile '{0}' (ID: {1}) vào hàng đợi.", profile.Name, profile.Id);
+                                // Bạn có thể muốn xử lý lỗi này thêm, ví dụ: ghi trạng thái lỗi vào profile
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogInformation("--> AutoUpdateProfiles đang tắt. KHÔNG tự động thêm profile '{0}' (ID: {1}) vào hàng đợi dù phát hiện cập nhật.", profile.Name, profile.Id);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Không có cập nhật mới cần xử lý cho profile '{0}' (AppID: {1}).", profile.Name, profile.AppID);
                     }
                 }
-                else
+                catch (Exception ex) // Catch block cho lỗi xử lý từng profile
                 {
-                    _logger.LogInformation("Không có cập nhật mới cho profile {0} (AppID: {1})", profile.Name, profile.AppID);
+                    _logger.LogError(ex, "Lỗi khi xử lý profile '{0}' (ID: {1}, AppID: {2}) trong quá trình kiểm tra cập nhật.",
+                                     profile.Name, profile.Id, profile.AppID);
+                    // Log này sẽ bắt các lỗi xảy ra trong vòng lặp, ví dụ: lỗi khi gọi SteamApiService, ProfileService, ReadAppManifest.
                 }
-            }
+
+                _logger.LogInformation("--- Kết thúc xử lý profile '{ProfileName}' ---", profile.Name);
+
+            } // Kết thúc vòng lặp foreach profile
 
             if (!anyUpdatesFound)
             {
-                _logger.LogInformation("Không phát hiện cập nhật mới cho bất kỳ profile nào cần kiểm tra.");
+                _logger.LogInformation("Không phát hiện cập nhật mới cần xử lý cho bất kỳ profile nào đã kiểm tra.");
+            }
+            else
+            {
+                _logger.LogInformation("Đã hoàn thành kiểm tra cập nhật. Ít nhất một profile đã được đánh dấu cần cập nhật (và có thể đã được thêm vào hàng đợi nếu AutoUpdateProfiles bật).");
             }
         }
     }
