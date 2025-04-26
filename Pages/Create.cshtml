@@ -1,4 +1,6 @@
 @page
+@using SteamCmdWebAPI.Models
+@using SteamCmdWebAPI.Services
 @model SteamCmdWebAPI.Pages.CreateModel
 @{
     ViewData["Title"] = "Tạo cấu hình mới - SteamAUTO";
@@ -13,6 +15,12 @@
             @Model.StatusMessage
         </div>
     }
+
+    <div class="mb-3">
+        <button type="button" id="scanGamesBtn" class="btn btn-info" data-bs-toggle="tooltip" title="Quét các thư mục trên máy tính để tìm game đã cài đặt">
+            <i class="bi bi-search"></i> Quét danh sách game
+        </button>
+    </div>
 
     <div class="row">
         <!-- Phần nhập thông tin cấu hình - Bên trái -->
@@ -128,7 +136,7 @@
                     <p>Nhập thông tin tài khoản Steam để tải game (nếu game yêu cầu đăng nhập):</p>
 
                     <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> Bạn cũng có thể sử dụng nút "Lấy từ Server" để nhập nhanh từ cơ sở dữ liệu có sẵn.
+                        <i class="bi bi-info-circle"></i> Bạn cũng có thể sử dụng nút "Quét danh sách game" để tự động tìm kiếm các game đã cài đặt trên máy.
                     </div>
                 </div>
             </div>
@@ -137,8 +145,186 @@
 </div>
 
 @section Scripts {
+    <!-- Modal để hiển thị danh sách game scan được (Sử dụng Bootstrap 5) -->
+    <div class="modal custom-modal" id="gamesModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Chọn game để tạo Profile</h5>
+                    <button type="button" class="btn-close close-modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> Nhấp vào game để điền thông tin vào form.
+                    </div>
+                    <div class="input-group mb-3">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" id="gameSearchInput" placeholder="Tìm kiếm game...">
+                    </div>
+                    <div id="gamesList" class="list-group" style="max-height: 400px; overflow-y: auto;">
+                        <!-- Danh sách game sẽ được thêm vào đây -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary close-modal">Đóng</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal hiển thị trạng thái đang quét -->
+    <div class="modal custom-modal" id="scanningModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body text-center p-4">
+                    <div class="spinner-border text-primary mb-3" role="status">
+                        <span class="visually-hidden">Đang quét...</span>
+                    </div>
+                    <h5>Đang quét các thư mục trên máy tính...</h5>
+                    <p class="text-muted">Quá trình này có thể mất vài phút.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        /* Modal tùy chỉnh */
+        .modal.custom-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 1050;
+            overflow: hidden;
+            outline: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+            .modal.custom-modal.show {
+                display: block;
+            }
+
+            .modal.custom-modal .modal-dialog {
+                position: relative;
+                max-width: 800px;
+                margin: 1.75rem auto;
+                pointer-events: none;
+            }
+
+            .modal.custom-modal .modal-content {
+                position: relative;
+                display: flex;
+                flex-direction: column;
+                width: 100%;
+                pointer-events: auto;
+                background-color: #fff;
+                border: 1px solid rgba(0, 0, 0, 0.2);
+                border-radius: 0.3rem;
+                outline: 0;
+                box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.5);
+            }
+
+        body.modal-open {
+            overflow: hidden;
+        }
+    </style>
+
     <script>
-        $(document).ready(function () {
+        $(document).ready(function() {
+            // Hàm tự viết để hiển thị/ẩn modal tùy chỉnh
+            function showModal(modalId) {
+                $('#' + modalId).addClass('show');
+                $('body').addClass('modal-open');
+            }
+
+            function hideModal(modalId) {
+                $('#' + modalId).removeClass('show');
+                $('body').removeClass('modal-open');
+            }
+
+            // Xử lý sự kiện đóng modal
+            $('.close-modal').click(function() {
+                var modalId = $(this).closest('.modal').attr('id');
+                hideModal(modalId);
+            });
+
+            // Đóng modal khi click ra ngoài
+            $(document).on('click', '.modal.custom-modal', function(e) {
+                if ($(e.target).hasClass('modal')) {
+                    hideModal($(e.target).attr('id'));
+                }
+            });
+
+            // Xử lý tìm kiếm trong modal games
+            $("#gameSearchInput").on("keyup", function() {
+                var value = $(this).val().toLowerCase();
+                $("#gamesList .list-group-item").each(function() {
+                    $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1);
+                });
+            });
+
+            // Xử lý nút scan games
+            $("#scanGamesBtn").click(function() {
+                $(this).prop("disabled", true).html('<i class="bi bi-hourglass"></i> Đang quét...');
+
+                // Hiển thị modal đang quét
+                showModal('scanningModal');
+
+                // AJAX request
+                $.ajax({
+                    url: "?handler=ScanGames",
+                    type: "GET",
+                    success: function(response) {
+                        // Ẩn modal đang quét
+                        hideModal('scanningModal');
+
+                        if (response && response.success && response.games && response.games.length > 0) {
+                            // Hiển thị danh sách game
+                            var gamesList = $("#gamesList");
+                            gamesList.empty();
+
+                            response.games.forEach(function(game) {
+                                var listItem = $('<div class="list-group-item list-group-item-action"></div>');
+                                listItem.html(`
+                                    <h6 class="mb-1">${game.gameName}</h6>
+                                    <small>
+                                        App ID: ${game.appId}<br>
+                                        Đường dẫn: ${game.installDir}
+                                    </small>
+                                `);
+
+                                listItem.on('click', function() {
+                                    // Điền thông tin vào form
+                                    $("#Profile_Name").val(game.gameName);
+                                    $("#Profile_AppID").val(game.appId);
+                                    $("#Profile_InstallDirectory").val(game.installDir);
+
+                                    // Đóng modal
+                                    hideModal('gamesModal');
+                                });
+
+                                gamesList.append(listItem);
+                            });
+
+                            // Hiển thị modal danh sách game
+                            showModal('gamesModal');
+                        } else {
+                            alert(response.message || "Không tìm thấy game nào");
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        // Ẩn modal đang quét
+                        hideModal('scanningModal');
+                        alert("Lỗi khi quét game: " + error);
+                    },
+                    complete: function() {
+                        $("#scanGamesBtn").prop("disabled", false).html('<i class="bi bi-search"></i> Quét danh sách game');
+                    }
+                });
+            });
+
             // Xử lý lấy thông tin profile từ server
             $("#getProfileBtn").click(function() {
                 var selectedProfile = $("#serverProfile").val();
@@ -151,7 +337,7 @@
 
                 $.ajax({
                     url: "?handler=ProfileFromServer",
-                    method: "GET",
+                    type: "GET",
                     data: { profileName: selectedProfile },
                     success: function(response) {
                         if (response && response.success && response.profile) {
@@ -191,7 +377,7 @@
 
                 $.ajax({
                     url: "?handler=ImportFromServer",
-                    method: "POST",
+                    type: "POST",
                     data: { profileName: selectedProfile },
                     headers: {
                         "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
