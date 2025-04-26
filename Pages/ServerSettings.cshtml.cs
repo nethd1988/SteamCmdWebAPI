@@ -38,6 +38,8 @@ namespace SteamCmdWebAPI.Pages
         public async Task OnGetAsync()
         {
             Settings = await _serverSettingsService.LoadSettingsAsync();
+            // Luôn thiết lập EnableServerSync = true
+            Settings.EnableServerSync = true;
         }
 
         public async Task<IActionResult> OnPostAsync()
@@ -46,10 +48,8 @@ namespace SteamCmdWebAPI.Pages
             {
                 // Lấy cài đặt hiện tại
                 var currentSettings = await _serverSettingsService.LoadSettingsAsync();
-
-                // Chỉ lưu thay đổi trạng thái EnableServerSync
-                currentSettings.EnableServerSync = Settings.EnableServerSync;
-
+                // Luôn thiết lập EnableServerSync = true
+                currentSettings.EnableServerSync = true;
                 await _serverSettingsService.SaveSettingsAsync(currentSettings);
 
                 StatusMessage = "Cài đặt server đã được lưu";

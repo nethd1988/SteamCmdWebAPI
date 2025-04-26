@@ -40,34 +40,36 @@ namespace SteamCmdWebAPI.Services
 
                     if (settings != null)
                     {
-                        // Luôn ghi đè địa chỉ server bằng địa chỉ mặc định
+                        // Luôn ghi đè địa chỉ server và thiết lập EnableServerSync = true
                         settings.ServerAddress = DEFAULT_SERVER_ADDRESS;
                         settings.ServerPort = DEFAULT_SERVER_PORT;
+                        settings.EnableServerSync = true;
                         return settings;
                     }
                 }
 
-                // Trả về cài đặt mặc định nếu không đọc được
-                return CreateDefaultSettings();
+                // Trả về cài đặt mặc định với EnableServerSync = true
+                return new ServerSettings
+                {
+                    ServerAddress = DEFAULT_SERVER_ADDRESS,
+                    ServerPort = DEFAULT_SERVER_PORT,
+                    EnableServerSync = true,
+                    ConnectionStatus = "Unknown",
+                    LastSyncTime = null
+                };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi đọc cài đặt server: {Message}", ex.Message);
-                return CreateDefaultSettings();
+                return new ServerSettings
+                {
+                    ServerAddress = DEFAULT_SERVER_ADDRESS,
+                    ServerPort = DEFAULT_SERVER_PORT,
+                    EnableServerSync = true,
+                    ConnectionStatus = "Unknown",
+                    LastSyncTime = null
+                };
             }
-        }
-
-        private ServerSettings CreateDefaultSettings()
-        {
-            // Cấu hình mặc định
-            return new ServerSettings
-            {
-                ServerAddress = DEFAULT_SERVER_ADDRESS,
-                ServerPort = DEFAULT_SERVER_PORT,
-                EnableServerSync = true,
-                ConnectionStatus = "Unknown",
-                LastSyncTime = null
-            };
         }
 
         public async Task SaveSettingsAsync(ServerSettings settings)

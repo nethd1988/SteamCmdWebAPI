@@ -15,34 +15,35 @@ namespace SteamCmdWebAPI.Pages
         private readonly ILogger<SettingsPageModel> _logger;
         private readonly IHubContext<LogHub> _hubContext;
         private readonly SettingsService _settingsService;
-        private readonly UpdateCheckService _updateCheckService; // Inject UpdateCheckService
+        private readonly UpdateCheckService _updateCheckService;
 
-        // Properties for Auto Run Settings
-        [BindProperty] // Use BindProperty for form data
-        public bool AutoRunEnabled { get; set; }
-        [BindProperty] // Use BindProperty for form data
-        public int AutoRunIntervalHours { get; set; } = 12; // Mặc định 12 giờ
+        // Properties for Auto Run Settings - Đặt mặc định theo hình
+        [BindProperty]
+        public bool AutoRunEnabled { get; set; } = true; // Mặc định bật
 
-        // Properties for Auto Update Check Settings
-        [BindProperty] // Use BindProperty for form data
-        public bool UpdateCheckEnabled { get; set; }
-        [BindProperty] // Use BindProperty for form data
-        public int UpdateCheckIntervalMinutes { get; set; } = 60; // Mặc định 60 phút (1 giờ)
+        [BindProperty]
+        public int AutoRunIntervalHours { get; set; } = 1; // Mặc định 1 tiếng
 
-        // *** ADD THIS PROPERTY ***
-        [BindProperty] // Add BindProperty to receive data from the form
-        public bool AutoUpdateProfiles { get; set; } // Define the missing property
+        // Properties for Auto Update Check Settings - Đặt mặc định theo hình
+        [BindProperty]
+        public bool UpdateCheckEnabled { get; set; } = true; // Mặc định bật
+
+        [BindProperty]
+        public int UpdateCheckIntervalMinutes { get; set; } = 10; // Mặc định 10 phút
+
+        [BindProperty]
+        public bool AutoUpdateProfiles { get; set; } = true; // Mặc định bật
 
         public SettingsPageModel(
             ILogger<SettingsPageModel> logger,
             IHubContext<LogHub> hubContext,
             SettingsService settingsService,
-            UpdateCheckService updateCheckService) // Inject UpdateCheckService
+            UpdateCheckService updateCheckService = null) // Thêm giá trị mặc định null
         {
-            _logger = logger;
-            _hubContext = hubContext;
-            _settingsService = settingsService;
-            _updateCheckService = updateCheckService; // Assign injected service
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _hubContext = hubContext ?? throw new ArgumentNullException(nameof(hubContext));
+            _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
+            _updateCheckService = updateCheckService; // Có thể null
         }
 
         public async Task OnGetAsync()
@@ -51,48 +52,38 @@ namespace SteamCmdWebAPI.Pages
 
             // Load Auto Run Settings
             var autoRunSettings = await _settingsService.LoadSettingsAsync();
-            AutoRunEnabled = autoRunSettings.AutoRunEnabled;
 
-            // Chuyển đổi từ cài đặt cũ sang mới nếu cần cho AutoRunIntervalHours
-            if (autoRunSettings.AutoRunIntervalHours > 0)
-            {
-                AutoRunIntervalHours = autoRunSettings.AutoRunIntervalHours;
-            }
-            else
-            {
-                // Nếu dùng cài đặt cũ, chuyển đổi sang giờ
-                switch (autoRunSettings.AutoRunInterval?.ToLower())
-                {
-                    case "daily":
-                        AutoRunIntervalHours = 24;
-                        break;
-                    case "weekly":
-                        AutoRunIntervalHours = 168; // 7 * 24
-                        break;
-                    case "monthly":
-                        AutoRunIntervalHours = 720; // 30 * 24 (gần đúng)
-                        break;
-                    default:
-                        AutoRunIntervalHours = 12; // Mặc định
-                        break;
-                }
-            }
-            // Giới hạn AutoRunIntervalHours trong khoảng 1-48 giờ
+            // Nếu không có cài đặt, sử dụng giá trị mặc định mới
+            AutoRunEnabled = autoRunSettings?.AutoRunEnabled ?? true;
+            AutoRunIntervalHours = autoRunSettings?.AutoRunIntervalHours > 0
+                ? autoRunSettings.AutoRunIntervalHours
+                : 1; // Mặc định 1 tiếng nếu không có giá trị
+
+            // Giới hạn trong khoảng hợp lý
             if (AutoRunIntervalHours < 1) AutoRunIntervalHours = 1;
             if (AutoRunIntervalHours > 48) AutoRunIntervalHours = 48;
 
+            // Load Update Check Settings - Kiểm tra null
+            if (_updateCheckService != null)
+            {
+                var updateCheckSettings = _updateCheckService.GetCurrentSettings();
+                UpdateCheckEnabled = updateCheckSettings?.Enabled ?? true;
+                UpdateCheckIntervalMinutes = updateCheckSettings?.IntervalMinutes > 0
+                    ? updateCheckSettings.IntervalMinutes
+                    : 10; // Mặc định 10 phút
+                AutoUpdateProfiles = updateCheckSettings?.AutoUpdateProfiles ?? true;
+            }
+            else
+            {
+                // Giá trị mặc định khi không có dịch vụ
+                UpdateCheckEnabled = true;
+                UpdateCheckIntervalMinutes = 10;
+                AutoUpdateProfiles = true;
+            }
 
-            // Load Update Check Settings
-            var updateCheckSettings = _updateCheckService.GetCurrentSettings();
-            UpdateCheckEnabled = updateCheckSettings.Enabled;
-            UpdateCheckIntervalMinutes = updateCheckSettings.IntervalMinutes;
-            // *** ALSO LOAD THE NEW PROPERTY ***
-            AutoUpdateProfiles = updateCheckSettings.AutoUpdateProfiles; // Load the initial value for the checkbox
-
-            // Giới hạn UpdateCheckIntervalMinutes trong khoảng hợp lý (ví dụ 10 phút đến 1440 phút = 24 giờ)
+            // Giới hạn UpdateCheckIntervalMinutes trong khoảng hợp lý
             if (UpdateCheckIntervalMinutes < 10) UpdateCheckIntervalMinutes = 10;
             if (UpdateCheckIntervalMinutes > 1440) UpdateCheckIntervalMinutes = 1440;
-
 
             _logger.LogInformation("Đã tải cài đặt");
         }
@@ -149,15 +140,25 @@ namespace SteamCmdWebAPI.Pages
                     return RedirectToPage();
                 }
 
-                // Use UpdateCheckService to update settings
-                _updateCheckService.UpdateSettings(
-                    UpdateCheckEnabled,
-                    TimeSpan.FromMinutes(UpdateCheckIntervalMinutes),
-                    AutoUpdateProfiles // Sử dụng AutoUpdateProfiles từ form (this property is now defined)
-                );
+                // Kiểm tra null trước khi sử dụng UpdateCheckService
+                if (_updateCheckService != null)
+                {
+                    // Cập nhật cài đặt qua UpdateCheckService
+                    _updateCheckService.UpdateSettings(
+                        UpdateCheckEnabled,
+                        TimeSpan.FromMinutes(UpdateCheckIntervalMinutes),
+                        AutoUpdateProfiles
+                    );
 
-                TempData["SuccessMessage"] = $"Cấu hình kiểm tra cập nhật tự động đã được cập nhật: {(UpdateCheckEnabled ? "Bật" : "Tắt")}, " +
+                    TempData["SuccessMessage"] = $"Cấu hình kiểm tra cập nhật tự động đã được cập nhật: {(UpdateCheckEnabled ? "Bật" : "Tắt")}, " +
                                             $"{UpdateCheckIntervalMinutes} phút/lần, Tự động cập nhật khi phát hiện: {(AutoUpdateProfiles ? "Bật" : "Tắt")}";
+                }
+                else
+                {
+                    _logger.LogWarning("Không thể lưu cài đặt kiểm tra cập nhật: Dịch vụ UpdateCheckService không khả dụng");
+                    TempData["SuccessMessage"] = "Cài đặt đã được lưu nhưng dịch vụ kiểm tra cập nhật không khả dụng.";
+                }
+
                 return RedirectToPage();
             }
             catch (Exception ex)
@@ -167,14 +168,5 @@ namespace SteamCmdWebAPI.Pages
                 return RedirectToPage();
             }
         }
-
-
-        // Helper method để chuyển đổi giờ thành chuỗi tương thích ngược (có thể không cần nữa)
-        // private string ConvertIntervalHoursToString(int hours)
-        // {
-        //     if (hours <= 24) return "daily";
-        //     if (hours <= 168) return "weekly";
-        //     return "monthly";
-        // }
     }
 }

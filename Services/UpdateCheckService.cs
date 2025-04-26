@@ -24,10 +24,10 @@ namespace SteamCmdWebAPI.Services
         private readonly object _settingsLock = new object();
 
         public UpdateCheckService(
-            ILogger<UpdateCheckService> logger,
-            SteamApiService steamApiService,
-            ProfileService profileService,
-            SteamCmdService steamCmdService)
+    ILogger<UpdateCheckService> logger,
+    SteamApiService steamApiService,
+    ProfileService profileService,
+    SteamCmdService steamCmdService)
         {
             _logger = logger;
             _steamApiService = steamApiService;
@@ -42,6 +42,12 @@ namespace SteamCmdWebAPI.Services
             }
 
             _settingsFilePath = Path.Combine(dataDir, "update_check_settings.json");
+
+            // Các giá trị mặc định theo hình
+            _checkInterval = TimeSpan.FromMinutes(10); // 10 phút
+            _enabled = true; // Bật tính năng
+            _autoUpdateProfiles = true; // Bật tự động cập nhật
+
             LoadSettings();
         }
 

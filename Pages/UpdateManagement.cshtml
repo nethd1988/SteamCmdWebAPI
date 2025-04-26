@@ -14,38 +14,7 @@
         </div>
     }
 
-    <div class="card mb-4">
-        <div class="card-header bg-primary text-white">
-            <h5 class="mb-0">Cài đặt kiểm tra cập nhật</h5>
-        </div>
-        <div class="card-body">
-            <form method="post" asp-page-handler="SaveUpdateCheckSettings">
-                @Html.AntiForgeryToken()
-                <div class="row">
-                    <div class="col-md-4">
-                        <div class="form-check mb-3">
-                            <input type="checkbox" class="form-check-input" id="updateCheckEnabled" asp-for="UpdateCheckEnabled" />
-                            <label class="form-check-label" for="updateCheckEnabled">Kích hoạt kiểm tra cập nhật tự động</label>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="mb-3">
-                            <label for="updateCheckIntervalMinutes" class="form-label">Khoảng thời gian kiểm tra (phút)</label>
-                            <input type="number" class="form-control" id="updateCheckIntervalMinutes" asp-for="UpdateCheckIntervalMinutes" min="10" max="1440" step="10" />
-                            <small class="form-text text-muted">Hệ thống sẽ kiểm tra cập nhật mới sau mỗi khoảng thời gian này (tối thiểu 10 phút, tối đa 1440 phút).</small>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="form-check mb-3">
-                            <input type="checkbox" class="form-check-input" id="autoUpdateProfiles" asp-for="AutoUpdateProfiles" />
-                            <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật profile khi có cập nhật mới</label>
-                        </div>
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-primary">Lưu cài đặt</button>
-            </form>
-        </div>
-    </div>
+    <
 
     <div class="card mb-4">
         <div class="card-header bg-primary text-white">

@@ -922,8 +922,13 @@ namespace SteamCmdWebAPI.Services
 
 
             // --- First Run: Update all identified App IDs (NO validate) ---
-            await SafeSendLogAsync(profile.Name, "Info", $"Bắt đầu lần chạy cập nhật đầu tiên cho: {string.Join(", ", appNamesForLog.Select(kv => $"'{kv.Value}' ({kv.Key})"))}");
-            var initialRunResult = await RunSteamCmdProcessAsync(profile, id, appIdsToUpdateInitial, forceValidate: false);
+            await SafeSendLogAsync(profile.Name, "Info", "═══════════════════════════════════════════════════════");
+            await SafeSendLogAsync(profile.Name, "Info", "              LẦN CẬP NHẬT THỨ NHẤT (1)               ");
+            await SafeSendLogAsync(profile.Name, "Info", "═══════════════════════════════════════════════════════");
+            await SafeSendLogAsync(profile.Name, "Info", $"Bắt đầu lần cập nhật đầu tiên cho: {string.Join(", ", appNamesForLog.Select(kv => $"'{kv.Value}' ({kv.Key})"))}");
+            await SafeSendLogAsync(profile.Name, "Info", "Chạy update KHÔNG Verify để kiểm tra nhanh");
+            await SafeSendLogAsync(profile.Name, "Info", "═══════════════════════════════════════════════════════");
+            var initialRunResult = await RunSteamCmdProcessAsync(profile, id, appIdsToUpdateInitial, forceValidate: false); ;
 
             // --- Check for Login Error after the run ---
             // This now also covers the case where credentials were missing/invalid before the process even started
@@ -996,8 +1001,8 @@ namespace SteamCmdWebAPI.Services
                     .Select(appId => $"'{appNamesForLog.GetValueOrDefault(appId, appId)}' ({appId})")
                     .ToList();
 
-                _logger.LogWarning($"Phát hiện {failedAppIdsForRetry.Count} game cần thử lại với validate: {string.Join(", ", failedAppNamesForRetryLog)}. Đang thực hiện lần chạy thứ hai...");
-                await SafeSendLogAsync(profile.Name, "Warning", $"Phát hiện {failedAppIdsForRetry.Count} game cần thử lại với validate. Bắt đầu lần chạy thứ hai...");
+                _logger.LogWarning($"Phát hiện {failedAppIdsForRetry.Count} game cần thử lại với Verify: {string.Join(", ", failedAppNamesForRetryLog)}. Đang thực hiện lần chạy thứ hai...");
+                await SafeSendLogAsync(profile.Name, "Warning", $"Phát hiện {failedAppIdsForRetry.Count} game cần thử lại với Verify. Bắt đầu lần chạy thứ hai...");
 
                 // Run retry specifically for failed App IDs with forced validation
                 var retryRunResult = await RunSteamCmdProcessAsync(profile, id, failedAppIdsForRetry, forceValidate: true);
