@@ -196,7 +196,10 @@ class SteamCmdConsole {
             if (!line.trim()) continue;
 
             // Đẩy vào hàng đợi thay vì render ngay lập tức
-            this.pendingLines.push({ text: line, type });
+            // Check if the line is already in the pending queue to prevent duplicates
+            if (!this.pendingLines.some(item => item.text === line)) {
+                this.pendingLines.push({ text: line, type });
+            }
         }
     }
 
