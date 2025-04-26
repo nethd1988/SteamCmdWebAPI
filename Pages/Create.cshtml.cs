@@ -273,14 +273,14 @@ namespace SteamCmdWebAPI.Pages
                     // Đường dẫn Steam cơ bản cần kiểm tra
                     var steamPaths = new[]
                     {
-                Path.Combine(drive.RootDirectory.FullName, "Program Files (x86)", "Steam"),
-                Path.Combine(drive.RootDirectory.FullName, "Program Files", "Steam"),
-                Path.Combine(drive.RootDirectory.FullName, "Steam"),
-                Path.Combine(drive.RootDirectory.FullName, "Games", "Steam"),
-                Path.Combine(drive.RootDirectory.FullName, "Games"),
-                Path.Combine(drive.RootDirectory.FullName, "SteamLibrary"),
-                Path.Combine(drive.RootDirectory.FullName, "Online Games"),
-            };
+                        Path.Combine(drive.RootDirectory.FullName, "Program Files (x86)", "Steam"),
+                        Path.Combine(drive.RootDirectory.FullName, "Program Files", "Steam"),
+                        Path.Combine(drive.RootDirectory.FullName, "Steam"),
+                        Path.Combine(drive.RootDirectory.FullName, "Games", "Steam"),
+                        Path.Combine(drive.RootDirectory.FullName, "Games"),
+                        Path.Combine(drive.RootDirectory.FullName, "SteamLibrary"),
+                        Path.Combine(drive.RootDirectory.FullName, "Online Games"),
+                    };
 
                     foreach (var steamPath in steamPaths)
                     {
@@ -354,6 +354,15 @@ namespace SteamCmdWebAPI.Pages
                             // Lấy tên game từ manifest  
                             var nameMatch = Regex.Match(content, @"""name""\s+""([^""]+)""");
                             var gameName = nameMatch.Success ? nameMatch.Groups[1].Value : $"AppID {appId}";
+
+                            // Bỏ qua Steamworks Common Redistributables và các gói phân phối lại
+                            if (gameName.Contains("Steamworks Common Redistributables") ||
+                                appId == "228980" ||
+                                gameName.Contains("Redistributable") ||
+                                gameName.Contains("Redist"))
+                            {
+                                continue;
+                            }
 
                             // Lấy đường dẫn cài đặt (phụ huynh của steamapps)
                             var installDir = directory;
