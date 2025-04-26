@@ -837,7 +837,7 @@ namespace SteamCmdWebAPI.Services
             await SafeSendLogAsync(profile.Name, "Info", "              LẦN CẬP NHẬT THỨ NHẤT (1)               ");
             await SafeSendLogAsync(profile.Name, "Info", "═══════════════════════════════════════════════════════");
             await SafeSendLogAsync(profile.Name, "Info", $"Bắt đầu lần cập nhật đầu tiên cho: {string.Join(", ", appNamesForLog.Select(kv => $"'{kv.Value}' ({kv.Key})"))}");
-            await SafeSendLogAsync(profile.Name, "Info", "Chạy update KHÔNG validate để kiểm tra nhanh");
+            await SafeSendLogAsync(profile.Name, "Info", "Chạy update KHÔNG Verify để kiểm tra nhanh");
             await SafeSendLogAsync(profile.Name, "Info", "═══════════════════════════════════════════════════════");
             var initialRunResult = await RunSteamCmdProcessAsync(profile, id, appIdsToUpdateInitial, forceValidate: false); ;
 
