@@ -724,15 +724,17 @@ namespace SteamCmdWebAPI.Services
                             _logger.LogWarning("Xử lý cập nhật không thành công cho {ProfileName} (ID: {ProfileId})", profileName, profileId);
                             await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật KHÔNG thành công cho {profile.Name} (ID: {profileId}). Kiểm tra log.");
 
-                            // --- Added Logic for Login Error Handling ---
+                            // --- Modified Logic for Login Error Handling ---
+                            // If a single profile run fails (especially due to login), stop the queue.
+                            // This behavior might be adjusted depending on desired error handling for RunAll vs single run.
                             if (_lastRunHadLoginError && !_isRunningAllProfiles)
                             {
                                 _logger.LogWarning("Phát hiện lỗi đăng nhập khi chạy 1 profile. Dừng xử lý hàng đợi.");
-                                await SafeSendLogAsync("System", "Warning", "Đã phát hiện lỗi đăng nhập. Dừng xử lý hàng đợi.");
+                                await SafeSendLogAsync("System", "Warning", "Đã phát hiện lỗi đăng nhập hoặc lỗi thiếu thông tin đăng nhập. Dừng xử lý hàng đợi.");
                                 break; // Exit the while loop to stop queue processing
                             }
-                            // If it's a different error or _isRunningAllProfiles is true, the loop continues to the next profile
-                            // --- End Added Logic ---
+                            // If it's _isRunningAllProfiles, continue to the next profile even if one fails (including login failure)
+                            // --- End Modified Logic ---
                         }
 
                         _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Waiting 3000ms before next item...");
@@ -749,6 +751,7 @@ namespace SteamCmdWebAPI.Services
                             profile.StopTime = DateTime.Now;
                             await _profileService.UpdateProfile(profile);
                         }
+                        // --- Modified Logic for Login Error Handling ---
                         // Even on general exception, if not running all and last run had login error, stop
                         if (_lastRunHadLoginError && !_isRunningAllProfiles)
                         {
@@ -756,6 +759,7 @@ namespace SteamCmdWebAPI.Services
                             await SafeSendLogAsync("System", "Warning", "Đã phát hiện lỗi đăng nhập hoặc lỗi liên quan. Dừng xử lý hàng đợi.");
                             break;
                         }
+                        // --- End Modified Logic ---
                     }
                     _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: End of loop iteration for {ProfileName}. Remaining queue count: {Count}", profileName, _updateQueue.Count);
                 } // End while loop (queue processing)
@@ -922,13 +926,25 @@ namespace SteamCmdWebAPI.Services
             var initialRunResult = await RunSteamCmdProcessAsync(profile, id, appIdsToUpdateInitial, forceValidate: false);
 
             // --- Check for Login Error after the run ---
+            // This now also covers the case where credentials were missing/invalid before the process even started
             if (_lastRunHadLoginError)
             {
-                _logger.LogError("Phát hiện lỗi đăng nhập sau khi RunSteamCmdProcessAsync hoàn tất cho profile {ProfileName}.", profile.Name);
-                profile.Status = "Error"; // Set status to Error on login failure
+                _logger.LogError("Phát hiện lỗi đăng nhập (hoặc thiếu thông tin đăng nhập) sau khi RunSteamCmdProcessAsync hoàn tất cho profile {ProfileName}.", profile.Name);
+                profile.Status = "Error"; // Set status to Error on login failure/missing credentials
                 profile.StopTime = DateTime.Now;
                 await _profileService.UpdateProfile(profile);
-                return false; // Indicate failure due to login error
+                return false; // Indicate failure due to login error or missing credentials
+            }
+
+            // Check if the initial run failed for reasons other than login (e.g., process couldn't start, non-zero exit code not related to login)
+            if (!initialRunResult.Success)
+            {
+                _logger.LogError("RunSteamCmdProcessAsync lần đầu tiên thất bại cho profile {ProfileName} với Exit Code: {ExitCode}. Sẽ không tiếp tục kiểm tra manifest.", profile.Name, initialRunResult.ExitCode);
+                // Already logged specific error in RunSteamCmdProcessAsync if exit code was non-zero
+                profile.Status = "Error";
+                profile.StopTime = DateTime.Now;
+                await _profileService.UpdateProfile(profile);
+                return false; // Indicate failure
             }
 
 
@@ -939,7 +955,7 @@ namespace SteamCmdWebAPI.Services
 
             // --- Check Manifests and Identify Failures ---
             var failedAppIdsForRetry = new List<string>();
-            await SafeSendLogAsync(profile.Name, "Info", "Đang kiểm tra kết quả cập nhật lần đầu từ file manifest...");
+            await SafeSendLogAsync(profile.Name, "Info", "Đang kiểm tra kết quả cập nhật lần đầu...");
 
             foreach (var appId in appIdsToUpdateInitial)
             {
@@ -987,13 +1003,25 @@ namespace SteamCmdWebAPI.Services
                 var retryRunResult = await RunSteamCmdProcessAsync(profile, id, failedAppIdsForRetry, forceValidate: true);
 
                 // --- Check for Login Error after Retry Run ---
+                // This now also covers the case where credentials were missing/invalid before the process even started
                 if (_lastRunHadLoginError)
                 {
-                    _logger.LogError("Phát hiện lỗi đăng nhập sau khi RunSteamCmdProcessAsync (retry) hoàn tất cho profile {ProfileName}.", profile.Name);
-                    profile.Status = "Error"; // Set status to Error on login failure
+                    _logger.LogError("Phát hiện lỗi đăng nhập (hoặc thiếu thông tin đăng nhập) sau khi RunSteamCmdProcessAsync (retry) hoàn tất cho profile {ProfileName}.", profile.Name);
+                    profile.Status = "Error"; // Set status to Error on login failure/missing credentials
                     profile.StopTime = DateTime.Now;
                     await _profileService.UpdateProfile(profile);
-                    return false; // Indicate failure due to login error
+                    return false; // Indicate failure due to login error or missing credentials
+                }
+
+                // Check if the retry run failed for reasons other than login
+                if (!retryRunResult.Success)
+                {
+                    _logger.LogError("RunSteamCmdProcessAsync lần thử lại thất bại cho profile {ProfileName} với Exit Code: {ExitCode}.", profile.Name, retryRunResult.ExitCode);
+                    // Already logged specific error in RunSteamCmdProcessAsync
+                    profile.Status = "Error";
+                    profile.StopTime = DateTime.Now;
+                    await _profileService.UpdateProfile(profile);
+                    return false; // Indicate retry failure
                 }
 
 
@@ -1108,63 +1136,94 @@ namespace SteamCmdWebAPI.Services
         /// </summary>
         private class SteamCmdRunResult
         {
-            public bool Success { get; set; } // Based on Exit Code (0 or 2)
-            // FailedAppIdsState204 is removed as primary check relies on post-run manifest parsing
-            public int ExitCode { get; set; }
+            public bool Success { get; set; } // Based on Exit Code (0 or 2) AND no login errors
+            public int ExitCode { get; set; } = -1; // Default to error exit code
         }
 
         /// <summary>
         /// Runs the SteamCMD process for the specified App IDs.
+        /// Requires valid Steam credentials; anonymous login is removed.
         /// </summary>
         /// <param name="forceValidate">Append 'validate' after each 'app_update'.</param>
-        /// <returns>Result including exit code.</returns>
+        /// <returns>Result including exit code and success status.</returns>
         private async Task<SteamCmdRunResult> RunSteamCmdProcessAsync(SteamCmdProfile profile, int profileId, List<string> appIdsToUpdate, bool forceValidate)
         {
             Process steamCmdProcess = null;
-            var runResult = new SteamCmdRunResult { Success = false, ExitCode = -1 };
+            var runResult = new SteamCmdRunResult { Success = false, ExitCode = -1 }; // Default to failure
             string steamCmdPath = GetSteamCmdPath();
             string steamCmdDir = Path.GetDirectoryName(steamCmdPath);
 
-            // Regex cho lỗi
-            var errorRegexState204 = new Regex(@"Error! App '(\d+)' state is 0x204 after update job", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            // Reset login error flag at the beginning of each attempt
+            _lastRunHadLoginError = false;
+
+            // Regex cho lỗi đăng nhập
             var invalidPasswordRegex = new Regex(@"^Logging in user '.*' \[U:1:\d+\] to Steam Public\.\.\.ERROR \(Invalid Password\)", RegexOptions.Compiled);
             var notOnlineErrorRegex = new Regex(@"^ERROR! Failed to request AppInfo update, not online or not logged in to Steam\.$", RegexOptions.Compiled);
+            var errorRegexState204 = new Regex(@"Error! App '(\d+)' state is 0x204 after update job", RegexOptions.Compiled | RegexOptions.IgnoreCase); // Kept for runtime error detection
+
 
             try
             {
                 if (!File.Exists(steamCmdPath))
                 {
                     await SafeSendLogAsync(profile.Name, "Error", $"File SteamCMD không tồn tại: {steamCmdPath}");
+                    runResult.ExitCode = -99; // Custom code for missing executable
                     return runResult;
                 }
 
-                // Chuẩn bị tham số SteamCMD
-                StringBuilder argumentsBuilder = new StringBuilder();
+                // --- START: Modified Login Logic ---
+                string loginCommand = null; // Initialize to null
 
-                // Đăng nhập
-                string loginCommand = "+login anonymous";
                 if (!string.IsNullOrEmpty(profile.SteamUsername) && !string.IsNullOrEmpty(profile.SteamPassword))
                 {
                     try
                     {
                         string username = _encryptionService.Decrypt(profile.SteamUsername);
                         string password = _encryptionService.Decrypt(profile.SteamPassword);
-                        loginCommand = $"+login \"{username}\" \"{password}\"";
+                        // Basic check if username/password became empty after decryption attempt (shouldn't happen with proper encryption)
+                        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+                        {
+                            _logger.LogError("Tên người dùng hoặc mật khẩu trống sau khi giải mã cho profile {ProfileName}", profile.Name);
+                            await SafeSendLogAsync(profile.Name, "Error", "Lỗi: Tên người dùng hoặc mật khẩu trống sau khi giải mã.");
+                            _lastRunHadLoginError = true; // Treat as login error
+                            runResult.ExitCode = -98; // Custom code for decryption yielding empty strings
+                            return runResult;
+                        }
+                        loginCommand = $"+login {username} {password}";
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Lỗi giải mã thông tin đăng nhập cho profile {ProfileName}", profile.Name);
-                        await SafeSendLogAsync(profile.Name, "Error", $"Lỗi giải mã thông tin đăng nhập: {ex.Message}. Sử dụng login anonymous.");
-                        loginCommand = "+login anonymous";
+                        await SafeSendLogAsync(profile.Name, "Error", $"Lỗi giải mã thông tin đăng nhập: {ex.Message}. Không thể tiếp tục.");
+                        _lastRunHadLoginError = true; // Treat as login error
+                        runResult.ExitCode = -97; // Custom code for decryption error
+                        return runResult;
                     }
                 }
-                argumentsBuilder.Append(loginCommand);
+                else
+                {
+                    // Credentials not provided
+                    _logger.LogError("Thông tin đăng nhập Steam (Username/Password) không được cung cấp cho profile {ProfileName}. Không thể đăng nhập.", profile.Name);
+                    await SafeSendLogAsync(profile.Name, "Error", "Lỗi: Thông tin đăng nhập Steam không được cung cấp. Profile này yêu cầu tài khoản.");
+                    _lastRunHadLoginError = true; // Treat as login error
+                    runResult.ExitCode = -96; // Custom code for missing credentials
+                    return runResult;
+                }
+
+                // If we reach here, loginCommand MUST be set and valid (unless decryption failed above)
+                // --- END: Modified Login Logic ---
+
+
+                // Chuẩn bị tham số SteamCMD
+                StringBuilder argumentsBuilder = new StringBuilder();
+                argumentsBuilder.Append(loginCommand); // Append the mandatory login command
 
                 // App Updates
                 if (appIdsToUpdate == null || !appIdsToUpdate.Any())
                 {
                     _logger.LogWarning("RunSteamCmdProcessAsync được gọi không có App ID nào để cập nhật cho profile {ProfileName}", profile.Name);
                     await SafeSendLogAsync(profile.Name, "Warning", "Không có App ID nào được chỉ định để cập nhật trong lần chạy này.");
+                    // Consider this a success if login was okay but no apps needed update
                     runResult.Success = true;
                     runResult.ExitCode = 0;
                     return runResult;
@@ -1243,42 +1302,50 @@ namespace SteamCmdWebAPI.Services
 
                     // Các mẫu regex cho các dòng cần loại bỏ
                     Regex[] linesToRemoveRegex = {
-                new Regex(@"^Redirecting stderr to '.*steamcmd\\logs\\stderr\.txt'$", RegexOptions.Compiled),
-                new Regex(@"^Logging directory: '.*steamcmd/logs'$", RegexOptions.Compiled),
-                new Regex(@"^\[\s*0%\] Checking for available updates\.\.\.$", RegexOptions.Compiled),
-                new Regex(@"^\[----\].*Verifying installation\.\.\.$", RegexOptions.Compiled),
-                new Regex(@"^Loading Steam API\.\.\.OK$", RegexOptions.Compiled),
-                new Regex(@"^Logging in using username/password\.$", RegexOptions.Compiled),
-                new Regex(@"^Waiting for client config\.\.\.OK$", RegexOptions.Compiled),
-                new Regex(@"^Waiting for user info\.\.\.OK$", RegexOptions.Compiled),
-                new Regex(@"^Steam Console Client \(c\) Valve Corporation - version \d+$", RegexOptions.Compiled),
-                new Regex(@"^-- type 'quit' to exit --$", RegexOptions.Compiled),
-            };
+                        new Regex(@"^Redirecting stderr to '.*steamcmd\\logs\\stderr\.txt'$", RegexOptions.Compiled),
+                        new Regex(@"^Logging directory: '.*steamcmd/logs'$", RegexOptions.Compiled),
+                        new Regex(@"^\[\s*0%\] Checking for available updates\.\.\.$", RegexOptions.Compiled),
+                        new Regex(@"^\[----\].*Verifying installation\.\.\.$", RegexOptions.Compiled),
+                        new Regex(@"^Loading Steam API\.\.\.OK$", RegexOptions.Compiled),
+                        //Keep login messages for success/failure detection
+                        new Regex(@"^Logging in using username/password\.$", RegexOptions.Compiled), // Keep this maybe?
+                        new Regex(@"^Waiting for client config\.\.\.OK$", RegexOptions.Compiled),
+                        new Regex(@"^Waiting for user info\.\.\.OK$", RegexOptions.Compiled),
+                        new Regex(@"^Steam Console Client \(c\) Valve Corporation - version \d+$", RegexOptions.Compiled),
+                        new Regex(@"^-- type 'quit' to exit --$", RegexOptions.Compiled),
+                    };
 
                     // Regex để phát hiện thông báo đăng nhập thành công
                     var loginSuccessRegex = new Regex(@"^Logging in user '.*' \[U:1:\d+\] to Steam Public\.\.\.OK$", RegexOptions.Compiled);
 
-                    // Xử lý lỗi đăng nhập
+                    // Xử lý lỗi đăng nhập (OUTPUT based)
                     if (invalidPasswordRegex.IsMatch(line))
                     {
-                        _logger.LogError($"Phát hiện lỗi đăng nhập (Sai mật khẩu) cho profile '{profile.Name}'.");
+                        _logger.LogError($"Phát hiện lỗi đăng nhập (Sai mật khẩu) từ output SteamCMD cho profile '{profile.Name}'.");
                         _ = SafeSendLogAsync(profile.Name, "Error", "Lỗi đăng nhập: Sai tài khoản hoặc mật khẩu.");
                         _lastRunHadLoginError = true;
+                        // Optionally try to kill the process immediately on login failure detection
+                        // if (!_steamCmdProcesses.TryGetValue(profileId, out var proc) || proc.HasExited) return;
+                        // _ = KillProcessAsync(proc, profile.Name); // Non-blocking kill attempt
                         return;
                     }
                     if (notOnlineErrorRegex.IsMatch(line))
                     {
-                        _logger.LogError($"Phát hiện lỗi không online/không đăng nhập cho profile '{profile.Name}' sau khi thử đăng nhập.");
-                        _ = SafeSendLogAsync(profile.Name, "Error", "Lỗi kết nối Steam hoặc không đăng nhập được sau khi thử.");
+                        _logger.LogError($"Phát hiện lỗi không online/không đăng nhập từ output SteamCMD cho profile '{profile.Name}'.");
+                        _ = SafeSendLogAsync(profile.Name, "Error", "Lỗi kết nối Steam hoặc không đăng nhập được (SteamCMD output).");
                         _lastRunHadLoginError = true;
+                        // Optionally try to kill the process immediately
+                        // if (!_steamCmdProcesses.TryGetValue(profileId, out var proc) || proc.HasExited) return;
+                        // _ = KillProcessAsync(proc, profile.Name);
                         return;
                     }
 
                     // Phát hiện đăng nhập thành công
                     if (loginSuccessRegex.IsMatch(line))
                     {
-                        _ = SafeSendLogAsync(profile.Name, "Success", "Đăng nhập thành công.");
-                        return;
+                        _logger.LogInformation($"Đăng nhập Steam thành công cho profile '{profile.Name}' (SteamCMD output).");
+                        _ = SafeSendLogAsync(profile.Name, "Success", "Đăng nhập Steam thành công.");
+                        // Don't return here, let other output process
                     }
 
                     // Kiểm tra loại bỏ dòng
@@ -1322,8 +1389,18 @@ namespace SteamCmdWebAPI.Services
                 // Xử lý lỗi
                 steamCmdProcess.ErrorDataReceived += (sender, e) => {
                     if (string.IsNullOrEmpty(e.Data)) return;
-                    _logger.LogError("SteamCMD Error ({ProfileName}): {Data}", profile.Name, e.Data);
-                    _ = _hubContext.Clients.All.SendAsync("ReceiveLog", $"LỖI SteamCMD: {e.Data}");
+                    // Treat common stderr messages as info/warnings unless clearly an error
+                    string errorLine = e.Data.Trim();
+                    if (errorLine.Contains("Invalid platform") || errorLine.Contains("missing loadexisting"))
+                    {
+                        _logger.LogWarning("SteamCMD Stderr ({ProfileName}): {Data}", profile.Name, errorLine);
+                        _ = _hubContext.Clients.All.SendAsync("ReceiveLog", $"CẢNH BÁO SteamCMD: {errorLine}");
+                    }
+                    else
+                    {
+                        _logger.LogError("SteamCMD Error ({ProfileName}): {Data}", profile.Name, errorLine);
+                        _ = _hubContext.Clients.All.SendAsync("ReceiveLog", $"LỖI SteamCMD: {errorLine}");
+                    }
                 };
 
                 // Khởi động và theo dõi
@@ -1336,30 +1413,54 @@ namespace SteamCmdWebAPI.Services
                 steamCmdProcess.BeginErrorReadLine();
                 outputTimer.Start();
 
-                steamCmdProcess.WaitForExit();
+                // --- Modified Wait ---
+                // Wait for exit, but check periodically for _lastRunHadLoginError flag set by output handler
+                bool exited = false;
+                while (!exited)
+                {
+                    exited = steamCmdProcess.WaitForExit(500); // Wait 500ms
+                    if (_lastRunHadLoginError)
+                    {
+                        _logger.LogWarning("Phát hiện lỗi đăng nhập trong khi SteamCMD đang chạy cho profile '{ProfileName}'. Sẽ dừng tiến trình.", profile.Name);
+                        await KillProcessAsync(steamCmdProcess, profile.Name); // Attempt to kill the process
+                        exited = true; // Exit the wait loop
+                    }
+                    // Optional: Add timeout logic here if needed
+                }
+                // --- End Modified Wait ---
 
-                runResult.ExitCode = steamCmdProcess.ExitCode;
+
+                runResult.ExitCode = _lastRunHadLoginError ? -95 : steamCmdProcess.ExitCode; // Use custom code if login error flag was set
 
                 // Dọn dẹp
                 outputTimer.Stop();
-                await SendBufferedOutput();
+                await SendBufferedOutput(); // Send any remaining buffered output
 
                 _steamCmdProcesses.TryRemove(profileId, out _);
 
                 // Xác định kết quả
-                runResult.Success = (runResult.ExitCode == 0 || runResult.ExitCode == 2) && !_lastRunHadLoginError;
+                // Success is ONLY if exit code is 0 or 2 AND there was NO login error detected before or during run
+                runResult.Success = !_lastRunHadLoginError && (runResult.ExitCode == 0 || runResult.ExitCode == 2);
 
                 if (runResult.Success)
                 {
-                    _logger.LogInformation("Quá trình SteamCMD cho '{ProfileName}' hoàn tất thành công. Exit Code: {ExitCode}", profile.Name, runResult.ExitCode);
-                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Quá trình SteamCMD cho '{profile.Name}' hoàn tất thành công (Code: {runResult.ExitCode}).");
+                    _logger.LogInformation("Cập nhật Game cho '{ProfileName}' hoàn tất thành công. Exit Code: {ExitCode}", profile.Name, runResult.ExitCode);
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật Game cho '{profile.Name}' hoàn tất thành công (Code: {runResult.ExitCode}).");
                 }
                 else
                 {
                     // Log lỗi
-                    string errorReason = _lastRunHadLoginError ? "Lỗi đăng nhập" : $"Exit Code: {runResult.ExitCode}";
-                    _logger.LogError("Quá trình SteamCMD cho '{ProfileName}' thất bại. Lý do: {Reason}", profile.Name, errorReason);
-                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Quá trình SteamCMD cho '{profile.Name}' thất bại. Lý do: {errorReason}.");
+                    string errorReason;
+                    if (_lastRunHadLoginError)
+                    {
+                        errorReason = $"Lỗi đăng nhập hoặc thiếu thông tin đăng nhập (Internal Code: {runResult.ExitCode})";
+                    }
+                    else
+                    {
+                        errorReason = $"Exit Code: {runResult.ExitCode}";
+                    }
+                    _logger.LogError("Cập nhật Game cho cho '{ProfileName}' thất bại. Lý do: {Reason}", profile.Name, errorReason);
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật Game cho '{profile.Name}' thất bại. Lý do: {errorReason}.");
                 }
             }
             catch (Exception ex)
@@ -1367,8 +1468,8 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogError(ex, "Lỗi nghiêm trọng khi chạy SteamCMD cho profile {ProfileName}: {Message}", profile?.Name ?? "Unknown", ex.Message);
                 await SafeSendLogAsync(profile?.Name ?? $"Profile {profileId}", "Error", $"Lỗi nghiêm trọng khi chạy SteamCMD: {ex.Message}");
                 runResult.Success = false;
-                runResult.ExitCode = -1;
-                _lastRunHadLoginError = false;
+                runResult.ExitCode = -1; // General exception code
+                _lastRunHadLoginError = false; // Reset flag on general exception catch
             }
             finally
             {
