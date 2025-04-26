@@ -716,7 +716,7 @@ namespace SteamCmdWebAPI.Services
 
                         if (success)
                         {
-                            _logger.LogInformation("Đã xử lý cập nhật thành công cho {ProfileName} (ID: {ProfileId})", profileName, profileId);
+                            _logger.LogWarning("Đã xử lý cập nhật thành công cho {ProfileName} (ID: {ProfileId})", profileName, profileId);
                             await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật thành công cho {profile.Name} (ID: {profileId})");
                         }
                         else
@@ -1307,10 +1307,12 @@ namespace SteamCmdWebAPI.Services
                         new Regex(@"^\[\s*0%\] Checking for available updates\.\.\.$", RegexOptions.Compiled),
                         new Regex(@"^\[----\].*Verifying installation\.\.\.$", RegexOptions.Compiled),
                         new Regex(@"^Loading Steam API\.\.\.OK$", RegexOptions.Compiled),
-                        //Keep login messages for success/failure detection
-                        new Regex(@"^Logging in using username/password\.$", RegexOptions.Compiled), // Keep this maybe?
+                        // Loại bỏ thông báo "Logging in user"
+                        new Regex(@"^Logging in user '.*'", RegexOptions.Compiled),
+                        new Regex(@"^Logging in using username/password\.$", RegexOptions.Compiled),
                         new Regex(@"^Waiting for client config\.\.\.OK$", RegexOptions.Compiled),
                         new Regex(@"^Waiting for user info\.\.\.OK$", RegexOptions.Compiled),
+                        new Regex(@"^Unloading Steam API\.\.\.OK$", RegexOptions.Compiled),
                         new Regex(@"^Steam Console Client \(c\) Valve Corporation - version \d+$", RegexOptions.Compiled),
                         new Regex(@"^-- type 'quit' to exit --$", RegexOptions.Compiled),
                     };
@@ -1445,7 +1447,7 @@ namespace SteamCmdWebAPI.Services
                 if (runResult.Success)
                 {
                     _logger.LogInformation("Cập nhật Game cho '{ProfileName}' hoàn tất thành công. Exit Code: {ExitCode}", profile.Name, runResult.ExitCode);
-                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật Game cho '{profile.Name}' hoàn tất thành công (Code: {runResult.ExitCode}).");
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật Game cho '{profile.Name}' hoàn tất thành công (Code: {runResult.ExitCode}).", "warning");
                 }
                 else
                 {
