@@ -1,6 +1,4 @@
 // Tệp: wwwroot/js/steamcmd-console.js
-// Cập nhật lớp SteamCmdConsole để xử lý Steam Guard tốt hơn
-
 class SteamCmdConsole {
     constructor(containerId, options = {}) {
         this.container = document.getElementById(containerId);
@@ -29,8 +27,10 @@ class SteamCmdConsole {
         this.outputLocked = false;
         this.pendingRender = false;
         this.lastRenderTime = 0;
-        // Thêm thuộc tính để theo dõi dòng cuối cùng đã hiển thị
-        this.lastDisplayedLine = null;
+
+        // Sử dụng Set để lưu trữ các dòng gần đây, tránh trùng lặp
+        this._recentLines = new Set();
+        this._maxRecentLines = 100;
 
         // Tạo giao diện console
         this.createConsoleUI();
@@ -38,7 +38,7 @@ class SteamCmdConsole {
         // Khởi động xong, sẵn sàng nhận dữ liệu
         this.isReady = true;
 
-        // Khởi động RAF để tối ưu performance
+        // Khởi động requestAnimationFrame để tối ưu performance
         this.setupRenderLoop();
     }
 
@@ -74,11 +74,16 @@ class SteamCmdConsole {
         for (let i = 0; i < linesToProcess; i++) {
             const { text, type } = this.pendingLines.shift();
 
-            // Kiểm tra nếu dòng này giống dòng cuối cùng đã hiển thị
-            if (this.lastDisplayedLine === text) {
+            // Kiểm tra nếu dòng này đã hiển thị gần đây
+            if (this._recentLines.has(text)) {
                 continue; // Bỏ qua dòng lặp lại
             }
-            this.lastDisplayedLine = text; // Cập nhật dòng cuối cùng
+
+            // Thêm vào danh sách dòng gần đây
+            this._recentLines.add(text);
+            if (this._recentLines.size > this._maxRecentLines) {
+                this._recentLines.delete([...this._recentLines][0]);
+            }
 
             const lineElement = document.createElement('div');
             lineElement.classList.add('console-line');
@@ -135,13 +140,13 @@ class SteamCmdConsole {
             this.outputContainer.classList.add('auto-scroll');
         }
 
-        // Tối ưu rendering với virtualization
+        // Tối ưu rendering
         this.outputContainer.style.willChange = 'transform';
         this.outputContainer.style.transform = 'translateZ(0)';
 
         this.container.appendChild(this.outputContainer);
 
-        // Tạo khu vực nhập liệu
+        // Tạo khu vực nhập liệu nếu cần
         if (this.options.showInput) {
             this.inputContainer = document.createElement('div');
             this.inputContainer.classList.add('steamcmd-console-input');
@@ -195,11 +200,19 @@ class SteamCmdConsole {
         for (const line of lines) {
             if (!line.trim()) continue;
 
-            // Đẩy vào hàng đợi thay vì render ngay lập tức
-            // Check if the line is already in the pending queue to prevent duplicates
-            if (!this.pendingLines.some(item => item.text === line)) {
-                this.pendingLines.push({ text: line, type });
+            // Xác định loại thông báo nếu không chỉ định
+            if (type === 'normal') {
+                if (line.includes("Error") || line.includes("Lỗi") || line.includes("failed")) {
+                    type = 'error';
+                } else if (line.includes("Warning") || line.includes("Cảnh báo")) {
+                    type = 'warning';
+                } else if (line.includes("Success") || line.includes("thành công") || line.includes("successfully")) {
+                    type = 'success';
+                }
             }
+
+            // Đẩy vào hàng đợi thay vì render ngay lập tức
+            this.pendingLines.push({ text: line, type });
         }
     }
 
@@ -289,8 +302,6 @@ class SteamCmdConsole {
         if (typeof this.options.onInputSubmit === 'function') {
             this.options.onInputSubmit(input, this.profileId);
         }
-
-        // Không vô hiệu hóa input ở đây để cho phép nhập nhiều lần nếu cần
     }
 
     /**
@@ -309,7 +320,7 @@ class SteamCmdConsole {
         this.lineElements = [];
         this.pendingLines = [];
         this.outputContainer.innerHTML = '';
-        this.lastDisplayedLine = null; // Reset dòng cuối cùng
+        this._recentLines.clear();
     }
 
     /**
@@ -350,11 +361,11 @@ function setupConsoleSignalRConnection() {
             window.connection.stop();
         }
 
-        // Tạo kết nối mới với tối ưu hiệu suất
+        // Tạo kết nối mới
         const connection = new signalR.HubConnectionBuilder()
             .withUrl("/logHub")
-            .withAutomaticReconnect([0, 1000, 5000, 10000]) // Thử kết nối lại nhanh hơn
-            .configureLogging(signalR.LogLevel.Error) // Giảm log để tăng hiệu suất
+            .withAutomaticReconnect([0, 1000, 5000, 10000])
+            .configureLogging(signalR.LogLevel.Error)
             .build();
 
         // Xử lý lỗi kết nối
@@ -374,30 +385,12 @@ function setupConsoleSignalRConnection() {
             }, 2000);
         });
 
-        // Đăng ký sự kiện nhận log - tối ưu xử lý các gói tin lớn
+        // Đăng ký sự kiện nhận log
         connection.on("ReceiveLog", function (message) {
-            if (!window.steamConsole) return;
-            if (!message) return;
+            if (!window.steamConsole || !message) return;
 
-            // Xử lý từng dòng riêng biệt nếu có nhiều dòng
-            const lines = message.split('\n');
-
-            for (const line of lines) {
-                if (!line.trim()) continue;
-
-                // Xác định loại thông báo
-                let type = 'normal';
-                if (line.includes("Error") || line.includes("Lỗi") || line.includes("failed")) {
-                    type = 'error';
-                } else if (line.includes("Warning") || line.includes("Cảnh báo")) {
-                    type = 'warning';
-                } else if (line.includes("Success") || line.includes("thành công") || line.includes("successfully")) {
-                    type = 'success';
-                }
-
-                // Thêm vào console (logic chống trùng lặp đã có trong addLine)
-                window.steamConsole.addLine(line, type);
-            }
+            // Sử dụng addLine đã được cải thiện để tránh trùng lặp
+            window.steamConsole.addLine(message);
         });
 
         // Thêm sự kiện bật chế độ nhập console
@@ -405,7 +398,6 @@ function setupConsoleSignalRConnection() {
             if (!window.steamConsole) return;
 
             window.steamConsole.setProfileId(profileId);
-            window.steamConsole.awaitingInput = true;
             window.steamConsole.enableConsoleInput();
         });
 
@@ -420,8 +412,6 @@ function setupConsoleSignalRConnection() {
         connection.start()
             .then(function () {
                 window.steamConsole.addLine('Đã kết nối với máy chủ thành công', 'success');
-
-                // Lưu connection vào biến global để sử dụng sau này
                 window.connection = connection;
             })
             .catch(function (err) {
@@ -566,8 +556,8 @@ document.addEventListener('DOMContentLoaded', function () {
         // Khởi tạo global instance để các phần khác có thể truy cập
         window.steamConsole = new SteamCmdConsole('steamcmd-console', {
             showInput: true,
-            bufferSize: 30,  // Số lượng dòng xử lý mỗi lần
-            renderDelay: 16, // Giữ FPS ổn định ở 60fps
+            bufferSize: 30,
+            renderDelay: 16,
             onInputSubmit: function (input, profileId) {
                 console.log(`Đã nhận dữ liệu nhập: ${input} cho profile: ${profileId}`);
 

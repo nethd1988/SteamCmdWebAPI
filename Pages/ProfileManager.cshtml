@@ -7,14 +7,32 @@
 
 <div class="page-header">
     <h1>Quản lý cấu hình</h1>
-    <div class="header-actions">
-        <button id="runAllBtn" class="btn-action btn-success">
-            <i class="bi bi-play-fill"></i> Chạy tất cả
-        </button>
-        <button id="stopAllBtn" class="btn-action btn-danger">
-            <i class="bi bi-stop-fill"></i> Dừng tất cả
-        </button>
+</div>
+
+<!-- Console - Di chuyển lên trên đầu trước các nút điều khiển -->
+<div class="console-container">
+    <div class="console-header">
+        <h5>SteamCMD Console</h5>
+        <div class="console-controls">
+            <button class="btn-icon" id="toggleAutoScrollBtn" title="Tự động cuộn">
+                <i class="bi bi-arrow-down-square"></i>
+            </button>
+            <button class="btn-icon" id="clearConsoleBtn" title="Xóa console">
+                <i class="bi bi-eraser"></i>
+            </button>
+        </div>
     </div>
+    <div class="console-body" id="steamcmd-console"></div>
+</div>
+
+<!-- Các nút điều khiển -->
+<div class="header-actions">
+    <button id="runAllBtn" class="btn-action btn-success">
+        <i class="bi bi-play-fill"></i> Chạy tất cả
+    </button>
+    <button id="stopAllBtn" class="btn-action btn-danger">
+        <i class="bi bi-stop-fill"></i> Dừng tất cả
+    </button>
 </div>
 
 <!-- Profile Table -->
@@ -41,7 +59,7 @@
         <tbody>
             @foreach (var profile in Model.Profiles)
             {
-                <tr data-profile-id="@profile.Id">
+                <tr data-profile-id="@profile.Id" class="@(profile.Status == "Running" ? "table-success" : "")">
                     <td>@profile.Id</td>
                     <td>@profile.Name</td>
                     <td>@profile.AppID</td>
@@ -64,10 +82,19 @@
                     </td>
                     <td>
                         <div class="btn-group">
-                            <button class="btn-icon play run-btn" data-id="@profile.Id" title="Chạy">
-                                <i class="bi bi-play-fill"></i>
-                            </button>
-                            <a href="/Edit/@profile.Id" class="btn-icon edit" title="Sửa">
+                            @if (profile.Status != "Running")
+                            {
+                                <button class="btn-icon play run-btn" data-id="@profile.Id" title="Chạy">
+                                    <i class="bi bi-play-fill"></i>
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn-icon stop stop-btn" data-id="@profile.Id" title="Dừng">
+                                    <i class="bi bi-stop-fill"></i>
+                                </button>
+                            }
+                            <a href="/Edit?id=@profile.Id" class="btn-icon edit" title="Sửa">
                                 <i class="bi bi-pencil"></i>
                             </a>
                             <button class="btn-icon delete delete-btn" data-id="@profile.Id" title="Xóa">
@@ -81,70 +108,251 @@
     </table>
 </div>
 
-<!-- Console -->
-<div class="console-container">
-    <div class="console-header">
-        <h5>SteamCMD Console</h5>
-        <div class="console-controls">
-            <button class="btn-icon" id="toggleAutoScrollBtn" title="Tự động cuộn">
-                <i class="bi bi-arrow-down-square"></i>
-            </button>
-            <button class="btn-icon" id="clearConsoleBtn" title="Xóa console">
-                <i class="bi bi-eraser"></i>
-            </button>
-        </div>
-    </div>
-    <div class="console-body" id="steamcmd-console"></div>
-</div>
-
 @section Scripts {
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
-    <script src="~/js/steamcmd-console.js" asp-append-version="true"></script>
     <script>
         $(document).ready(function() {
-            // Khởi tạo SignalR connection
-            const connection = new signalR.HubConnectionBuilder()
-                .withUrl("/steamHub")
-                .build();
+            // Form để xử lý CSRF token
+            $('body').append('<form id="antiForgeryForm">@Html.AntiForgeryToken()</form>');
+            var token = $('input[name="__RequestVerificationToken"]').val();
 
-            // Xử lý nhận log từ SignalR
-            connection.on("ReceiveLog", function(message) {
-                if (window.steamConsole) {
-                    window.steamConsole.addLine(message);
-                }
-            });
+            // Xử lý sự kiện "Chạy tất cả"
+            $("#runAllBtn").click(function() {
+                $(this).prop("disabled", true).html('<i class="bi bi-hourglass"></i> Đang chạy...');
 
-            // Khởi động connection
-            connection.start().catch(function(err) {
-                console.error("Lỗi khi kết nối SignalR: " + err.toString());
-            });
+                $.ajax({
+                    url: "/ProfileManager?handler=RunAll",
+                    method: "POST",
+                    headers: {
+                        "RequestVerificationToken": token
+                    },
+                    success: function(response) {
+                        if (response && response.success) {
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Đã thêm tất cả profile vào hàng đợi thực thi", "success");
+                            }
+                            // Không reload trang, giữ cho console hiển thị liên tục
+                            // Cập nhật UI tất cả profile thành running
+                            $("tr").each(function() {
+                                $(this).addClass("table-success");
+                                var statusBadge = $(this).find('.status-badge');
+                                statusBadge.removeClass('stopped error').addClass('running')
+                                    .html('<i class="bi bi-play-circle"></i> Running');
 
-            // Search functionality
-            $("#profileSearch").on("keyup", function() {
-                var value = $(this).val().toLowerCase();
-                $("#profilesTable tbody tr").filter(function() {
-                    $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1);
+                                // Chuyển tất cả nút run thành stop
+                                var runBtn = $(this).find('.run-btn');
+                                if (runBtn.length > 0) {
+                                    var profileId = runBtn.data('id');
+                                    var btnHtml = '<button class="btn-icon stop stop-btn" data-id="' + profileId + '" title="Dừng"><i class="bi bi-stop-fill"></i></button>';
+                                    runBtn.replaceWith(btnHtml);
+                                }
+                            });
+                        } else {
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Lỗi: " + (response && response.error ? response.error : "Không thể chạy tất cả profile"), "error");
+                            }
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        if (window.steamConsole) {
+                            window.steamConsole.addLine("Lỗi khi gửi yêu cầu: " + error, "error");
+                        }
+                    },
+                    complete: function() {
+                        $("#runAllBtn").prop("disabled", false).html('<i class="bi bi-play-fill"></i> Chạy tất cả');
+                    }
                 });
             });
 
-            // Các event handlers cho các nút...
-            $("#runAllBtn").click(function() {
-                // Xử lý chạy tất cả
-            });
-
+            // Xử lý sự kiện "Dừng tất cả"
             $("#stopAllBtn").click(function() {
-                // Xử lý dừng tất cả
+                $(this).prop("disabled", true).html('<i class="bi bi-hourglass"></i> Đang dừng...');
+
+                $.ajax({
+                    url: "/ProfileManager?handler=StopAll",
+                    method: "POST",
+                    headers: {
+                        "RequestVerificationToken": token
+                    },
+                    success: function(response) {
+                        if (response && response.success) {
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Đã dừng tất cả profile thành công", "success");
+                            }
+                            // Cập nhật UI mà không reload trang
+                            $("tr.table-success").removeClass("table-success");
+                            $(".status-badge.running").removeClass("running").addClass("stopped")
+                                .html('<i class="bi bi-stop-circle"></i> Stopped');
+
+                            // Chuyển nút stop thành run
+                            $(".stop-btn").each(function() {
+                                var id = $(this).data("id");
+                                $(this).replaceWith('<button class="btn-icon play run-btn" data-id="' + id + '" title="Chạy"><i class="bi bi-play-fill"></i></button>');
+                            });
+                        } else {
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Lỗi: " + (response && response.error ? response.error : "Không thể dừng tất cả profile"), "error");
+                            }
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        if (window.steamConsole) {
+                            window.steamConsole.addLine("Lỗi khi gửi yêu cầu: " + error, "error");
+                        }
+                    },
+                    complete: function() {
+                        $("#stopAllBtn").prop("disabled", false).html('<i class="bi bi-stop-fill"></i> Dừng tất cả');
+                    }
+                });
             });
 
-            $(".run-btn").click(function() {
-                var profileId = $(this).data("id");
-                // Xử lý chạy profile
+            // Xử lý sự kiện "Chạy" cho từng profile
+            $(document).on('click', '.run-btn', function() {
+                var profileId = $(this).data('id');
+                var button = $(this);
+                var row = button.closest('tr');
+                var profileName = row.find('td:nth-child(2)').text();
+
+                // Cập nhật UI ngay lập tức
+                row.addClass('table-success');
+
+                // Hiển thị thông báo trong console
+                if (window.steamConsole) {
+                    window.steamConsole.clear(); // Xóa console trước khi chạy profile mới
+                    window.steamConsole.addLine("Đang chạy profile: " + profileName + " (ID: " + profileId + ")", "info");
+                }
+
+                $.ajax({
+                    url: "/ProfileManager?handler=Run",
+                    method: "POST",
+                    data: { profileId: profileId },
+                    headers: {
+                        "RequestVerificationToken": token
+                    },
+                    success: function(response) {
+                        if (response && response.success) {
+                            // Cập nhật giao diện thành "đang chạy"
+                            var statusBadge = row.find('.status-badge');
+                            statusBadge.removeClass('stopped error').addClass('running')
+                                .html('<i class="bi bi-play-circle"></i> Running');
+
+                            // Thay đổi nút từ "run" thành "stop"
+                            var btnHtml = '<button class="btn-icon stop stop-btn" data-id="' + profileId + '" title="Dừng"><i class="bi bi-stop-fill"></i></button>';
+                            button.replaceWith(btnHtml);
+
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Đã bắt đầu chạy profile: " + profileName, "success");
+                            }
+                        } else {
+                            // Khôi phục UI nếu có lỗi
+                            row.removeClass('table-success');
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Lỗi: " + (response && response.error ? response.error : "Không thể chạy profile"), "error");
+                            }
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        // Khôi phục UI nếu có lỗi
+                        row.removeClass('table-success');
+                        if (window.steamConsole) {
+                            window.steamConsole.addLine("Lỗi khi gửi yêu cầu: " + error, "error");
+                        }
+                    }
+                });
             });
 
-            $(".delete-btn").click(function() {
-                var profileId = $(this).data("id");
-                if (confirm("Bạn có chắc muốn xóa profile này?")) {
-                    // Xử lý xóa profile
+            // Xử lý sự kiện "Dừng" cho từng profile
+            $(document).on('click', '.stop-btn', function() {
+                var profileId = $(this).data('id');
+                var button = $(this);
+                var row = button.closest('tr');
+                var profileName = row.find('td:nth-child(2)').text();
+
+                // Cập nhật UI ngay lập tức
+                row.removeClass('table-success');
+
+                // Hiển thị thông báo trong console
+                if (window.steamConsole) {
+                    window.steamConsole.addLine("Đang dừng profile: " + profileName + " (ID: " + profileId + ")", "warning");
+                }
+
+                $.ajax({
+                    url: "/ProfileManager?handler=Stop",
+                    method: "POST",
+                    data: { profileId: profileId },
+                    headers: {
+                        "RequestVerificationToken": token
+                    },
+                    success: function(response) {
+                        if (response && response.success) {
+                            // Cập nhật giao diện thành "đã dừng"
+                            var statusBadge = row.find('.status-badge');
+                            statusBadge.removeClass('running error').addClass('stopped')
+                                .html('<i class="bi bi-stop-circle"></i> Stopped');
+
+                            // Thay đổi nút từ "stop" thành "run"
+                            var btnHtml = '<button class="btn-icon play run-btn" data-id="' + profileId + '" title="Chạy"><i class="bi bi-play-fill"></i></button>';
+                            button.replaceWith(btnHtml);
+
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Đã dừng profile: " + profileName, "success");
+                            }
+                        } else {
+                            // Khôi phục UI nếu có lỗi
+                            row.addClass('table-success');
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Lỗi: " + (response && response.error ? response.error : "Không thể dừng profile"), "error");
+                            }
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        // Khôi phục UI nếu có lỗi
+                        row.addClass('table-success');
+                        if (window.steamConsole) {
+                            window.steamConsole.addLine("Lỗi khi gửi yêu cầu: " + error, "error");
+                        }
+                    }
+                });
+            });
+
+            // Xử lý sự kiện "Xóa" profile
+            $(document).on('click', '.delete-btn', function() {
+                var profileId = $(this).data('id');
+                var profileName = $(this).closest('tr').find('td:nth-child(2)').text();
+
+                if (confirm("Bạn có chắc chắn muốn xóa profile '" + profileName + "'?")) {
+                    if (window.steamConsole) {
+                        window.steamConsole.addLine("Đang xóa profile: " + profileName + " (ID: " + profileId + ")...", "warning");
+                    }
+
+                    $.ajax({
+                        url: "/ProfileManager?handler=Delete",
+                        method: "POST",
+                        data: { profileId: profileId },
+                        headers: {
+                            "RequestVerificationToken": token
+                        },
+                        success: function(response) {
+                            if (response && response.success) {
+                                // Xóa row khỏi bảng
+                                $(`tr[data-profile-id="${profileId}"]`).fadeOut(300, function() {
+                                    $(this).remove();
+                                });
+
+                                if (window.steamConsole) {
+                                    window.steamConsole.addLine("Đã xóa profile: " + profileName, "success");
+                                }
+                            } else {
+                                if (window.steamConsole) {
+                                    window.steamConsole.addLine("Lỗi: " + (response && response.error ? response.error : "Không thể xóa profile"), "error");
+                                }
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            if (window.steamConsole) {
+                                window.steamConsole.addLine("Lỗi khi gửi yêu cầu xóa: " + error, "error");
+                            }
+                        }
+                    });
                 }
             });
         });
