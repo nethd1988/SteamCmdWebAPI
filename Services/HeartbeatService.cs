@@ -1,3 +1,5 @@
+// SteamCmdWebAPI/Services/HeartbeatService.cs
+using Microsoft.Extensions.DependencyInjection; // Không cần nếu inject trực tiếp
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System;
@@ -9,39 +11,85 @@ namespace SteamCmdWebAPI.Services
     public class HeartbeatService : BackgroundService
     {
         private readonly ILogger<HeartbeatService> _logger;
+        // Bỏ IServiceScopeFactory, inject TcpClientService trực tiếp
         private readonly TcpClientService _tcpClientService;
-        private readonly TimeSpan _interval = TimeSpan.FromMinutes(10);
+        private readonly TimeSpan _initialDelay = TimeSpan.FromSeconds(15); // Thời gian chờ ban đầu
+        private readonly TimeSpan _heartbeatInterval = TimeSpan.FromMinutes(10); // Khoảng thời gian giữa các heartbeat
 
+        // Sửa constructor để inject TcpClientService
         public HeartbeatService(
             ILogger<HeartbeatService> logger,
-            TcpClientService tcpClientService)
+            TcpClientService tcpClientService // Inject trực tiếp TcpClientService (Singleton)
+            )
         {
             _logger = logger;
-            _tcpClientService = tcpClientService;
+            _tcpClientService = tcpClientService; // Lưu lại instance
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("Dịch vụ Heartbeat đã khởi động. Sẽ kiểm tra kết nối mỗi {Minutes} phút", _interval.TotalMinutes);
+            _logger.LogInformation("HeartbeatService starting.");
 
-            // Chờ một chút để hệ thống khởi động đầy đủ
-            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+            try
+            {
+                // Chờ một khoảng thời gian ngắn trước khi bắt đầu vòng lặp chính
+                // Để đảm bảo các service khác (như TcpClientService lấy ClientID) đã khởi tạo xong
+                _logger.LogInformation("HeartbeatService initial delay for {InitialDelaySeconds} seconds...", _initialDelay.TotalSeconds);
+                await Task.Delay(_initialDelay, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("HeartbeatService initial delay canceled. Service stopping.");
+                return; // Service bị dừng trước khi bắt đầu vòng lặp
+            }
+
+            _logger.LogInformation("HeartbeatService entering main loop.");
 
             while (!stoppingToken.IsCancellationRequested)
             {
+                _logger.LogInformation("HeartbeatService loop executing at: {time}", DateTimeOffset.Now);
                 try
                 {
+                    // Sử dụng instance TcpClientService đã được inject
+                    _logger.LogInformation("HeartbeatService: Calling PeriodicHeartbeatAsync...");
                     await _tcpClientService.PeriodicHeartbeatAsync(stoppingToken);
+                    _logger.LogInformation("HeartbeatService: PeriodicHeartbeatAsync call completed.");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Lỗi khi thực hiện heartbeat");
+                    // Log lỗi xảy ra khi gọi PeriodicHeartbeatAsync nhưng không dừng vòng lặp
+                    _logger.LogError(ex, "An error occurred while calling PeriodicHeartbeatAsync in HeartbeatService loop.");
+                    // Có thể thêm các xử lý lỗi khác ở đây nếu cần
                 }
 
-                await Task.Delay(_interval, stoppingToken);
+                try
+                {
+                    // Chờ khoảng thời gian đã định trước khi gửi heartbeat tiếp theo
+                    _logger.LogInformation("HeartbeatService waiting for {HeartbeatIntervalMinutes} minutes...", _heartbeatInterval.TotalMinutes);
+                    await Task.Delay(_heartbeatInterval, stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Xử lý khi Task.Delay bị hủy (do stoppingToken) -> Service đang dừng
+                    _logger.LogInformation("HeartbeatService delay was canceled. Service stopping.");
+                    break; // Thoát khỏi vòng lặp while
+                }
+                catch (Exception ex)
+                {
+                    // Log các lỗi không mong muốn khác từ Task.Delay (ít khi xảy ra)
+                    _logger.LogError(ex, "An unexpected error occurred during Task.Delay in HeartbeatService.");
+                    // Cân nhắc có nên break vòng lặp ở đây không tùy thuộc vào yêu cầu
+                }
             }
 
-            _logger.LogInformation("Dịch vụ Heartbeat đã dừng");
+            _logger.LogInformation("HeartbeatService main loop finished. Service stopping.");
+        }
+
+        public override async Task StopAsync(CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("HeartbeatService stopping...");
+            await base.StopAsync(cancellationToken);
+            _logger.LogInformation("HeartbeatService stopped.");
         }
     }
 }

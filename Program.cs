@@ -42,6 +42,7 @@ namespace SteamCmdWebAPI
             builder.Services.AddSingleton<LicenseService>();
             builder.Services.AddSingleton<UserService>();
 
+
             // Xây dựng provider để kiểm tra license
             var tempProvider = builder.Services.BuildServiceProvider();
             var licenseService = tempProvider.GetRequiredService<LicenseService>();

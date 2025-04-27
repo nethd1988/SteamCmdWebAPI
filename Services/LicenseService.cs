@@ -1,4 +1,3 @@
-// Services/LicenseService.cs
 using System;
 using System.IO;
 using System.Net.Http;
@@ -16,6 +15,9 @@ namespace SteamCmdWebAPI.Services
         private readonly ILogger<LicenseService> _logger;
         private readonly HttpClient _httpClient;
         private const string LICENSE_CACHE_FILE = "license_cache.json";
+
+        // Thêm thuộc tính để lưu trữ thông tin license hiện tại
+        private ViewLicenseDto _currentLicense;
 
         // Thông tin API license
         private const string API_URL = "http://127.0.0.1:60999/api/thirdparty/license";
@@ -61,11 +63,22 @@ namespace SteamCmdWebAPI.Services
                         _logger.LogInformation("Sử dụng license cache trong thời gian grace period ({0} phút)",
                             GRACE_PERIOD.TotalMinutes);
 
+                        _currentLicense = new ViewLicenseDto
+                        {
+                            LicenseId = cachedLicense.LicenseId,
+                            Active = cachedLicense.Active,
+                            DayLeft = cachedLicense.DayLeft,
+                            Expires = cachedLicense.Expires,
+                            Status = cachedLicense.Status,
+                            WksLimit = cachedLicense.WksLimit
+                        };
+
                         return new LicenseValidationResult
                         {
                             IsValid = true,
                             Message = $"Sử dụng license cache. Hết hạn: {cachedLicense.Expires:dd/MM/yyyy}",
-                            UsingCache = true
+                            UsingCache = true,
+                            License = _currentLicense
                         };
                     }
                     else
@@ -83,6 +96,7 @@ namespace SteamCmdWebAPI.Services
             }
 
             var license = apiLicense.ViewLicense;
+            _currentLicense = license; // Lưu license hiện tại
 
             // Kiểm tra tính hợp lệ của license
             bool isValid = license.Active &&
@@ -103,7 +117,8 @@ namespace SteamCmdWebAPI.Services
                 return new LicenseValidationResult
                 {
                     IsValid = true,
-                    Message = $"Giấy phép còn hiệu lực. Hết hạn: {license.Expires:dd/MM/yyyy}"
+                    Message = $"Giấy phép còn hiệu lực. Hết hạn: {license.Expires:dd/MM/yyyy}",
+                    License = license
                 };
             }
             else
@@ -327,6 +342,52 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        // Thêm phương thức để lấy username từ license
+        public string GetLicenseUsername()
+        {
+            try
+            {
+                if (_currentLicense != null && !string.IsNullOrEmpty(_currentLicense.LicenseId))
+                {
+                    // License ID có format: username#timestamp#randomhash
+                    var parts = _currentLicense.LicenseId.Split('#');
+                    if (parts.Length > 0)
+                    {
+                        string username = parts[0];
+                        if (!string.IsNullOrEmpty(username))
+                        {
+                            _logger.LogInformation("Got username from current license: {Username}", username);
+                            return username;
+                        }
+                    }
+                }
+
+                // Nếu chưa có current license, thử load từ cache
+                var cachedLicense = LoadLicenseFromCache();
+                if (cachedLicense != null && !string.IsNullOrEmpty(cachedLicense.LicenseId))
+                {
+                    var parts = cachedLicense.LicenseId.Split('#');
+                    if (parts.Length > 0)
+                    {
+                        string username = parts[0];
+                        if (!string.IsNullOrEmpty(username))
+                        {
+                            _logger.LogInformation("Got username from cached license: {Username}", username);
+                            return username;
+                        }
+                    }
+                }
+
+                _logger.LogWarning("No username found in license");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting username from license");
+                return null;
+            }
+        }
+
         public void Dispose()
         {
             _httpClient?.Dispose();
@@ -339,6 +400,7 @@ namespace SteamCmdWebAPI.Services
         public bool IsValid { get; set; }
         public string Message { get; set; }
         public bool UsingCache { get; set; }
+        public ViewLicenseDto License { get; set; } // Thêm thuộc tính License
     }
 
     // Class lưu cache license

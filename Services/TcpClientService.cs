@@ -14,6 +14,7 @@ namespace SteamCmdWebAPI.Services
     {
         private readonly ILogger<TcpClientService> _logger;
         private readonly EncryptionService _encryptionService;
+        private readonly LicenseService _licenseService;
         private readonly string _clientId;
 
         // Địa chỉ server mặc định
@@ -22,15 +23,39 @@ namespace SteamCmdWebAPI.Services
         private const string AUTH_TOKEN = "simple_auth_token";
         private const int DEFAULT_TIMEOUT_MS = 10000; // 10 giây
 
-        public TcpClientService(ILogger<TcpClientService> logger, EncryptionService encryptionService)
+        public TcpClientService(ILogger<TcpClientService> logger, EncryptionService encryptionService, LicenseService licenseService)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _encryptionService = encryptionService ?? throw new ArgumentNullException(nameof(encryptionService));
+            _licenseService = licenseService ?? throw new ArgumentNullException(nameof(licenseService));
             _clientId = GetClientIdentifier();
             _logger.LogInformation("TcpClientService initialized with ClientID: {ClientId}", _clientId);
         }
 
         private string GetClientIdentifier()
+        {
+            try
+            {
+                // Gọi LicenseService để lấy username trực tiếp
+                string username = _licenseService.GetLicenseUsername();
+
+                if (!string.IsNullOrEmpty(username))
+                {
+                    _logger.LogInformation("Got username from license: {Username}", username);
+                    return username;
+                }
+
+                _logger.LogWarning("Không lấy được username từ license, sử dụng client ID mặc định");
+                return GenerateDefaultClientId();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy username từ license");
+                return GenerateDefaultClientId();
+            }
+        }
+
+        private string GenerateDefaultClientId()
         {
             string machineName = Environment.MachineName;
             string userName = Environment.UserName;
