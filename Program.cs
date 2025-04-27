@@ -42,7 +42,6 @@ namespace SteamCmdWebAPI
             builder.Services.AddSingleton<LicenseService>();
             builder.Services.AddSingleton<UserService>();
 
-
             // Xây dựng provider để kiểm tra license
             var tempProvider = builder.Services.BuildServiceProvider();
             var licenseService = tempProvider.GetRequiredService<LicenseService>();
@@ -89,7 +88,6 @@ namespace SteamCmdWebAPI
             builder.Services.AddSingleton<SteamCmdService>();
             builder.Services.AddSingleton<TcpClientService>();
 
-
             // Đăng ký các dịch vụ mới
             builder.Services.AddSingleton<SteamApiService>();
             builder.Services.AddSingleton<UpdateCheckService>();
@@ -100,6 +98,20 @@ namespace SteamCmdWebAPI
 
             // Đăng ký dịch vụ Worker
             builder.Services.AddHostedService<Worker>();
+
+            // Đăng ký HeartbeatService với cấu hình đặc biệt
+            builder.Services.AddHostedService<HeartbeatService>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<HeartbeatService>>();
+                var tcpClientService = sp.GetRequiredService<TcpClientService>();
+                return new HeartbeatService(logger, tcpClientService);
+            });
+
+            // Cấu hình lifecycle options để đảm bảo shutdown đúng cách
+            builder.Services.Configure<HostOptions>(options =>
+            {
+                options.ShutdownTimeout = TimeSpan.FromSeconds(30);
+            });
 
             // Cấu hình Kestrel để lắng nghe từ tất cả các địa chỉ IP
             builder.WebHost.ConfigureKestrel(serverOptions =>

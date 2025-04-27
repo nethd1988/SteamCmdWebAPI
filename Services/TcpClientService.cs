@@ -100,6 +100,7 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        // Sửa method PeriodicHeartbeatAsync trong TcpClientService.cs
         public async Task PeriodicHeartbeatAsync(CancellationToken cancellationToken = default)
         {
             string serverAddress = DEFAULT_SERVER_ADDRESS;
@@ -109,63 +110,133 @@ namespace SteamCmdWebAPI.Services
             {
                 using (var tcpClient = new TcpClient())
                 {
+                    // Thiết lập timeout ngắn hơn
                     var connectTask = tcpClient.ConnectAsync(serverAddress, port);
-                    if (await Task.WhenAny(connectTask, Task.Delay(5000, cancellationToken)) != connectTask)
+                    var timeoutTask = Task.Delay(2500, cancellationToken); // Giảm timeout
+
+                    var completedTask = await Task.WhenAny(connectTask, timeoutTask);
+
+                    if (completedTask == timeoutTask)
                     {
-                        _logger.LogWarning("Kết nối đến server {Server}:{Port} bị timeout", serverAddress, port);
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            _logger.LogInformation("Connect cancelled by token");
+                            return;
+                        }
+                        _logger.LogWarning("Connect to server {Server}:{Port} timed out", serverAddress, port);
+                        return;
+                    }
+
+                    // Đợi kết nối hoàn tất
+                    try
+                    {
+                        await connectTask; // Ensure connection task completes
+                    }
+                    catch (Exception connEx)
+                    {
+                        _logger.LogWarning(connEx, "Failed to connect to {Server}:{Port}", serverAddress, port);
                         return;
                     }
 
                     if (!tcpClient.Connected)
                     {
-                        _logger.LogWarning("Không thể kết nối đến server {Server}:{Port}", serverAddress, port);
+                        _logger.LogWarning("Not connected to server {Server}:{Port}", serverAddress, port);
                         return;
                     }
 
                     using var stream = tcpClient.GetStream();
 
-                    // Gửi lệnh AUTH + CLIENT_ID + HEARTBEAT
+                    // Thiết lập timeout cho stream
+                    stream.ReadTimeout = 5000;
+                    stream.WriteTimeout = 5000;
+
+                    // Gửi heartbeat command
                     string command = $"AUTH:{AUTH_TOKEN} CLIENT_ID:{_clientId} HEARTBEAT";
                     byte[] commandBytes = Encoding.UTF8.GetBytes(command);
                     byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
 
-                    await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length, cancellationToken);
-                    await stream.WriteAsync(commandBytes, 0, commandBytes.Length, cancellationToken);
-                    await stream.FlushAsync(cancellationToken);
+                    await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length, cancellationToken)
+                        .ConfigureAwait(false);
+                    await stream.WriteAsync(commandBytes, 0, commandBytes.Length, cancellationToken)
+                        .ConfigureAwait(false);
+                    await stream.FlushAsync(cancellationToken)
+                        .ConfigureAwait(false);
 
-                    // Đọc phản hồi
+                    // Đọc phản hồi với timeout
                     byte[] responseHeaderBuffer = new byte[4];
-                    int bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4, cancellationToken);
+                    int bytesRead = 0;
+
+                    try
+                    {
+                        using var readTimeoutCts = new CancellationTokenSource(3000); // Timeout 3s
+                        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, readTimeoutCts.Token);
+
+                        bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4, linkedCts.Token)
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            _logger.LogInformation("Read cancelled by token");
+                            return;
+                        }
+                        _logger.LogWarning("Read timeout waiting for server response");
+                        return;
+                    }
 
                     if (bytesRead < 4)
                     {
-                        _logger.LogWarning("Không đọc được phản hồi từ server");
+                        _logger.LogWarning("Incomplete header received from server");
                         return;
                     }
 
                     int responseLength = BitConverter.ToInt32(responseHeaderBuffer, 0);
                     if (responseLength <= 0 || responseLength > 1024 * 1024)
                     {
-                        _logger.LogWarning("Độ dài phản hồi không hợp lệ: {Length}", responseLength);
+                        _logger.LogWarning("Invalid response length: {Length}", responseLength);
                         return;
                     }
 
                     byte[] responseBuffer = new byte[responseLength];
-                    bytesRead = await stream.ReadAsync(responseBuffer, 0, responseLength, cancellationToken);
+                    bytesRead = await stream.ReadAsync(responseBuffer, 0, responseLength, cancellationToken)
+                        .ConfigureAwait(false);
 
                     if (bytesRead < responseLength)
                     {
-                        _logger.LogWarning("Phản hồi không đầy đủ từ server");
+                        _logger.LogWarning("Incomplete response from server");
                         return;
                     }
 
                     string response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
-                    _logger.LogDebug("Nhận phản hồi từ server: {Response}", response);
+                    _logger.LogDebug("Heartbeat response: {Response}", response);
+
+                    // Kiểm tra response hợp lệ
+                    if (response.Contains("OK") || response.Contains("SUCCESS"))
+                    {
+                        _logger.LogInformation("Heartbeat sent successfully");
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Unexpected heartbeat response: {Response}", response);
+                    }
                 }
+            }
+            catch (SocketException socketEx)
+            {
+                _logger.LogWarning(socketEx, "Socket error during heartbeat to {Server}:{Port}", serverAddress, port);
+            }
+            catch (IOException ioEx)
+            {
+                _logger.LogWarning(ioEx, "IO error during heartbeat to {Server}:{Port}", serverAddress, port);
+            }
+            catch (ObjectDisposedException objEx)
+            {
+                _logger.LogWarning(objEx, "Object disposed during heartbeat operation");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi gửi heartbeat đến server {Server}:{Port}", serverAddress, port);
+                _logger.LogError(ex, "Unexpected error during heartbeat to {Server}:{Port}", serverAddress, port);
             }
         }
 
