@@ -11,18 +11,19 @@ namespace SteamCmdWebAPI.Services
     public class HeartbeatService : BackgroundService
     {
         private readonly ILogger<HeartbeatService> _logger;
+        // Bỏ IServiceScopeFactory, inject TcpClientService trực tiếp
         private readonly TcpClientService _tcpClientService;
-        private readonly TimeSpan _initialDelay = TimeSpan.FromSeconds(30); // Đợi lâu hơn để service khởi động ổn định
-        private readonly TimeSpan _heartbeatInterval = TimeSpan.FromMinutes(3); // Gửi thường xuyên hơn để duy trì kết nối
-        private int _failedAttempts = 0;
-        private const int MAX_FAILED_ATTEMPTS = 3;
+        private readonly TimeSpan _initialDelay = TimeSpan.FromSeconds(15); // Thời gian chờ ban đầu
+        private readonly TimeSpan _heartbeatInterval = TimeSpan.FromMinutes(10); // Khoảng thời gian giữa các heartbeat
 
+        // Sửa constructor để inject TcpClientService
         public HeartbeatService(
             ILogger<HeartbeatService> logger,
-            TcpClientService tcpClientService)
+            TcpClientService tcpClientService // Inject trực tiếp TcpClientService (Singleton)
+            )
         {
             _logger = logger;
-            _tcpClientService = tcpClientService;
+            _tcpClientService = tcpClientService; // Lưu lại instance
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
