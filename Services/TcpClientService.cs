@@ -44,8 +44,7 @@ namespace SteamCmdWebAPI.Services
 
             try
             {
-                _logger.LogInformation("Kiểm tra kết nối đến {ServerAddress}:{Port} với ClientID: {ClientId}",
-                    serverAddress, port, _clientId);
+                _logger.LogInformation("Kiểm tra kết nối đến {ServerAddress}:{Port}", serverAddress, port);
 
                 using (var tcpClient = new TcpClient())
                 {
@@ -89,8 +88,7 @@ namespace SteamCmdWebAPI.Services
                     return new List<string>();
                 }
 
-                _logger.LogInformation("Đang lấy danh sách profile từ {Server}:{Port} với ClientID: {ClientId}",
-                    serverAddress, port, _clientId);
+                _logger.LogInformation("Đang lấy danh sách profile từ {Server}:{Port}", serverAddress, port);
 
                 using (var tcpClient = new TcpClient())
                 {
@@ -179,8 +177,7 @@ namespace SteamCmdWebAPI.Services
 
             try
             {
-                _logger.LogInformation("Lấy thông tin profile {ProfileName} từ server {Server}:{Port} với ClientID: {ClientId}",
-                    profileName, serverAddress, port, _clientId);
+                _logger.LogInformation("Lấy thông tin profile {ProfileName} từ server {Server}:{Port}", profileName, serverAddress, port);
 
                 bool isConnected = await TestConnectionAsync(serverAddress, port);
                 if (!isConnected)
@@ -208,7 +205,7 @@ namespace SteamCmdWebAPI.Services
 
                     using var stream = tcpClient.GetStream();
 
-                    // Gửi lệnh AUTH + CLIENT_ID + GET_PROFILE_DETAILS
+                    // Gửi lệnh
                     string command = $"AUTH:{AUTH_TOKEN} CLIENT_ID:{_clientId} GET_PROFILE_DETAILS {profileName}";
                     byte[] commandBytes = Encoding.UTF8.GetBytes(command);
                     byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
@@ -251,6 +248,12 @@ namespace SteamCmdWebAPI.Services
                         return null;
                     }
 
+                    if (response.StartsWith("ERROR:"))
+                    {
+                        _logger.LogWarning("Server báo lỗi: {Error}", response);
+                        return null;
+                    }
+
                     try
                     {
                         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
@@ -267,17 +270,16 @@ namespace SteamCmdWebAPI.Services
                             return null;
                         }
                     }
-                    catch (Exception ex)
+                    catch (JsonException jsonEx)
                     {
-                        _logger.LogError(ex, "Lỗi khi phân tích JSON từ server");
+                        _logger.LogError(jsonEx, "Lỗi khi phân tích JSON từ server: {Response}", response);
                         return null;
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi lấy thông tin profile {ProfileName} từ server {Server}:{Port}",
-                    profileName, serverAddress, port);
+                _logger.LogError(ex, "Lỗi khi lấy thông tin profile {ProfileName} từ server", profileName);
                 return null;
             }
         }
@@ -295,22 +297,13 @@ namespace SteamCmdWebAPI.Services
                     return false;
                 }
 
-                _logger.LogInformation("Đang gửi profile {ProfileName} lên server {Server}:{Port} với ClientID: {ClientId}",
-                    profile.Name, serverAddress, port, _clientId);
-
-                bool isConnected = await TestConnectionAsync(serverAddress, port);
-                if (!isConnected)
-                {
-                    _logger.LogWarning("Không thể kết nối đến server {Server}:{Port}", serverAddress, port);
-                    return false;
-                }
+                _logger.LogInformation("Đang gửi profile {ProfileName} lên server {Server}:{Port}", profile.Name, serverAddress, port);
 
                 using (var tcpClient = new TcpClient())
                 {
+                    // Kết nối với timeout
                     var connectTask = tcpClient.ConnectAsync(serverAddress, port);
-                    var timeoutTask = Task.Delay(DEFAULT_TIMEOUT_MS);
-
-                    if (await Task.WhenAny(connectTask, timeoutTask) == timeoutTask)
+                    if (await Task.WhenAny(connectTask, Task.Delay(DEFAULT_TIMEOUT_MS)) != connectTask)
                     {
                         _logger.LogWarning("Kết nối đến {Server}:{Port} bị timeout", serverAddress, port);
                         return false;
@@ -324,7 +317,7 @@ namespace SteamCmdWebAPI.Services
 
                     using var stream = tcpClient.GetStream();
 
-                    // Gửi lệnh AUTH + CLIENT_ID + SEND_PROFILE
+                    // Gửi lệnh AUTH và SEND_PROFILE
                     string command = $"AUTH:{AUTH_TOKEN} CLIENT_ID:{_clientId} SEND_PROFILE";
                     byte[] commandBytes = Encoding.UTF8.GetBytes(command);
                     byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
@@ -333,7 +326,7 @@ namespace SteamCmdWebAPI.Services
                     await stream.WriteAsync(commandBytes, 0, commandBytes.Length);
                     await stream.FlushAsync();
 
-                    // Đọc phản hồi "READY_TO_RECEIVE"
+                    // Đọc phản hồi từ server
                     byte[] responseHeaderBuffer = new byte[4];
                     int bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4);
 
@@ -355,23 +348,23 @@ namespace SteamCmdWebAPI.Services
                         return false;
                     }
 
-                    // Chuyển profile thành JSON
+                    // Chuyển profile thành JSON và gửi
                     string json = JsonSerializer.Serialize(profile);
                     byte[] profileBytes = Encoding.UTF8.GetBytes(json);
 
-                    // Gửi độ dài
+                    // Gửi độ dài trước
                     byte[] profileLengthBytes = BitConverter.GetBytes(profileBytes.Length);
                     await stream.WriteAsync(profileLengthBytes, 0, profileLengthBytes.Length);
 
-                    // Gửi nội dung
+                    // Gửi dữ liệu
                     await stream.WriteAsync(profileBytes, 0, profileBytes.Length);
                     await stream.FlushAsync();
 
-                    // Đọc phản hồi
+                    // Đọc phản hồi kết quả
                     bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4);
                     if (bytesRead < 4)
                     {
-                        _logger.LogWarning("Không đọc được phản hồi sau khi gửi profile {ProfileName}", profile.Name);
+                        _logger.LogWarning("Không đọc được phản hồi kết quả");
                         return false;
                     }
 
@@ -386,19 +379,144 @@ namespace SteamCmdWebAPI.Services
                         _logger.LogInformation("Đã gửi profile {ProfileName} lên server thành công", profile.Name);
                         return true;
                     }
-                    else if (response.StartsWith("ERROR:"))
+                    else
                     {
-                        _logger.LogWarning("Lỗi khi gửi profile {ProfileName} lên server: {Error}",
-                            profile.Name, response.Substring(6));
+                        _logger.LogWarning("Lỗi khi gửi profile {ProfileName} lên server: {Error}", profile.Name, response);
                         return false;
                     }
                 }
-
-                return false;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi gửi profile {ProfileName} lên server", profile.Name);
+                return false;
+            }
+        }
+
+        public async Task<bool> SendMultipleProfilesToServerAsync(List<SteamCmdProfile> profiles)
+        {
+            string serverAddress = DEFAULT_SERVER_ADDRESS;
+            int port = DEFAULT_SERVER_PORT;
+
+            try
+            {
+                if (profiles == null || profiles.Count == 0)
+                {
+                    _logger.LogWarning("Không có profiles để gửi lên server");
+                    return false;
+                }
+
+                _logger.LogInformation("Đang gửi {Count} profiles lên server {Server}:{Port}", profiles.Count, serverAddress, port);
+
+                using (var tcpClient = new TcpClient())
+                {
+                    // Kết nối với timeout
+                    var connectTask = tcpClient.ConnectAsync(serverAddress, port);
+                    if (await Task.WhenAny(connectTask, Task.Delay(DEFAULT_TIMEOUT_MS)) != connectTask)
+                    {
+                        _logger.LogWarning("Kết nối đến {Server}:{Port} bị timeout", serverAddress, port);
+                        return false;
+                    }
+
+                    if (!tcpClient.Connected)
+                    {
+                        _logger.LogWarning("Không thể kết nối đến {Server}:{Port}", serverAddress, port);
+                        return false;
+                    }
+
+                    using var stream = tcpClient.GetStream();
+
+                    // Gửi lệnh AUTH và SEND_PROFILES
+                    string command = $"AUTH:{AUTH_TOKEN} CLIENT_ID:{_clientId} SEND_PROFILES";
+                    byte[] commandBytes = Encoding.UTF8.GetBytes(command);
+                    byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
+
+                    await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length);
+                    await stream.WriteAsync(commandBytes, 0, commandBytes.Length);
+                    await stream.FlushAsync();
+
+                    // Đọc phản hồi từ server
+                    byte[] responseHeaderBuffer = new byte[4];
+                    int bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4);
+
+                    if (bytesRead < 4)
+                    {
+                        _logger.LogWarning("Không đọc được phản hồi từ server");
+                        return false;
+                    }
+
+                    int responseLength = BitConverter.ToInt32(responseHeaderBuffer, 0);
+                    byte[] responseBuffer = new byte[responseLength];
+                    bytesRead = await stream.ReadAsync(responseBuffer, 0, responseLength);
+
+                    string response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
+
+                    if (response != "READY_TO_RECEIVE")
+                    {
+                        _logger.LogWarning("Server không sẵn sàng nhận profiles: {Response}", response);
+                        return false;
+                    }
+
+                    // Gửi từng profile một
+                    int sentCount = 0;
+                    foreach (var profile in profiles)
+                    {
+                        string json = JsonSerializer.Serialize(profile);
+                        byte[] profileBytes = Encoding.UTF8.GetBytes(json);
+
+                        // Gửi độ dài
+                        byte[] profileLengthBytes = BitConverter.GetBytes(profileBytes.Length);
+                        await stream.WriteAsync(profileLengthBytes, 0, profileLengthBytes.Length);
+
+                        // Gửi dữ liệu
+                        await stream.WriteAsync(profileBytes, 0, profileBytes.Length);
+                        await stream.FlushAsync();
+
+                        sentCount++;
+                    }
+
+                    // Gửi marker kết thúc (độ dài 0)
+                    byte[] endMarker = BitConverter.GetBytes(0);
+                    await stream.WriteAsync(endMarker, 0, endMarker.Length);
+                    await stream.FlushAsync();
+
+                    // Đọc phản hồi kết quả
+                    bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4);
+                    if (bytesRead < 4)
+                    {
+                        _logger.LogWarning("Không đọc được phản hồi kết quả");
+                        return false;
+                    }
+
+                    responseLength = BitConverter.ToInt32(responseHeaderBuffer, 0);
+                    responseBuffer = new byte[responseLength];
+                    bytesRead = await stream.ReadAsync(responseBuffer, 0, responseLength);
+
+                    response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
+
+                    if (response.StartsWith("DONE:"))
+                    {
+                        string[] parts = response.Split(':');
+                        if (parts.Length >= 3)
+                        {
+                            int processedCount = int.Parse(parts[1]);
+                            int errorCount = int.Parse(parts[2]);
+                            _logger.LogInformation("Đã gửi {Total} profiles, xử lý thành công: {Success}, lỗi: {Error}",
+                                profiles.Count, processedCount, errorCount);
+                            return processedCount > 0;
+                        }
+                        return true;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Lỗi khi gửi profiles lên server: {Response}", response);
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi gửi profiles lên server");
                 return false;
             }
         }
