@@ -1,0 +1,92 @@
+@page
+@model DashboardModel
+@{
+    ViewData["Title"] = "Dashboard";
+    ViewData["ActivePage"] = "Dashboard";
+}
+
+<!-- Statistics Cards -->
+<div class="stats-container">
+    <div class="stat-card">
+        <div class="icon active">
+            <i class="bi bi-play-circle"></i>
+        </div>
+        <h3>@Model.RunningProfilesCount</h3>
+        <p>Profile đang chạy</p>
+    </div>
+    <div class="stat-card">
+        <div class="icon total">
+            <i class="bi bi-collection"></i>
+        </div>
+        <h3>@Model.TotalProfilesCount</h3>
+        <p>Tổng số profile</p>
+    </div>
+    <div class="stat-card">
+        <div class="icon storage">
+            <i class="bi bi-hdd"></i>
+        </div>
+        <h3>@Model.TotalStorageUsed</h3>
+        <p>Dung lượng đã dùng</p>
+    </div>
+    <div class="stat-card">
+        <div class="icon recent">
+            <i class="bi bi-clock-history"></i>
+        </div>
+        <h3>@Model.RecentUpdatesCount</h3>
+        <p>Cập nhật gần đây</p>
+    </div>
+</div>
+
+<!-- Activity Chart -->
+<div class="chart-container">
+    <h5>Hoạt động trong 7 ngày qua</h5>
+    <canvas id="activityChart"></canvas>
+</div>
+
+<!-- Recent Logs -->
+<div class="recent-logs">
+    <h5>Nhật ký gần đây</h5>
+    <div class="log-list">
+        @foreach (var log in Model.RecentLogs)
+        {
+            <div class="log-item">
+                <span class="time">@log.Timestamp.ToString("HH:mm")</span>
+                <span class="message @(log.Status == "Error" ? "error" : "")">@log.Message</span>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Activity chart
+        const ctx = document.getElementById('activityChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: @Html.Raw(Json.Serialize(Model.ActivityDates)),
+                datasets: [{
+                    label: 'Số lần chạy',
+                    data: @Html.Raw(Json.Serialize(Model.ActivityCounts)),
+                    borderColor: '#3b82f6',
+                    tension: 0.4,
+                    fill: false
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    </script>
+}

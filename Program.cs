@@ -278,6 +278,18 @@ namespace SteamCmdWebAPI
             app.MapHub<LogHub>("/logHub");
             app.MapHub<LogHub>("/steamHub");
 
+            // Thêm redirect từ Index cũ sang ProfileManager
+            app.MapGet("/Index", async context =>
+            {
+                context.Response.Redirect("/ProfileManager");
+            });
+
+            // Đặt Dashboard làm trang chủ mặc định
+            app.MapGet("/", async context =>
+            {
+                context.Response.Redirect("/Dashboard");
+            });
+
             // API route cho kiểm tra session
             app.MapControllerRoute(
                 name: "api",

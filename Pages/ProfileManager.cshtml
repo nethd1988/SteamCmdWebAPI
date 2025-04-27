@@ -1,0 +1,152 @@
+﻿@page
+@model ProfileManagerModel
+@{
+    ViewData["Title"] = "Quản lý cấu hình";
+    ViewData["ActivePage"] = "ProfileManager";
+}
+
+<div class="page-header">
+    <h1>Quản lý cấu hình</h1>
+    <div class="header-actions">
+        <button id="runAllBtn" class="btn-action btn-success">
+            <i class="bi bi-play-fill"></i> Chạy tất cả
+        </button>
+        <button id="stopAllBtn" class="btn-action btn-danger">
+            <i class="bi bi-stop-fill"></i> Dừng tất cả
+        </button>
+    </div>
+</div>
+
+<!-- Profile Table -->
+<div class="table-container">
+    <div class="table-header">
+        <h5>Danh sách profile</h5>
+        <div class="search-box">
+            <input type="text" id="profileSearch" placeholder="Tìm kiếm...">
+            <i class="bi bi-search"></i>
+        </div>
+    </div>
+    <table id="profilesTable">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Tên</th>
+                <th>App ID</th>
+                <th>Thư mục cài đặt</th>
+                <th>Dung lượng</th>
+                <th>Trạng thái</th>
+                <th>Thao tác</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var profile in Model.Profiles)
+            {
+                <tr data-profile-id="@profile.Id">
+                    <td>@profile.Id</td>
+                    <td>@profile.Name</td>
+                    <td>@profile.AppID</td>
+                    <td title="@profile.InstallDirectory">
+                        @if (profile.InstallDirectory.Length > 30)
+                        {
+                            @(profile.InstallDirectory.Substring(0, 27) + "...")
+                        }
+                        else
+                        {
+                            @profile.InstallDirectory
+                        }
+                    </td>
+                    <td>@(Model.GameSizes.ContainsKey(profile.AppID) ? Model.GameSizes[profile.AppID] : "N/A")</td>
+                    <td>
+                        <span class="status-badge @profile.Status.ToLower()">
+                            <i class="bi bi-@(profile.Status == "Running" ? "play-circle" : profile.Status == "Error" ? "exclamation-circle" : "stop-circle")"></i>
+                            @profile.Status
+                        </span>
+                    </td>
+                    <td>
+                        <div class="btn-group">
+                            <button class="btn-icon play run-btn" data-id="@profile.Id" title="Chạy">
+                                <i class="bi bi-play-fill"></i>
+                            </button>
+                            <a href="/Edit/@profile.Id" class="btn-icon edit" title="Sửa">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <button class="btn-icon delete delete-btn" data-id="@profile.Id" title="Xóa">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<!-- Console -->
+<div class="console-container">
+    <div class="console-header">
+        <h5>SteamCMD Console</h5>
+        <div class="console-controls">
+            <button class="btn-icon" id="toggleAutoScrollBtn" title="Tự động cuộn">
+                <i class="bi bi-arrow-down-square"></i>
+            </button>
+            <button class="btn-icon" id="clearConsoleBtn" title="Xóa console">
+                <i class="bi bi-eraser"></i>
+            </button>
+        </div>
+    </div>
+    <div class="console-body" id="steamcmd-console"></div>
+</div>
+
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+    <script src="~/js/steamcmd-console.js" asp-append-version="true"></script>
+    <script>
+        $(document).ready(function() {
+            // Khởi tạo SignalR connection
+            const connection = new signalR.HubConnectionBuilder()
+                .withUrl("/steamHub")
+                .build();
+
+            // Xử lý nhận log từ SignalR
+            connection.on("ReceiveLog", function(message) {
+                if (window.steamConsole) {
+                    window.steamConsole.addLine(message);
+                }
+            });
+
+            // Khởi động connection
+            connection.start().catch(function(err) {
+                console.error("Lỗi khi kết nối SignalR: " + err.toString());
+            });
+
+            // Search functionality
+            $("#profileSearch").on("keyup", function() {
+                var value = $(this).val().toLowerCase();
+                $("#profilesTable tbody tr").filter(function() {
+                    $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1);
+                });
+            });
+
+            // Các event handlers cho các nút...
+            $("#runAllBtn").click(function() {
+                // Xử lý chạy tất cả
+            });
+
+            $("#stopAllBtn").click(function() {
+                // Xử lý dừng tất cả
+            });
+
+            $(".run-btn").click(function() {
+                var profileId = $(this).data("id");
+                // Xử lý chạy profile
+            });
+
+            $(".delete-btn").click(function() {
+                var profileId = $(this).data("id");
+                if (confirm("Bạn có chắc muốn xóa profile này?")) {
+                    // Xử lý xóa profile
+                }
+            });
+        });
+    </script>
+}
