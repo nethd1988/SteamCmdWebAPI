@@ -13,6 +13,7 @@ namespace SteamCmdWebAPI.Services
     {
         private readonly ILogger<TcpClientService> _logger;
         private readonly EncryptionService _encryptionService;
+        private readonly string _clientId;
 
         // Địa chỉ server mặc định
         private const string DEFAULT_SERVER_ADDRESS = "idckz.ddnsfree.com";
@@ -24,22 +25,32 @@ namespace SteamCmdWebAPI.Services
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _encryptionService = encryptionService ?? throw new ArgumentNullException(nameof(encryptionService));
+            _clientId = GetClientIdentifier();
+            _logger.LogInformation("TcpClientService initialized with ClientID: {ClientId}", _clientId);
+        }
+
+        private string GetClientIdentifier()
+        {
+            string machineName = Environment.MachineName;
+            string userName = Environment.UserName;
+            string clientId = $"{machineName}-{userName}-{DateTime.Now:yyyyMMdd}";
+            return clientId;
         }
 
         public async Task<bool> TestConnectionAsync(string serverAddress, int port = DEFAULT_SERVER_PORT)
         {
-            // Luôn sử dụng địa chỉ mặc định
             serverAddress = DEFAULT_SERVER_ADDRESS;
             port = DEFAULT_SERVER_PORT;
 
             try
             {
-                _logger.LogInformation("Kiểm tra kết nối đến {ServerAddress}:{Port}", serverAddress, port);
+                _logger.LogInformation("Kiểm tra kết nối đến {ServerAddress}:{Port} với ClientID: {ClientId}",
+                    serverAddress, port, _clientId);
 
                 using (var tcpClient = new TcpClient())
                 {
                     var connectTask = tcpClient.ConnectAsync(serverAddress, port);
-                    var timeoutTask = Task.Delay(5000); // 5 giây timeout
+                    var timeoutTask = Task.Delay(5000);
 
                     if (await Task.WhenAny(connectTask, timeoutTask) == timeoutTask)
                     {
@@ -66,13 +77,11 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<List<string>> GetProfileNamesAsync(string serverAddress, int port = DEFAULT_SERVER_PORT)
         {
-            // Luôn sử dụng địa chỉ mặc định
             serverAddress = DEFAULT_SERVER_ADDRESS;
             port = DEFAULT_SERVER_PORT;
 
             try
             {
-                // Kiểm tra kết nối
                 bool isConnected = await TestConnectionAsync(serverAddress, port);
                 if (!isConnected)
                 {
@@ -80,7 +89,8 @@ namespace SteamCmdWebAPI.Services
                     return new List<string>();
                 }
 
-                _logger.LogInformation("Đang lấy danh sách profile từ {Server}:{Port}", serverAddress, port);
+                _logger.LogInformation("Đang lấy danh sách profile từ {Server}:{Port} với ClientID: {ClientId}",
+                    serverAddress, port, _clientId);
 
                 using (var tcpClient = new TcpClient())
                 {
@@ -99,11 +109,10 @@ namespace SteamCmdWebAPI.Services
                         return new List<string>();
                     }
 
-                    // Gửi yêu cầu lấy profiles
                     using var stream = tcpClient.GetStream();
 
-                    // Gửi lệnh AUTH + GET_PROFILES
-                    string command = $"AUTH:{AUTH_TOKEN} GET_PROFILES";
+                    // Gửi lệnh AUTH + CLIENT_ID + GET_PROFILES
+                    string command = $"AUTH:{AUTH_TOKEN} CLIENT_ID:{_clientId} GET_PROFILES";
                     byte[] commandBytes = Encoding.UTF8.GetBytes(command);
                     byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
 
@@ -122,7 +131,7 @@ namespace SteamCmdWebAPI.Services
                     }
 
                     int responseLength = BitConverter.ToInt32(responseHeaderBuffer, 0);
-                    if (responseLength <= 0 || responseLength > 1024 * 1024) // Giới hạn 1MB
+                    if (responseLength <= 0 || responseLength > 1024 * 1024)
                     {
                         _logger.LogWarning("Độ dài phản hồi không hợp lệ: {Length}", responseLength);
                         return new List<string>();
@@ -145,9 +154,7 @@ namespace SteamCmdWebAPI.Services
                         return new List<string>();
                     }
 
-                    // Phân tích danh sách tên profile (định dạng: name1,name2,name3,...)
                     var profileNames = new List<string>(response.Split(',', StringSplitOptions.RemoveEmptyEntries));
-
                     _logger.LogInformation("Đã nhận {Count} profiles từ server", profileNames.Count);
                     return profileNames;
                 }
@@ -161,7 +168,6 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<SteamCmdProfile> GetProfileDetailsByNameAsync(string serverAddress, string profileName, int port = DEFAULT_SERVER_PORT)
         {
-            // Luôn sử dụng địa chỉ mặc định
             serverAddress = DEFAULT_SERVER_ADDRESS;
             port = DEFAULT_SERVER_PORT;
 
@@ -173,10 +179,9 @@ namespace SteamCmdWebAPI.Services
 
             try
             {
-                _logger.LogInformation("Lấy thông tin profile {ProfileName} từ server {Server}:{Port}",
-                    profileName, serverAddress, port);
+                _logger.LogInformation("Lấy thông tin profile {ProfileName} từ server {Server}:{Port} với ClientID: {ClientId}",
+                    profileName, serverAddress, port, _clientId);
 
-                // Kiểm tra kết nối
                 bool isConnected = await TestConnectionAsync(serverAddress, port);
                 if (!isConnected)
                 {
@@ -201,11 +206,10 @@ namespace SteamCmdWebAPI.Services
                         return null;
                     }
 
-                    // Gửi yêu cầu lấy chi tiết profile
                     using var stream = tcpClient.GetStream();
 
-                    // Gửi lệnh AUTH + GET_PROFILE_DETAILS
-                    string command = $"AUTH:{AUTH_TOKEN} GET_PROFILE_DETAILS {profileName}";
+                    // Gửi lệnh AUTH + CLIENT_ID + GET_PROFILE_DETAILS
+                    string command = $"AUTH:{AUTH_TOKEN} CLIENT_ID:{_clientId} GET_PROFILE_DETAILS {profileName}";
                     byte[] commandBytes = Encoding.UTF8.GetBytes(command);
                     byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
 
@@ -224,7 +228,7 @@ namespace SteamCmdWebAPI.Services
                     }
 
                     int responseLength = BitConverter.ToInt32(responseHeaderBuffer, 0);
-                    if (responseLength <= 0 || responseLength > 5 * 1024 * 1024) // Giới hạn 5MB
+                    if (responseLength <= 0 || responseLength > 5 * 1024 * 1024)
                     {
                         _logger.LogWarning("Độ dài phản hồi không hợp lệ: {Length}", responseLength);
                         return null;
@@ -247,7 +251,6 @@ namespace SteamCmdWebAPI.Services
                         return null;
                     }
 
-                    // Phân tích profile từ JSON
                     try
                     {
                         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
@@ -292,10 +295,9 @@ namespace SteamCmdWebAPI.Services
                     return false;
                 }
 
-                _logger.LogInformation("Đang gửi profile {ProfileName} lên server {Server}:{Port}",
-                    profile.Name, serverAddress, port);
+                _logger.LogInformation("Đang gửi profile {ProfileName} lên server {Server}:{Port} với ClientID: {ClientId}",
+                    profile.Name, serverAddress, port, _clientId);
 
-                // Kiểm tra kết nối
                 bool isConnected = await TestConnectionAsync(serverAddress, port);
                 if (!isConnected)
                 {
@@ -320,11 +322,10 @@ namespace SteamCmdWebAPI.Services
                         return false;
                     }
 
-                    // Gửi yêu cầu
                     using var stream = tcpClient.GetStream();
 
-                    // Gửi lệnh AUTH + SEND_PROFILE
-                    string command = $"AUTH:{AUTH_TOKEN} SEND_PROFILE";
+                    // Gửi lệnh AUTH + CLIENT_ID + SEND_PROFILE
+                    string command = $"AUTH:{AUTH_TOKEN} CLIENT_ID:{_clientId} SEND_PROFILE";
                     byte[] commandBytes = Encoding.UTF8.GetBytes(command);
                     byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
 

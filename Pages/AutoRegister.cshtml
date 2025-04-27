@@ -1,0 +1,148 @@
+@page
+@model SteamCmdWebAPI.Pages.AutoRegisterModel
+@{
+    ViewData["Title"] = "Đăng ký tự động với Server";
+}
+
+<div class="container">
+    <h1>Đăng ký tự động với Server</h1>
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            @Model.ErrorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(Model.SuccessMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i>
+            @Model.SuccessMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Trạng thái đăng ký</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Thông tin máy client</label>
+                        <div class="form-control-plaintext">
+                            <strong>Máy tính:</strong> @Environment.MachineName<br>
+                            <strong>Người dùng:</strong> @Environment.UserName<br>
+                            <strong>IP hiện tại:</strong> <span id="currentIp">Đang lấy thông tin...</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border text-primary me-2" role="status" id="loadingSpinner">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <span id="statusMessage">Đang xử lý đăng ký tự động...</span>
+                        </div>
+                    </div>
+
+                    <a asp-page="/Index" class="btn btn-secondary">
+                        <i class="bi bi-arrow-left me-2"></i>Quay lại
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">Thông tin</h5>
+                </div>
+                <div class="card-body">
+                    <p>Hệ thống sẽ tự động:</p>
+                    <ul>
+                        <li>Tạo ClientID duy nhất cho máy này</li>
+                        <li>Gửi thông tin đăng ký lên server</li>
+                        <li>Lưu thông tin đăng ký để tái sử dụng</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (Model.IsRegistered)
+    {
+        <div class="card mt-4">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">Thông tin đăng ký hiện tại</h5>
+            </div>
+            <div class="card-body">
+                <p><strong>Client ID:</strong> @Model.CurrentClientId</p>
+                <p><strong>Thời gian đăng ký:</strong> @Model.RegisteredTime?.ToString("dd/MM/yyyy HH:mm:ss")</p>
+                <button type="button" class="btn btn-danger" id="unregisterBtn">
+                    <i class="bi bi-x-circle me-2"></i>Hủy đăng ký
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            // Hiển thị IP của máy
+            $.get('/AutoRegister?handler=MyIp', function(data) {
+                $('#currentIp').text(data.ip || 'Không thể lấy IP');
+            });
+
+            // Tự động thực hiện đăng ký khi vào trang
+        @if (!Model.IsRegistered)
+        {
+            <text>
+                    setTimeout(function() {
+                        $.ajax({
+                            url: '/AutoRegister?handler=AutoRegister',
+                            type: 'POST',
+                            headers: {
+                                "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                            },
+                            success: function(result) {
+                                $('#loadingSpinner').hide();
+                                if (result.success) {
+                                    $('#statusMessage').html('<span class="text-success"><i class="bi bi-check-circle me-2"></i>Đăng ký thành công!</span>');
+                                    setTimeout(function() {
+                                        location.reload();
+                                    }, 2000);
+                                } else {
+                                    $('#statusMessage').html('<span class="text-danger"><i class="bi bi-x-circle me-2"></i>' + result.error + '</span>');
+                                }
+                            },
+                            error: function(xhr, status, error) {
+                                $('#loadingSpinner').hide();
+                                $('#statusMessage').html('<span class="text-danger"><i class="bi bi-x-circle me-2"></i>Lỗi kết nối: ' + error + '</span>');
+                            }
+                        });
+                    }, 1000);
+            </text>
+        }
+        else
+        {
+            <text>
+                    $('#loadingSpinner').hide();
+                    $('#statusMessage').html('<span class="text-success"><i class="bi bi-check-circle me-2"></i>Đã đăng ký</span>');
+            </text>
+        }
+
+            // Hủy đăng ký
+            $('#unregisterBtn').click(function() {
+                if(confirm('Bạn có chắc chắn muốn hủy đăng ký client này?')) {
+                    window.location.href = '/AutoRegister?handler=Unregister';
+                }
+            });
+        });
+    </script>
+}
