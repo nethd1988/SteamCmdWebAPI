@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
@@ -71,6 +72,75 @@ namespace SteamCmdWebAPI.Services
             {
                 _logger.LogError(ex, "Lỗi khi kiểm tra kết nối đến {ServerAddress}:{Port}", serverAddress, port);
                 return false;
+            }
+        }
+
+        public async Task PeriodicHeartbeatAsync(CancellationToken cancellationToken = default)
+        {
+            string serverAddress = DEFAULT_SERVER_ADDRESS;
+            int port = DEFAULT_SERVER_PORT;
+
+            try
+            {
+                using (var tcpClient = new TcpClient())
+                {
+                    var connectTask = tcpClient.ConnectAsync(serverAddress, port);
+                    if (await Task.WhenAny(connectTask, Task.Delay(5000, cancellationToken)) != connectTask)
+                    {
+                        _logger.LogWarning("Kết nối đến server {Server}:{Port} bị timeout", serverAddress, port);
+                        return;
+                    }
+
+                    if (!tcpClient.Connected)
+                    {
+                        _logger.LogWarning("Không thể kết nối đến server {Server}:{Port}", serverAddress, port);
+                        return;
+                    }
+
+                    using var stream = tcpClient.GetStream();
+
+                    // Gửi lệnh AUTH + CLIENT_ID + HEARTBEAT
+                    string command = $"AUTH:{AUTH_TOKEN} CLIENT_ID:{_clientId} HEARTBEAT";
+                    byte[] commandBytes = Encoding.UTF8.GetBytes(command);
+                    byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
+
+                    await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length, cancellationToken);
+                    await stream.WriteAsync(commandBytes, 0, commandBytes.Length, cancellationToken);
+                    await stream.FlushAsync(cancellationToken);
+
+                    // Đọc phản hồi
+                    byte[] responseHeaderBuffer = new byte[4];
+                    int bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4, cancellationToken);
+
+                    if (bytesRead < 4)
+                    {
+                        _logger.LogWarning("Không đọc được phản hồi từ server");
+                        return;
+                    }
+
+                    int responseLength = BitConverter.ToInt32(responseHeaderBuffer, 0);
+                    if (responseLength <= 0 || responseLength > 1024 * 1024)
+                    {
+                        _logger.LogWarning("Độ dài phản hồi không hợp lệ: {Length}", responseLength);
+                        return;
+                    }
+
+                    byte[] responseBuffer = new byte[responseLength];
+                    bytesRead = await stream.ReadAsync(responseBuffer, 0, responseLength, cancellationToken);
+
+                    if (bytesRead < responseLength)
+                    {
+                        _logger.LogWarning("Phản hồi không đầy đủ từ server");
+                        return;
+                    }
+
+                    string response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
+                    _logger.LogDebug("Nhận phản hồi từ server: {Response}", response);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi gửi heartbeat đến server {Server}:{Port}", serverAddress, port);
             }
         }
 

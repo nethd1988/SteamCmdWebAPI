@@ -24,6 +24,9 @@ namespace SteamCmdWebAPI.Services
             services.AddHostedService<AutoRunBackgroundService>();
             services.AddHostedService<UpdateCheckService>();
 
+            // Thêm HeartbeatService
+            services.AddHostedService<HeartbeatService>();
+
             return services;
         }
     }
