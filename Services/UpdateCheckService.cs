@@ -17,7 +17,6 @@ namespace SteamCmdWebAPI.Services
         private readonly SteamApiService _steamApiService;
         private readonly ProfileService _profileService;
         private readonly SteamCmdService _steamCmdService;
-        // Thêm DependencyManagerService [cite: 1]
         private readonly DependencyManagerService _dependencyManagerService;
         private TimeSpan _checkInterval = TimeSpan.FromMinutes(10);
         private bool _enabled = true;
@@ -30,14 +29,12 @@ namespace SteamCmdWebAPI.Services
             SteamApiService steamApiService,
             ProfileService profileService,
             SteamCmdService steamCmdService,
-            // Inject DependencyManagerService [cite: 2]
             DependencyManagerService dependencyManagerService)
         {
             _logger = logger;
-            _steamApiService = steamApiService; // [cite: 3]
-            _profileService = profileService; // [cite: 4]
+            _steamApiService = steamApiService;
+            _profileService = profileService;
             _steamCmdService = steamCmdService;
-            // Gán dependency [cite: 5]
             _dependencyManagerService = dependencyManagerService;
 
             var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
@@ -49,10 +46,10 @@ namespace SteamCmdWebAPI.Services
 
             _settingsFilePath = Path.Combine(dataDir, "update_check_settings.json");
 
-            // Các giá trị mặc định theo hình
-            _checkInterval = TimeSpan.FromMinutes(10); // 10 phút
-            _enabled = true; // Bật tính năng
-            _autoUpdateProfiles = true; // Bật tự động cập nhật
+            // Các giá trị mặc định
+            _checkInterval = TimeSpan.FromMinutes(10);
+            _enabled = true;
+            _autoUpdateProfiles = true;
 
             LoadSettings();
         }
@@ -64,7 +61,7 @@ namespace SteamCmdWebAPI.Services
                 if (File.Exists(_settingsFilePath))
                 {
                     string json = File.ReadAllText(_settingsFilePath);
-                    var settings = JsonConvert.DeserializeObject<Models.UpdateCheckSettings>(json);
+                    var settings = JsonConvert.DeserializeObject<UpdateCheckSettings>(json);
 
                     if (settings != null)
                     {
@@ -192,27 +189,23 @@ namespace SteamCmdWebAPI.Services
             _logger.LogDebug("Cài đặt AutoUpdateProfiles hiện tại: {AutoUpdateProfiles}", autoUpdateEnabled);
 
             var profiles = await _profileService.GetAllProfiles();
-
-            // ===== Bắt đầu thay đổi logic tạo danh sách kiểm tra =====
-            // Trước khi duyệt qua các profile, lấy tất cả phụ thuộc [cite: 26]
             var allDependencies = await _dependencyManagerService.GetAllDependenciesAsync();
 
-            // Tạo danh sách các app cần kiểm tra (cả chính và phụ thuộc) [cite: 27]
+            // Tạo danh sách các app cần kiểm tra (cả chính và phụ thuộc)
             var profilesToCheck = new List<SteamCmdProfile>();
-            // var additionalAppsToCheck = new List<(int ProfileId, string AppId, string AppName)>(); // Không dùng đến [cite: 28]
 
             foreach (var profile in profiles)
             {
-                // Thêm profile vào danh sách kiểm tra chính [cite: 29]
+                // Thêm profile vào danh sách kiểm tra chính
                 profilesToCheck.Add(profile);
 
-                // Kiểm tra các app phụ thuộc [cite: 30]
+                // Kiểm tra các app phụ thuộc
                 var dependency = allDependencies.FirstOrDefault(d => d.ProfileId == profile.Id);
-                if (dependency != null && dependency.DependentApps.Any()) // [cite: 30]
+                if (dependency != null && dependency.DependentApps.Any())
                 {
-                    foreach (var app in dependency.DependentApps) // [cite: 31]
+                    foreach (var app in dependency.DependentApps)
                     {
-                        // Tạo profile ảo cho app phụ thuộc để kiểm tra cập nhật [cite: 31, 32]
+                        // Tạo profile ảo cho app phụ thuộc để kiểm tra cập nhật
                         var virtualProfile = new SteamCmdProfile
                         {
                             Id = profile.Id, // Giữ ID của profile gốc để liên kết
@@ -221,24 +214,22 @@ namespace SteamCmdWebAPI.Services
                             InstallDirectory = profile.InstallDirectory // Thư mục cài đặt của profile gốc
                         };
 
-                        profilesToCheck.Add(virtualProfile); // [cite: 33]
+                        profilesToCheck.Add(virtualProfile);
                     }
                 }
             }
 
-            if (!profilesToCheck.Any()) // [cite: 34]
+            if (!profilesToCheck.Any())
             {
-                _logger.LogInformation("Không có profile hoặc app nào để kiểm tra cập nhật"); // [cite: 34]
-                return; // [cite: 34]
+                _logger.LogInformation("Không có profile hoặc app nào để kiểm tra cập nhật");
+                return;
             }
 
-            _logger.LogInformation("Tìm thấy {0} profile/app để kiểm tra", profilesToCheck.Count); // [cite: 35]
-            bool anyUpdatesFound = false; // [cite: 35]
-            // ===== Kết thúc thay đổi logic tạo danh sách kiểm tra =====
-
+            _logger.LogInformation("Tìm thấy {0} profile/app để kiểm tra", profilesToCheck.Count);
+            bool anyUpdatesFound = false;
 
             // Vòng lặp chính giờ sẽ duyệt qua profilesToCheck (bao gồm cả profile gốc và ảo)
-            foreach (var profile in profilesToCheck) // Sử dụng danh sách mới
+            foreach (var profile in profilesToCheck)
             {
                 _logger.LogInformation("--- Đang xử lý profile/app '{ProfileName}' (ID Profile gốc: {ProfileId}, AppID: {AppId}) ---",
                                      profile.Name, profile.Id, profile.AppID);
@@ -249,7 +240,7 @@ namespace SteamCmdWebAPI.Services
                     continue;
                 }
 
-                try // Thêm try-catch cho từng profile/app
+                try
                 {
                     _logger.LogDebug("Đang lấy thông tin Steam API cho AppID: {AppId}", profile.AppID);
                     // Lấy thông tin từ Steam API với force refresh
@@ -288,7 +279,7 @@ namespace SteamCmdWebAPI.Services
                                                profile.Name, profile.AppID, latestAppInfo.ChangeNumber);
                     }
 
-                    // Cập nhật SizeOnDisk từ manifest nếu có thể (Giữ nguyên logic này)
+                    // Cập nhật SizeOnDisk từ manifest nếu có thể
                     string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
                     try
                     {
@@ -308,16 +299,13 @@ namespace SteamCmdWebAPI.Services
                         _logger.LogWarning(manifestEx, "Lỗi khi đọc manifest cho '{ProfileName}' (AppID: {AppId}). Bỏ qua cập nhật SizeOnDisk.", profile.Name, profile.AppID);
                     }
 
-                    // ===== Bắt đầu thay đổi logic xử lý khi phát hiện cập nhật =====
                     if (needsUpdate)
                     {
-                        anyUpdatesFound = true; // [cite: 12] Đánh dấu rằng có ít nhất 1 profile/app cần cập nhật
+                        anyUpdatesFound = true;
 
-                        // Xác định xem đây là app chính hay app phụ thuộc [cite: 13]
-                        // Lưu ý: Sử dụng profile.Id (ID của profile gốc) để tra cứu dependency
+                        // Xác định xem đây là app chính hay app phụ thuộc
                         var dependency = await _dependencyManagerService.GetDependencyByProfileIdAsync(profile.Id);
-                        // App chính là khi không có dependency hoặc AppID hiện tại trùng với MainAppId
-                        bool isMainApp = dependency == null || dependency.MainAppId == profile.AppID; // [cite: 14]
+                        bool isMainApp = dependency == null || dependency.MainAppId == profile.AppID;
 
                         if (isMainApp)
                         {
@@ -325,61 +313,60 @@ namespace SteamCmdWebAPI.Services
                             if (autoUpdateEnabled)
                             {
                                 _logger.LogInformation("--> AutoUpdateProfiles được bật. Đang thêm profile '{0}' (ID: {1}, AppID chính: {2}) VÀO HÀNG ĐỢI cập nhật...",
-                                    profile.Name, profile.Id, profile.AppID); // [cite: 15]
+                                    profile.Name, profile.Id, profile.AppID);
 
                                 // Sử dụng ID của profile gốc để thêm vào hàng đợi
-                                bool queueSuccess = await _steamCmdService.QueueProfileForUpdate(profile.Id); // [cite: 16]
+                                bool queueSuccess = await _steamCmdService.QueueProfileForUpdate(profile.Id);
 
                                 if (queueSuccess)
                                 {
-                                    _logger.LogInformation("--> Đã thêm profile '{0}' (ID: {1}) vào hàng đợi thành công.", profile.Name, profile.Id); // [cite: 17]
+                                    _logger.LogInformation("--> Đã thêm profile '{0}' (ID: {1}) vào hàng đợi thành công.", profile.Name, profile.Id);
                                 }
                                 else
                                 {
-                                    _logger.LogError("--> LỖI: Không thể thêm profile '{0}' (ID: {1}) vào hàng đợi.", profile.Name, profile.Id); // [cite: 18]
+                                    _logger.LogError("--> LỖI: Không thể thêm profile '{0}' (ID: {1}) vào hàng đợi.", profile.Name, profile.Id);
                                 }
                             }
                             else
                             {
-                                _logger.LogInformation("--> AutoUpdateProfiles đang tắt. KHÔNG tự động thêm profile '{0}' (ID: {1}) vào hàng đợi dù phát hiện cập nhật.", profile.Name, profile.Id); // [cite: 19]
+                                _logger.LogInformation("--> AutoUpdateProfiles đang tắt. KHÔNG tự động thêm profile '{0}' (ID: {1}) vào hàng đợi dù phát hiện cập nhật.", profile.Name, profile.Id);
                             }
                         }
                         else // Nếu là app phụ thuộc
                         {
                             // Nếu là app phụ thuộc, đánh dấu app cần cập nhật
-                            await _dependencyManagerService.MarkAppForUpdateAsync(profile.AppID); // [cite: 20]
+                            await _dependencyManagerService.MarkAppForUpdateAsync(profile.AppID);
 
                             if (autoUpdateEnabled)
                             {
                                 _logger.LogInformation("--> AutoUpdateProfiles được bật. Đang thiết lập App phụ thuộc ID: {0} để cập nhật trong profile '{1}' (ID gốc: {2})...",
-                                    profile.AppID, profile.Name, profile.Id); // [cite: 21]
+                                    profile.AppID, profile.Name, profile.Id);
 
                                 // Gọi hàm cập nhật app cụ thể, sử dụng ID profile gốc và AppID phụ thuộc
-                                bool queueSuccess = await _steamCmdService.RunSpecificAppAsync(profile.Id, profile.AppID); // [cite: 22]
+                                bool queueSuccess = await _steamCmdService.RunSpecificAppAsync(profile.Id, profile.AppID);
 
                                 if (queueSuccess)
                                 {
-                                    _logger.LogInformation("--> Đã thiết lập cập nhật App ID {0} thành công.", profile.AppID); // [cite: 23]
+                                    _logger.LogInformation("--> Đã thiết lập cập nhật App ID {0} thành công.", profile.AppID);
                                 }
                                 else
                                 {
-                                    _logger.LogError("--> LỖI: Không thể cập nhật App ID {0} của profile '{1}' (ID gốc: {2}).", profile.AppID, profile.Name, profile.Id); // [cite: 24]
+                                    _logger.LogError("--> LỖI: Không thể cập nhật App ID {0} của profile '{1}' (ID gốc: {2}).", profile.AppID, profile.Name, profile.Id);
                                 }
                             }
                             else
                             {
                                 _logger.LogInformation("--> AutoUpdateProfiles đang tắt. KHÔNG tự động cập nhật App ID {0} của profile '{1}' (ID gốc: {2}) dù phát hiện cập nhật.",
-                                    profile.AppID, profile.Name, profile.Id); // [cite: 25]
+                                    profile.AppID, profile.Name, profile.Id);
                             }
                         }
                     }
-                    // ===== Kết thúc thay đổi logic xử lý khi phát hiện cập nhật =====
                     else
                     {
                         _logger.LogInformation("Không có cập nhật mới cần xử lý cho '{0}' (AppID: {1}).", profile.Name, profile.AppID);
                     }
                 }
-                catch (Exception ex) // Catch block cho lỗi xử lý từng profile/app
+                catch (Exception ex)
                 {
                     _logger.LogError(ex, "Lỗi khi xử lý '{0}' (ID Profile gốc: {1}, AppID: {2}) trong quá trình kiểm tra cập nhật.",
                                      profile.Name, profile.Id, profile.AppID);
@@ -387,7 +374,7 @@ namespace SteamCmdWebAPI.Services
 
                 _logger.LogInformation("--- Kết thúc xử lý '{ProfileName}' ---", profile.Name);
 
-            } // Kết thúc vòng lặp foreach profile/app
+            }
 
             if (!anyUpdatesFound)
             {
@@ -400,11 +387,6 @@ namespace SteamCmdWebAPI.Services
         }
     }
 
-    // Class phụ trợ để lưu/tải cài đặt (giữ nguyên)
-    public class UpdateCheckSettings
-    {
-        public bool Enabled { get; set; } = true;
-        public int IntervalMinutes { get; set; } = 10;
-        public bool AutoUpdateProfiles { get; set; } = true;
-    }
+    // Sử dụng trực tiếp class từ Models thay vì định nghĩa lại
+    // Class đã được định nghĩa trong Models/UpdateCheckSettings.cs
 }

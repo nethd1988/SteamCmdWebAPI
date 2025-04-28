@@ -18,6 +18,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication;
 using SteamCmdWebAPI.Models;
+using System.Threading;
 
 namespace SteamCmdWebAPI
 {
@@ -39,12 +40,12 @@ namespace SteamCmdWebAPI
             }
 
             // Đăng ký dịch vụ license
-            builder.Services.AddSingleton<LicenseService>();
-            builder.Services.AddSingleton<UserService>();
+            builder.Services.AddSingleton<Services.LicenseService>();
+            builder.Services.AddSingleton<Services.UserService>();
 
             // Xây dựng provider để kiểm tra license
             var tempProvider = builder.Services.BuildServiceProvider();
-            var licenseService = tempProvider.GetRequiredService<LicenseService>();
+            var licenseService = tempProvider.GetRequiredService<Services.LicenseService>();
             var licenseResult = await licenseService.ValidateLicenseAsync();
 
             if (!licenseResult.IsValid)
@@ -80,25 +81,23 @@ namespace SteamCmdWebAPI
             });
 
             // Đăng ký các dịch vụ
-            builder.Services.AddSingleton<EncryptionService>(); // [cite: 2]
-            builder.Services.AddSingleton<ProfileService>(); // [cite: 2]
-            builder.Services.AddSingleton<SettingsService>(); // [cite: 2]
-            builder.Services.AddSingleton<ServerSettingsService>(); // [cite: 3]
-            builder.Services.AddSingleton<LogFileReader>(); // [cite: 3]
-            builder.Services.AddSingleton<SteamApiService>(); // [cite: 3]
-            // Thêm đăng ký DependencyManagerService theo hướng dẫn từ 1.txt [cite: 1, 4]
+            builder.Services.AddSingleton<EncryptionService>();
+            builder.Services.AddSingleton<ProfileService>();
+            builder.Services.AddSingleton<SettingsService>();
+            builder.Services.AddSingleton<ServerSettingsService>();
+            builder.Services.AddSingleton<LogFileReader>();
+            builder.Services.AddSingleton<SteamApiService>();
             builder.Services.AddSingleton<DependencyManagerService>();
-            builder.Services.AddSingleton<SteamCmdService>(); // [cite: 4]
-            builder.Services.AddSingleton<TcpClientService>(); // [cite: 5]
-            builder.Services.AddSteamCmdServices(); // Sử dụng extension method từ ServiceCollectionExtensions
-            // UserService đã được đăng ký ở trên [cite: 5]
+            builder.Services.AddSingleton<SteamCmdService>();
+            builder.Services.AddSingleton<TcpClientService>();
+            builder.Services.AddSteamCmdServices();
 
             // Đăng ký các dịch vụ mới
             builder.Services.AddSingleton<UpdateCheckService>();
             builder.Services.AddHostedService(provider => provider.GetRequiredService<UpdateCheckService>());
 
             // Đăng ký model mới
-            builder.Services.Configure<UpdateCheckSettings>(builder.Configuration.GetSection("UpdateCheckSettings"));
+            builder.Services.Configure<Models.UpdateCheckSettings>(builder.Configuration.GetSection("UpdateCheckSettings"));
 
             // Đăng ký dịch vụ Worker
             builder.Services.AddHostedService<Worker>();
@@ -164,7 +163,7 @@ namespace SteamCmdWebAPI
                     {
                         OnValidatePrincipal = async context =>
                         {
-                            var userService = context.HttpContext.RequestServices.GetRequiredService<UserService>();
+                            var userService = context.HttpContext.RequestServices.GetRequiredService<Services.UserService>();
                             var userIdClaim = context.Principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
 
                             if (userIdClaim != null && int.TryParse(userIdClaim, out int userId))
@@ -201,7 +200,7 @@ namespace SteamCmdWebAPI
                 // Áp dụng filter để kiểm tra người dùng đầu tiên
                 options.Conventions.AddFolderApplicationModelConvention("/", model => {
                     model.Filters.Add(new RequireFirstUserSetupFilter(
-                        tempProvider.GetRequiredService<UserService>(),
+                        tempProvider.GetRequiredService<Services.UserService>(),
                         tempProvider.GetRequiredService<ILogger<RequireFirstUserSetupFilter>>()
                     ));
                 });
@@ -247,6 +246,9 @@ namespace SteamCmdWebAPI
 
             // Thêm background service kiểm tra license định kỳ
             builder.Services.AddHostedService<LicenseValidationService>();
+
+            // Đảm bảo sử dụng đúng UpdateCheckSettings từ Models namespace
+            builder.Services.Configure<Models.UpdateCheckSettings>(builder.Configuration.GetSection("UpdateCheckSettings"));
 
             // Thêm endpoint cho kiểm tra session
             builder.Services.AddControllers().AddApplicationPart(typeof(Program).Assembly);
@@ -354,10 +356,10 @@ namespace SteamCmdWebAPI
     public class LicenseValidationService : BackgroundService
     {
         private readonly ILogger<LicenseValidationService> _logger;
-        private readonly LicenseService _licenseService;
+        private readonly Services.LicenseService _licenseService;
         private readonly TimeSpan _checkInterval = TimeSpan.FromHours(6); // Kiểm tra mỗi 6 giờ
 
-        public LicenseValidationService(ILogger<LicenseValidationService> logger, LicenseService licenseService)
+        public LicenseValidationService(ILogger<LicenseValidationService> logger, Services.LicenseService licenseService)
         {
             _logger = logger;
             _licenseService = licenseService;
