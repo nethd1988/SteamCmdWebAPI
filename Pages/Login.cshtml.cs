@@ -39,10 +39,10 @@ namespace SteamCmdWebAPI.Pages
             // Xóa cookie hiện tại để đảm bảo đăng nhập mới
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
-            // Nếu đã đăng nhập, chuyển hướng đến trang chủ
+            // Nếu đã đăng nhập, chuyển hướng đến trang dashboard
             if (User.Identity?.IsAuthenticated == true)
             {
-                return RedirectToPage("/Index");
+                return RedirectToPage("/Dashboard");
             }
 
             // Kiểm tra nếu không có người dùng nào, hiển thị thông báo đăng ký
@@ -117,14 +117,14 @@ namespace SteamCmdWebAPI.Pages
 
                 _logger.LogInformation("Người dùng {Username} đã đăng nhập thành công", Username);
 
-                // Chuyển hướng đến trang được yêu cầu ban đầu hoặc trang chủ
+                // Chuyển hướng đến trang được yêu cầu ban đầu hoặc trang Dashboard
                 if (!string.IsNullOrEmpty(ReturnUrl) && Url.IsLocalUrl(ReturnUrl))
                 {
                     return Redirect(ReturnUrl);
                 }
                 else
                 {
-                    return RedirectToPage("/Index");
+                    return RedirectToPage("/Dashboard");
                 }
             }
             catch (Exception ex)

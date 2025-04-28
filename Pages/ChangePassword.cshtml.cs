@@ -61,11 +61,14 @@ namespace SteamCmdWebAPI.Pages
                 {
                     StatusMessage = "Mật khẩu đã được cập nhật thành công";
                     IsSuccess = true;
-                    
+
                     // Xóa các trường nhập để ngăn việc gửi lại form
                     CurrentPassword = string.Empty;
                     NewPassword = string.Empty;
                     ConfirmPassword = string.Empty;
+
+                    // Chuyển hướng về Dashboard sau khi đổi mật khẩu thành công
+                    return RedirectToPage("/Dashboard");
                 }
                 else
                 {

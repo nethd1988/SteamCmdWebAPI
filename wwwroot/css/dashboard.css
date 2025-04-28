@@ -37,10 +37,12 @@ body {
     width: 280px;
     margin: 0;
     background: linear-gradient(180deg, #1a1f36 0%, #0f1427 100%);
-    height: calc(100vh - 32px);
+    height: calc(100vh - 32px); /* Adjusted assuming some padding/margin */
     transition: all 0.4s ease;
     box-shadow: 4px 0 15px rgba(0, 0, 0, 0.1);
     z-index: 1000;
+    display: flex; /* Added for flex column layout */
+    flex-direction: column; /* Added for flex column layout */
 }
 
     .sidebar.collapsed {
@@ -82,40 +84,92 @@ body {
         transform: scale(1.05);
     }
 
-.sidebar-nav .nav-list {
-    list-style: none;
-    padding: 20px 15px;
+.sidebar-nav { /* Added flex-grow to push bottom-nav down */
+    flex-grow: 1;
+    overflow-y: auto; /* Allow scrolling if content exceeds height */
+    position: relative; /* Needed for absolute positioning of bottom-nav */
+    padding-bottom: 70px; /* Add padding to prevent overlap with bottom-nav */
 }
 
-.sidebar-nav .nav-link {
-    color: rgba(255, 255, 255, 0.8);
-    display: flex;
-    gap: 15px;
-    white-space: nowrap;
-    border-radius: 12px;
-    padding: 14px 20px;
-    align-items: center;
-    text-decoration: none;
-    transition: all 0.3s ease;
-    margin: 5px 0;
-    font-weight: 500;
-}
-
-    .sidebar-nav .nav-link:hover {
-        color: #fff;
-        background: rgba(255, 255, 255, 0.1);
-        transform: translateX(5px);
+    .sidebar-nav .nav-list {
+        list-style: none;
+        padding: 20px 15px;
     }
 
-    .sidebar-nav .nav-link.active {
-        color: #fff;
-        background: linear-gradient(90deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-        box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+    .sidebar-nav .nav-link {
+        color: rgba(255, 255, 255, 0.8);
+        display: flex;
+        gap: 15px;
+        white-space: nowrap;
+        border-radius: 12px;
+        padding: 14px 20px;
+        align-items: center;
+        text-decoration: none;
+        transition: all 0.3s ease;
+        margin: 5px 0;
+        font-weight: 500;
     }
+
+        .sidebar-nav .nav-link:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateX(5px);
+        }
+
+        .sidebar-nav .nav-link.active {
+            color: #fff;
+            background: linear-gradient(90deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+        }
+
+    /* --- Start: Added styles from 1.txt --- */
+    /* Thêm style cho bottom-nav */
+    .sidebar-nav .bottom-nav {
+        position: absolute; /* Changed from fixed to absolute relative to .sidebar-nav */
+        bottom: 0;
+        width: 100%;
+        border-top: 1px solid rgba(255, 255, 255, 0.1); /* [cite: 2] */
+        padding: 15px 15px 15px 15px; /* Adjusted padding to match nav-list */
+        background: #1a1f36; /* Ensure background matches sidebar */
+    }
+
+        .sidebar-nav .bottom-nav .nav-link {
+            color: rgba(255, 255, 255, 0.7); /* [cite: 3] */
+            /* Inherits general .nav-link styles, override specifics below */
+            margin: 5px 0; /* Ensure consistent margin */
+            padding: 14px 20px; /* Ensure consistent padding */
+        }
+
+            .sidebar-nav .bottom-nav .nav-link:hover {
+                color: #fff; /* [cite: 4] */
+                background: rgba(255, 255, 255, 0.1); /* [cite: 4] */
+                transform: translateX(5px); /* [cite: 4] */
+            }
+
+            .sidebar-nav .bottom-nav .nav-link.active {
+                color: #fff; /* [cite: 5] */
+                background: linear-gradient(90deg, var(--primary-color) 0%, var(--secondary-color) 100%); /* [cite: 5] */
+                box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3); /* [cite: 6] */
+            }
+/* --- End: Added styles from 1.txt --- */
+
 
 .sidebar.collapsed .nav-label {
     display: none;
 }
+
+/* --- Start: Added collapsed styles from 1.txt --- */
+.sidebar.collapsed .sidebar-nav .bottom-nav {
+    padding-left: 0; /* [cite: 10] */
+    padding-right: 0; /* [cite: 10] */
+    text-align: center; /* [cite: 10] */
+}
+
+    .sidebar.collapsed .sidebar-nav .bottom-nav .nav-label {
+        display: none; /* [cite: 11] */
+    }
+/* --- End: Added collapsed styles from 1.txt --- */
+
 
 /* Main Content */
 .main-content {
@@ -969,11 +1023,16 @@ tbody tr:hover {
 @media (max-width: 1024px) {
     .sidebar {
         position: fixed;
-        left: -280px;
+        left: -280px; /* Start hidden */
         z-index: 1000;
+        height: auto; /* Changed from fixed height */
+        top: 0;
+        bottom: 0; /* Make it full height when open */
+        width: 280px; /* Keep width consistent */
+        overflow-y: auto; /* Allow scrolling */
     }
 
-        .sidebar.open {
+        .sidebar.open { /* Style for when mobile menu is open */
             left: 0;
         }
 
@@ -986,9 +1045,46 @@ tbody tr:hover {
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     }
 
-    .menu-toggler {
-        display: block !important;
+    .menu-toggler { /* Show menu toggler */
+        display: flex !important; /* Use flex to center icon */
     }
+
+    /* --- Start: Added responsive styles from 1.txt --- */
+    .sidebar-nav .bottom-nav {
+        position: relative; /* Change from absolute */ /* [cite: 6] */
+        margin-top: 20px; /* [cite: 7] */
+        border-top: 1px solid rgba(255, 255, 255, 0.1); /* [cite: 7] */
+        padding-top: 15px; /* [cite: 7] */
+        background: transparent; /* Remove fixed background */
+        bottom: auto; /* Remove bottom positioning */
+    }
+
+    .sidebar.menu-active .bottom-nav { /* Show bottom nav when menu is active */
+        display: block; /* [cite: 8] */
+    }
+
+    .sidebar:not(.menu-active) .bottom-nav { /* Hide bottom nav when menu is not active */
+        /* Keep hidden or manage visibility based on your JS logic */
+        /* display: none; */ /* [cite: 9] */ /* This might be redundant if sidebar itself is hidden */
+    }
+    /* --- End: Added responsive styles from 1.txt --- */
+
+    /* Original mobile sidebar styles - potentially adjust based on 1.txt logic */
+    /* Commenting out conflicting height rules */
+    /* .sidebar { */
+    /* height: auto; */
+    /* top: 0; */
+    /* width: 100%; */
+    /* max-height: 56px; */ /* This seems very small */
+    /* overflow: hidden; */
+    /* } */
+
+    /* .sidebar.menu-active { */
+    /* max-height: none; */
+    /* height: auto; */
+    /* bottom: 0; */
+    /* overflow-y: auto; */
+    /* } */
 }
 
 @media (max-width: 768px) {
@@ -1001,6 +1097,7 @@ tbody tr:hover {
     .table-header {
         flex-direction: column;
         gap: 15px;
+        align-items: stretch; /* Stretch search box */
     }
 
     .search-box input {
@@ -1020,7 +1117,7 @@ tbody tr:hover {
 
 /* Mobile menu toggler */
 .menu-toggler {
-    display: none;
+    display: none; /* Hidden by default, shown in @media */
     position: fixed;
     top: 15px;
     left: 15px;
@@ -1035,22 +1132,5 @@ tbody tr:hover {
     justify-content: center;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
     cursor: pointer;
-}
-
-/* Mobile sidebar styles */
-@media (max-width: 1024px) {
-    .sidebar {
-        height: auto;
-        top: 0;
-        width: 100%;
-        max-height: 56px;
-        overflow: hidden;
-    }
-
-        .sidebar.menu-active {
-            max-height: none;
-            height: auto;
-            bottom: 0;
-            overflow-y: auto;
-        }
+    font-size: 20px; /* Added for icon size */
 }

@@ -35,10 +35,10 @@ namespace SteamCmdWebAPI.Pages
 
         public async Task<IActionResult> OnGetAsync()
         {
-            // Nếu đã đăng nhập, chuyển hướng đến trang chủ
+            // Nếu đã đăng nhập, chuyển hướng đến trang dashboard
             if (User.Identity.IsAuthenticated)
             {
-                return RedirectToPage("/Index");
+                return RedirectToPage("/Dashboard");
             }
 
             // Không tự động chuyển hướng nếu đã ở trang Register
@@ -84,7 +84,7 @@ namespace SteamCmdWebAPI.Pages
 
                 _logger.LogInformation("Người dùng {Username} đã đăng ký và đăng nhập thành công", Username);
 
-                return RedirectToPage("/Index");
+                return RedirectToPage("/Dashboard");
             }
             catch (Exception ex)
             {

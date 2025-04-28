@@ -202,6 +202,10 @@ namespace SteamCmdWebAPI
                     ));
                 });
 
+                // Đặt trang Dashboard làm trang mặc định
+                options.Conventions.AddPageRoute("/Dashboard", "/");
+                options.Conventions.AddPageRoute("/Dashboard", "/Index");
+
                 // Áp dụng filter Authorize cho tất cả các trang trừ Login/Register/Error
                 options.Conventions.AuthorizeFolder("/");
                 options.Conventions.AllowAnonymousToPage("/Login");
@@ -269,6 +273,35 @@ namespace SteamCmdWebAPI
             app.UseAuthentication();
             app.UseAuthorization();
 
+            // API Error Handling Middleware
+            app.Use(async (context, next) =>
+            {
+                // Xử lý chuyển hướng API sang Dashboard
+                if (context.Request.Path.StartsWithSegments("/api") &&
+                    !context.Request.Path.StartsWithSegments("/api/auth") &&
+                    context.User?.Identity?.IsAuthenticated == true)
+                {
+                    context.Response.Redirect("/Dashboard");
+                    return;
+                }
+                await next();
+            });
+
+            // Dashboard Redirect Middleware - chuyển hướng các URL cơ bản đến Dashboard
+            app.Use(async (context, next) =>
+            {
+                if ((context.Request.Path == "/" ||
+                     context.Request.Path == "/Index" ||
+                     context.Request.Path == "/api" ||
+                     context.Request.Path == "/api/Index") &&
+                    context.User?.Identity?.IsAuthenticated == true)
+                {
+                    context.Response.Redirect("/Dashboard");
+                    return;
+                }
+                await next();
+            });
+
             // Middleware kiểm tra người dùng đầu tiên (đặt sau xác thực)
             app.UseFirstUserSetup();
 
@@ -278,16 +311,17 @@ namespace SteamCmdWebAPI
             app.MapHub<LogHub>("/logHub");
             app.MapHub<LogHub>("/steamHub");
 
-            // Thêm redirect từ Index cũ sang ProfileManager
-            app.MapGet("/Index", async context =>
-            {
-                context.Response.Redirect("/ProfileManager");
-            });
-
             // Đặt Dashboard làm trang chủ mặc định
             app.MapGet("/", async context =>
             {
-                context.Response.Redirect("/Dashboard");
+                if (context.User?.Identity?.IsAuthenticated == true)
+                {
+                    context.Response.Redirect("/Dashboard");
+                }
+                else
+                {
+                    context.Response.Redirect("/Login");
+                }
             });
 
             // API route cho kiểm tra session

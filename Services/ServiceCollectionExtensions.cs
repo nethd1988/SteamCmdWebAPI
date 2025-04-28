@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.Routing;
 
 namespace SteamCmdWebAPI.Services
 {
@@ -26,6 +27,13 @@ namespace SteamCmdWebAPI.Services
 
             // Thêm HeartbeatService
             services.AddHostedService<HeartbeatService>();
+
+            // Cấu hình URL lowercase
+            services.Configure<RouteOptions>(options =>
+            {
+                options.LowercaseUrls = true;
+                options.LowercaseQueryStrings = true;
+            });
 
             return services;
         }

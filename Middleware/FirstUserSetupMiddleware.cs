@@ -42,6 +42,18 @@ namespace SteamCmdWebAPI.Middleware
         {
             string path = context.Request.Path.Value?.ToLower() ?? "";
 
+            // Chuyển hướng đến Dashboard từ trang chủ
+            if (context.Request.Path == "/" || context.Request.Path == "/api" ||
+                context.Request.Path == "/Index" || context.Request.Path == "/api/Index")
+            {
+                // Kiểm tra xem người dùng đã đăng nhập hay chưa
+                if (context.User?.Identity?.IsAuthenticated == true)
+                {
+                    context.Response.Redirect("/Dashboard");
+                    return;
+                }
+            }
+
             // Kiểm tra đường dẫn nằm trong danh sách cho phép
             if (_allowedPaths.Any(ap => path.StartsWith(ap)))
             {
