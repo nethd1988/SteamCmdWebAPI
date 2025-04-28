@@ -27,6 +27,7 @@ namespace SteamCmdWebAPI.Services
         private readonly EncryptionService _encryptionService;
         private readonly LogFileReader _logFileReader;
         private readonly SteamApiService _steamApiService;
+        private readonly DependencyManagerService _dependencyManagerService; // Added based on 1.txt point 5
 
         private const int MaxLogEntries = 5000;
         private const int RetryDelayMs = 5000;
@@ -79,7 +80,8 @@ namespace SteamCmdWebAPI.Services
             SettingsService settingsService,
             EncryptionService encryptionService,
             LogFileReader logFileReader,
-            SteamApiService steamApiService)
+            SteamApiService steamApiService,
+            DependencyManagerService dependencyManagerService) // Modified based on 1.txt point 5
         {
             _logger = logger;
             _hubContext = hubContext;
@@ -88,6 +90,7 @@ namespace SteamCmdWebAPI.Services
             _encryptionService = encryptionService;
             _logFileReader = logFileReader;
             _steamApiService = steamApiService;
+            _dependencyManagerService = dependencyManagerService; // Added based on 1.txt point 5
 
             _scheduleTimer = new System.Timers.Timer(60000);
             _scheduleTimer.Elapsed += async (s, e) => await CheckScheduleAsync();
@@ -646,7 +649,8 @@ namespace SteamCmdWebAPI.Services
 
                         _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Calling ExecuteProfileUpdateAsync for {ProfileName}...", profileName);
 
-                        bool success = await ExecuteProfileUpdateAsync(profileId);
+                        // Modified to call ExecuteProfileUpdateAsync with specificAppId=null for queue processing
+                        bool success = await ExecuteProfileUpdateAsync(profileId, null);
                         _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: ExecuteProfileUpdateAsync completed for {ProfileName}. Success: {SuccessState}", profileName, success);
 
 
@@ -712,7 +716,8 @@ namespace SteamCmdWebAPI.Services
             return await QueueProfileForUpdate(id);
         }
 
-        private async Task<bool> ExecuteProfileUpdateAsync(int id)
+        // Updated method signature to support specificAppId based on 1.txt point 1
+        private async Task<bool> ExecuteProfileUpdateAsync(int id, string specificAppId = null) // Modified based on 1.txt point 1
         {
             var profile = await _profileService.GetProfileById(id);
             if (profile == null)
@@ -784,37 +789,48 @@ namespace SteamCmdWebAPI.Services
                 return false;
             }
 
-            var appIdsToUpdateInitial = new List<string> { profile.AppID };
-            try
+            // Modified logic to handle specificAppId and scan dependencies based on 1.txt point 2
+            var appIdsToUpdateInitial = new List<string>(); // Modified based on 1.txt point 2
+            try // Added based on 1.txt point 2
             {
-                if (Directory.Exists(linkedSteamappsDir))
+                // Nếu có specificAppId, chỉ cập nhật app đó
+                if (!string.IsNullOrEmpty(specificAppId)) // Added based on 1.txt point 2
                 {
-                    var manifestFiles = Directory.GetFiles(linkedSteamappsDir, "appmanifest_*.acf");
-                    var regex = new Regex(@"appmanifest_(\d+)\.acf");
-                    foreach (var file in manifestFiles)
+                    appIdsToUpdateInitial.Add(specificAppId); // Added based on 1.txt point 2
+                    await SafeSendLogAsync(profile.Name, "Info", $"Chỉ cập nhật App ID: {specificAppId}"); // Added based on 1.txt point 2
+                }
+                else // Added based on 1.txt point 2
+                {
+                    // Cập nhật app ID chính
+                    appIdsToUpdateInitial.Add(profile.AppID); // Added based on 1.txt point 2
+
+                    // Quét các app phụ thuộc
+                    string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps"); // Added based on 1.txt point 2
+                    var dependentAppIds = await _dependencyManagerService.ScanDependenciesFromManifest(steamappsDir, profile.AppID); // Added based on 1.txt point 2
+
+                    // Cập nhật danh sách phụ thuộc vào cơ sở dữ liệu
+                    await _dependencyManagerService.UpdateDependenciesAsync(profile.Id, profile.AppID, dependentAppIds); // Added based on 1.txt point 2
+
+                    // Lấy danh sách app cần cập nhật (những app được đánh dấu)
+                    var appsNeedingUpdate = await _dependencyManagerService.GetAppsNeedingUpdateAsync(profile.Id); // Added based on 1.txt point 2
+
+                    foreach (var app in appsNeedingUpdate) // Added based on 1.txt point 2
                     {
-                        var match = regex.Match(Path.GetFileName(file));
-                        if (match.Success)
-                        {
-                            string foundAppId = match.Groups[1].Value;
-                            if (foundAppId != profile.AppID && !appIdsToUpdateInitial.Contains(foundAppId))
-                            {
-                                appIdsToUpdateInitial.Add(foundAppId);
-                                _logger.LogInformation($"Tìm thấy App ID phụ từ manifest: {foundAppId} cho profile {profile.Name}");
-                            }
-                        }
+                        appIdsToUpdateInitial.Add(app.AppId); // Added based on 1.txt point 2
+                        _logger.LogInformation($"Thêm App ID phụ thuộc cần cập nhật: {app.AppId} ({app.Name}) cho profile {profile.Name}"); // Added based on 1.txt point 2
+                        await SafeSendLogAsync(profile.Name, "Info", $"Thêm App ID phụ thuộc cần cập nhật: {app.AppId} ({app.Name})"); // Added based on 1.txt point 2
                     }
                 }
-                if (appIdsToUpdateInitial.Count > 1)
-                {
-                    await SafeSendLogAsync(profile.Name, "Info", $"Sẽ cập nhật {appIdsToUpdateInitial.Count} App ID (chính: {profile.AppID}, phụ: {string.Join(", ", appIdsToUpdateInitial.Where(a => a != profile.AppID))}).");
-                }
             }
-            catch (Exception ex)
+            catch (Exception ex) // Added based on 1.txt point 2
             {
-                _logger.LogError(ex, "Lỗi khi đọc file appmanifest cho profile {ProfileName}", profile.Name);
-                await SafeSendLogAsync(profile.Name, "Warning", $"Lỗi khi đọc file appmanifest: {ex.Message}. Chỉ cập nhật App ID chính.");
-                appIdsToUpdateInitial = new List<string> { profile.AppID };
+                _logger.LogError(ex, "Lỗi khi xử lý App ID phụ thuộc cho profile {ProfileName}", profile.Name); // Added based on 1.txt point 2
+                await SafeSendLogAsync(profile.Name, "Warning", $"Lỗi khi xử lý App ID phụ thuộc: {ex.Message}. Chỉ cập nhật App ID chính."); // Added based on 1.txt point 2
+                // Ensure the main App ID is still in the list if an error occurs during dependency scanning and no specific App ID was requested.
+                if (string.IsNullOrEmpty(specificAppId) && !appIdsToUpdateInitial.Contains(profile.AppID))
+                {
+                    appIdsToUpdateInitial.Add(profile.AppID);
+                }
             }
 
 
@@ -839,7 +855,7 @@ namespace SteamCmdWebAPI.Services
             await SafeSendLogAsync(profile.Name, "Info", $"Bắt đầu lần cập nhật đầu tiên cho: {string.Join(", ", appNamesForLog.Select(kv => $"'{kv.Value}' ({kv.Key})"))}");
             await SafeSendLogAsync(profile.Name, "Info", "Chạy update KHÔNG Verify để kiểm tra nhanh");
             await SafeSendLogAsync(profile.Name, "Info", "═══════════════════════════════════════════════════════");
-            var initialRunResult = await RunSteamCmdProcessAsync(profile, id, appIdsToUpdateInitial, forceValidate: false); ;
+            var initialRunResult = await RunSteamCmdProcessAsync(profile, id, appIdsToUpdateInitial, forceValidate: false);
 
             if (_lastRunHadLoginError)
             {
@@ -847,122 +863,151 @@ namespace SteamCmdWebAPI.Services
                 profile.Status = "Error";
                 profile.StopTime = DateTime.Now;
                 await _profileService.UpdateProfile(profile);
+
+                // Reset update flags on error if login failed - Added based on 1.txt point 4 (error case)
+                if (!string.IsNullOrEmpty(specificAppId)) // Added based on 1.txt point 4
+                {
+                    await _dependencyManagerService.ResetUpdateFlagsAsync(profile.Id, specificAppId); // Added based on 1.txt point 4
+                }
+                else // Added based on 1.txt point 4
+                {
+                    await _dependencyManagerService.ResetUpdateFlagsAsync(profile.Id); // Added based on 1.txt point 4
+                }
+
                 return false;
             }
 
-            if (!initialRunResult.Success)
+            if (!initialRunResult.Success && string.IsNullOrEmpty(specificAppId)) // Only mark as failed immediately if not running specific app
             {
                 _logger.LogError("RunSteamCmdProcessAsync lần đầu tiên thất bại cho profile {ProfileName} với Exit Code: {ExitCode}. Sẽ không tiếp tục kiểm tra manifest.", profile.Name, initialRunResult.ExitCode);
                 profile.Status = "Error";
                 profile.StopTime = DateTime.Now;
                 await _profileService.UpdateProfile(profile);
+
+                // Reset update flags on error - Added based on 1.txt point 4 (error case)
+                await _dependencyManagerService.ResetUpdateFlagsAsync(profile.Id); // Added based on 1.txt point 4
                 return false;
             }
 
 
-            await KillAllSteamCmdProcessesAsync();
-            await Task.Delay(RetryDelayMs);
-
-
+            bool retryRunSuccessful = true; // Assume successful unless retry fails
             var failedAppIdsForRetry = new List<string>();
-            await SafeSendLogAsync(profile.Name, "Info", "Đang kiểm tra kết quả cập nhật lần đầu...");
 
-            foreach (var appId in appIdsToUpdateInitial)
-            {
-                var manifestData = await ReadAppManifest(linkedSteamappsDir, appId);
-                string gameName = appNamesForLog.TryGetValue(appId, out var name) ? name : appId;
-
-                if (manifestData == null)
-                {
-                    _logger.LogWarning($"Manifest cho '{gameName}' (AppID: {appId}) không tìm thấy sau lần chạy đầu. Đánh dấu để thử lại.");
-                    await SafeSendLogAsync(profile.Name, "Warning", $"Manifest cho '{gameName}' ({appId}) không tìm thấy. Thử lại.");
-                    failedAppIdsForRetry.Add(appId);
-                }
-                else if (!manifestData.TryGetValue("UpdateResult", out string updateResultValue) ||
-                         (updateResultValue != "0" && updateResultValue != "2" && updateResultValue != "23"))
-                {
-                    string resultText = manifestData.TryGetValue("UpdateResult", out var ur) ? $"UpdateResult: {ur}" : "UpdateResult không tồn tại";
-                    _logger.LogWarning($"Cập nhật lần đầu cho '{gameName}' (AppID: {appId}) không thành công ({resultText}). Đánh dấu để thử lại.");
-                    await SafeSendLogAsync(profile.Name, "Warning", $"Cập nhật '{gameName}' ({appId}) lần đầu không thành công ({resultText}). Thử lại.");
-                    failedAppIdsForRetry.Add(appId);
-                }
-                else
-                {
-                    _logger.LogInformation($"Cập nhật lần đầu cho '{gameName}' (AppID: {appId}) thành công (UpdateResult: {updateResultValue}).");
-                }
-            }
-
-
-            bool retryRunSuccessful = true;
-            if (failedAppIdsForRetry.Any())
+            if (string.IsNullOrEmpty(specificAppId)) // Only perform manifest check and retry if not running a specific App ID
             {
                 await KillAllSteamCmdProcessesAsync();
                 await Task.Delay(RetryDelayMs);
 
-                var failedAppNamesForRetryLog = failedAppIdsForRetry
-                    .Select(appId => $"'{appNamesForLog.GetValueOrDefault(appId, appId)}' ({appId})")
-                    .ToList();
+                await SafeSendLogAsync(profile.Name, "Info", "Đang kiểm tra kết quả cập nhật lần đầu...");
 
-                _logger.LogWarning($"Phát hiện {failedAppIdsForRetry.Count} game cần thử lại với Verify: {string.Join(", ", failedAppNamesForRetryLog)}. Đang thực hiện lần chạy thứ hai...");
-                await SafeSendLogAsync(profile.Name, "Warning", $"Phát hiện {failedAppIdsForRetry.Count} game cần thử lại với Verify. Bắt đầu lần chạy thứ hai...");
-
-                var retryRunResult = await RunSteamCmdProcessAsync(profile, id, failedAppIdsForRetry, forceValidate: true);
-
-                if (_lastRunHadLoginError)
-                {
-                    _logger.LogError("Phát hiện lỗi đăng nhập (hoặc thiếu thông tin đăng nhập) sau khi RunSteamCmdProcessAsync (retry) hoàn tất cho profile {ProfileName}.", profile.Name);
-                    profile.Status = "Error";
-                    profile.StopTime = DateTime.Now;
-                    await _profileService.UpdateProfile(profile);
-                    return false;
-                }
-
-                if (!retryRunResult.Success)
-                {
-                    _logger.LogError("RunSteamCmdProcessAsync lần thử lại thất bại cho profile {ProfileName} với Exit Code: {ExitCode}.", profile.Name, retryRunResult.ExitCode);
-                    profile.Status = "Error";
-                    profile.StopTime = DateTime.Now;
-                    await _profileService.UpdateProfile(profile);
-                    return false;
-                }
-
-
-                await KillAllSteamCmdProcessesAsync();
-                await Task.Delay(RetryDelayMs);
-
-                var failedAfterRetry = new List<string>();
-                await SafeSendLogAsync(profile.Name, "Info", "Đang kiểm tra kết quả cuối cùng sau khi thử lại...");
-
-                foreach (var appId in failedAppIdsForRetry)
+                foreach (var appId in appIdsToUpdateInitial)
                 {
                     var manifestData = await ReadAppManifest(linkedSteamappsDir, appId);
-                    string gameName = appNamesForLog.GetValueOrDefault(appId, appId);
+                    string gameName = appNamesForLog.TryGetValue(appId, out var name) ? name : appId;
 
                     if (manifestData == null)
                     {
-                        _logger.LogError($"Thử lại cho '{gameName}' (AppID: {appId}) thất bại. Manifest vẫn không tìm thấy.");
-                        await SafeSendLogAsync(profile.Name, "Error", $"Thử lại cho '{gameName}' ({appId}) thất bại (không tìm thấy manifest).");
-                        failedAfterRetry.Add(appId);
+                        _logger.LogWarning($"Manifest cho '{gameName}' (AppID: {appId}) không tìm thấy sau lần chạy đầu. Đánh dấu để thử lại.");
+                        await SafeSendLogAsync(profile.Name, "Warning", $"Manifest cho '{gameName}' ({appId}) không tìm thấy. Thử lại.");
+                        failedAppIdsForRetry.Add(appId);
                     }
                     else if (!manifestData.TryGetValue("UpdateResult", out string updateResultValue) ||
                              (updateResultValue != "0" && updateResultValue != "2" && updateResultValue != "23"))
                     {
                         string resultText = manifestData.TryGetValue("UpdateResult", out var ur) ? $"UpdateResult: {ur}" : "UpdateResult không tồn tại";
-                        _logger.LogError($"Thử lại cho '{gameName}' (AppID: {appId}) thất bại ({resultText}).");
-                        await SafeSendLogAsync(profile.Name, "Error", $"Thử lại cho '{gameName}' ({appId}) thất bại ({resultText}).");
-                        failedAfterRetry.Add(appId);
+                        _logger.LogWarning($"Cập nhật lần đầu cho '{gameName}' (AppID: {appId}) không thành công ({resultText}). Đánh dấu để thử lại.");
+                        await SafeSendLogAsync(profile.Name, "Warning", $"Cập nhật '{gameName}' ({appId}) lần đầu không thành công ({resultText}). Thử lại.");
+                        failedAppIdsForRetry.Add(appId);
                     }
                     else
                     {
-                        _logger.LogInformation($"Thử lại cho '{gameName}' (AppID: {appId}) thành công (UpdateResult: {updateResultValue}).");
-                        await SafeSendLogAsync(profile.Name, "Success", $"Thử lại cho '{gameName}' ({appId}) thành công (UpdateResult: {updateResultValue}).");
+                        _logger.LogInformation($"Cập nhật lần đầu cho '{gameName}' (AppID: {appId}) thành công (UpdateResult: {updateResultValue}).");
                     }
                 }
-                retryRunSuccessful = !failedAfterRetry.Any();
+
+
+                if (failedAppIdsForRetry.Any())
+                {
+                    await KillAllSteamCmdProcessesAsync();
+                    await Task.Delay(RetryDelayMs);
+
+                    var failedAppNamesForRetryLog = failedAppIdsForRetry
+                        .Select(appId => $"'{appNamesForLog.GetValueOrDefault(appId, appId)}' ({appId})")
+                        .ToList();
+
+                    _logger.LogWarning($"Phát hiện {failedAppIdsForRetry.Count} game cần thử lại với Verify: {string.Join(", ", failedAppNamesForRetryLog)}. Đang thực hiện lần chạy thứ hai...");
+                    await SafeSendLogAsync(profile.Name, "Warning", $"Phát hiện {failedAppIdsForRetry.Count} game cần thử lại với Verify. Bắt đầu lần chạy thứ hai...");
+
+                    var retryRunResult = await RunSteamCmdProcessAsync(profile, id, failedAppIdsForRetry, forceValidate: true);
+
+                    if (_lastRunHadLoginError)
+                    {
+                        _logger.LogError("Phát hiện lỗi đăng nhập (hoặc thiếu thông tin đăng nhập) sau khi RunSteamCmdProcessAsync (retry) hoàn tất cho profile {ProfileName}.", profile.Name);
+                        profile.Status = "Error";
+                        profile.StopTime = DateTime.Now;
+                        await _profileService.UpdateProfile(profile);
+                        // Reset update flags on error if login failed during retry - Added based on 1.txt point 4 (error case)
+                        await _dependencyManagerService.ResetUpdateFlagsAsync(profile.Id); // Added based on 1.txt point 4
+                        return false;
+                    }
+
+
+                    if (!retryRunResult.Success)
+                    {
+                        _logger.LogError("RunSteamCmdProcessAsync lần thử lại thất bại cho profile {ProfileName} với Exit Code: {ExitCode}.", profile.Name, retryRunResult.ExitCode);
+                        retryRunSuccessful = false; // Mark retry as failed
+                    }
+
+
+                    await KillAllSteamCmdProcessesAsync();
+                    await Task.Delay(RetryDelayMs);
+
+                    // Re-check results after retry only for those that were retried
+                    var failedAfterRetryCheck = new List<string>();
+                    await SafeSendLogAsync(profile.Name, "Info", "Đang kiểm tra kết quả cuối cùng sau khi thử lại...");
+
+                    foreach (var appId in failedAppIdsForRetry)
+                    {
+                        var manifestData = await ReadAppManifest(linkedSteamappsDir, appId);
+                        string gameName = appNamesForLog.GetValueOrDefault(appId, appId);
+
+                        if (manifestData == null)
+                        {
+                            _logger.LogError($"Thử lại cho '{gameName}' (AppID: {appId}) thất bại. Manifest vẫn không tìm thấy.");
+                            await SafeSendLogAsync(profile.Name, "Error", $"Thử lại cho '{gameName}' ({appId}) thất bại (không tìm thấy manifest).");
+                            failedAfterRetryCheck.Add(appId);
+                        }
+                        else if (!manifestData.TryGetValue("UpdateResult", out string updateResultValue) ||
+                                 (updateResultValue != "0" && updateResultValue != "2" && updateResultValue != "23"))
+                        {
+                            string resultText = manifestData.TryGetValue("UpdateResult", out var ur) ? $"UpdateResult: {ur}" : "UpdateResult không tồn tại";
+                            _logger.LogError($"Thử lại cho '{gameName}' (AppID: {appId}) thất bại ({resultText}).");
+                            await SafeSendLogAsync(profile.Name, "Error", $"Thử lại cho '{gameName}' ({appId}) thất bại ({resultText}).");
+                            failedAfterRetryCheck.Add(appId);
+                        }
+                        else
+                        {
+                            _logger.LogInformation($"Thử lại cho '{gameName}' (AppID: {appId}) thành công (UpdateResult: {updateResultValue}).");
+                            await SafeSendLogAsync(profile.Name, "Success", $"Thử lại cho '{gameName}' ({appId}) thành công (UpdateResult: {updateResultValue}).");
+                        }
+                    }
+                    failedAppIdsForRetry = failedAfterRetryCheck; // Update the list of truly failed apps
+                }
             }
 
+            // Calculate overall success based on whether a specific app was run and the results
+            bool overallSuccess;
+            if (!string.IsNullOrEmpty(specificAppId))
+            {
+                // If running a specific app, success is based on the initial run result
+                overallSuccess = initialRunResult.Success;
+            }
+            else
+            {
+                // If running main app and dependencies, success depends on if any apps failed after potential retry
+                overallSuccess = failedAppIdsForRetry.Count == 0; // If this list is empty, all apps either succeeded initially or after retry
+            }
 
-            bool overallSuccess = failedAppIdsForRetry.Count == 0 || retryRunSuccessful;
 
             profile.Status = overallSuccess ? "Stopped" : "Error";
             profile.StopTime = DateTime.Now;
@@ -970,15 +1015,33 @@ namespace SteamCmdWebAPI.Services
             profile.LastRun = DateTime.UtcNow;
             await _profileService.UpdateProfile(profile);
 
+            // Reset update flags based on the outcome and specificAppId - Added based on 1.txt point 4
+            if (!string.IsNullOrEmpty(specificAppId)) // Added based on 1.txt point 4
+            {
+                // Nếu chạy một app cụ thể, chỉ reset cờ cho app đó
+                await _dependencyManagerService.ResetUpdateFlagsAsync(profile.Id, specificAppId); // Added based on 1.txt point 4
+            }
+            else if (overallSuccess) // Added based on 1.txt point 4
+            {
+                // Nếu chạy tất cả và thành công, reset tất cả các cờ
+                await _dependencyManagerService.ResetUpdateFlagsAsync(profile.Id); // Added based on 1.txt point 4
+            }
+
             if (overallSuccess)
             {
                 await SafeSendLogAsync(profile.Name, "Success", $"Hoàn tất cập nhật {profile.Name}.");
             }
             else
             {
-                var finalFailedNames = (failedAppIdsForRetry.Count > 0 && !retryRunSuccessful)
-                    ? failedAppIdsForRetry
-                    : failedAppIdsForRetry;
+                var finalFailedNames = new List<string>();
+                if (!string.IsNullOrEmpty(specificAppId))
+                {
+                    if (!initialRunResult.Success) finalFailedNames.Add(specificAppId);
+                }
+                else
+                {
+                    finalFailedNames = failedAppIdsForRetry; // Use the list of apps that failed even after retry
+                }
 
                 var namesToLog = finalFailedNames
                                  .Select(appId => $"'{appNamesForLog.GetValueOrDefault(appId, appId)}' ({appId})")
@@ -1226,7 +1289,7 @@ namespace SteamCmdWebAPI.Services
                         if (match.Success)
                         {
                             string failedAppId = match.Groups[1].Value;
-                            _logger.LogError($"Phát hiện lỗi cập nhật thời gian thực cho App ID {failedAppId} (trạng thái 0x204) trong log của profile '{profile.Name}'.");
+                            _logger.LogError($"Phát hiện lỗi cập nhật thời gian thực cho App ID {failedAppId} (trạng thái 0x204) trong log of profile '{profile.Name}'.");
 
                             _ = Task.Run(async () => {
                                 var appInfo = await _steamApiService.GetAppUpdateInfo(failedAppId);
@@ -1280,6 +1343,7 @@ namespace SteamCmdWebAPI.Services
 
                 _steamCmdProcesses.TryRemove(profileId, out _);
 
+                // Success if no login error and SteamCMD process exited with success code (0 or 2)
                 runResult.Success = !_lastRunHadLoginError && (runResult.ExitCode == 0 || runResult.ExitCode == 2);
 
                 if (runResult.Success)
@@ -1363,6 +1427,23 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogError(ex, $"Lỗi khi đọc file manifest {manifestFilePath}");
                 return null;
             }
+        }
+
+        // Added new method RunSpecificAppAsync based on 1.txt point 3
+        public async Task<bool> RunSpecificAppAsync(int profileId, string appId) // Added based on 1.txt point 3
+        {
+            var profile = await _profileService.GetProfileById(profileId); // Added based on 1.txt point 3
+            if (profile == null) // Added based on 1.txt point 3
+            {
+                _logger.LogError("Không tìm thấy profile ID {ProfileId} để chạy App ID {AppId}", profileId, appId); // Added based on 1.txt point 3
+                await SafeSendLogAsync($"Profile {profileId}", "Error", $"Không tìm thấy profile ID {profileId} để chạy App ID {appId}"); // Added based on 1.txt point 3
+                return false; // Added based on 1.txt point 3
+            }
+
+            _logger.LogInformation("Chạy cập nhật riêng App ID {AppId} cho profile {ProfileName} (ID: {ProfileId})",
+                appId, profile.Name, profileId); // Added based on 1.txt point 3
+
+            return await ExecuteProfileUpdateAsync(profileId, appId); // Added based on 1.txt point 3
         }
 
         public async Task RunAllProfilesAsync()

@@ -84,6 +84,8 @@
                     <tr>
                         <th>App ID</th>
                         <th>Tên game</th>
+                        <th>Profile</th>
+                        <th>Loại</th>
                         <th>Cập nhật trước</th>
                         <th>Cập nhật hiện tại</th>
                         <th>ChangeNumber</th>
@@ -97,9 +99,20 @@
                     {
                         foreach (var vm in Model.UpdateInfos)
                         {
-                            <tr>
+                            <tr class="@(vm.IsMainApp ? "" : "dependent-app-row")">
                                 <td>@vm.ApiInfo.AppID</td>
                                 <td>@vm.ApiInfo.Name</td>
+                                <td>@vm.ProfileName</td>
+                                <td>
+                                    @if (vm.IsMainApp)
+                                    {
+                                        <span class="badge bg-primary">Chính</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-info">Phụ thuộc</span>
+                                    }
+                                </td>
                                 <td>@(vm.ApiInfo.LastCheckedUpdateDateTime.HasValue ? vm.ApiInfo.LastCheckedUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "Chưa có")</td>
                                 <td>@(vm.ApiInfo.LastUpdateDateTime.HasValue ? vm.ApiInfo.LastUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : vm.ApiInfo.LastUpdate)</td>
                                 <td>
@@ -135,7 +148,7 @@
                                     }
                                 </td>
                                 <td>
-                                    <button class="btn-icon edit update-btn" data-appid="@vm.ApiInfo.AppID" title="Cập nhật">
+                                    <button class="btn-icon edit update-btn" data-appid="@vm.ApiInfo.AppID" data-profileid="@vm.ProfileId" data-ismain="@vm.IsMainApp.ToString().ToLower()" title="Cập nhật">
                                         <i class="bi bi-arrow-repeat"></i>
                                     </button>
                                 </td>
@@ -145,7 +158,7 @@
                     else
                     {
                         <tr>
-                            <td colspan="8" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
+                            <td colspan="10" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
                         </tr>
                     }
                 </tbody>
@@ -153,6 +166,27 @@
         </div>
     </div>
 </div>
+
+<style>
+    .dependent-app-row {
+        background-color: #f8f9fa;
+    }
+
+        .dependent-app-row td {
+            padding-top: 8px;
+            padding-bottom: 8px;
+            font-size: 0.95em;
+        }
+
+    .badge.bg-primary {
+        background-color: #3498db !important;
+    }
+
+    .badge.bg-info {
+        background-color: #17a2b8 !important;
+        color: white !important;
+    }
+</style>
 
 @section Scripts {
     <script>
@@ -219,6 +253,8 @@
             // Cập nhật game theo App ID
             $(".update-btn").click(function() {
                 var appId = $(this).data("appid");
+                var profileId = $(this).data("profileid");
+                var isMain = $(this).data("ismain");
                 var button = $(this);
 
                 button.prop("disabled", true);
@@ -227,7 +263,11 @@
                 $.ajax({
                     url: "/UpdateManagement?handler=UpdateApp",
                     method: "POST",
-                    data: { appId: appId },
+                    data: {
+                        appId: appId,
+                        profileId: profileId,
+                        isMainApp: isMain
+                    },
                     headers: {
                         "RequestVerificationToken": token
                     },
@@ -239,7 +279,7 @@
                         }
                     },
                     error: function(xhr, status, error) {
-                        alert("Lỗi khi cập nhật game: " + error);
+                        alert("Lỗi khi gửi yêu cầu cập nhật: " + error);
                     },
                     complete: function() {
                         button.prop("disabled", false);

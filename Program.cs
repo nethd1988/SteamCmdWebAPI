@@ -80,16 +80,19 @@ namespace SteamCmdWebAPI
             });
 
             // Đăng ký các dịch vụ
-            builder.Services.AddSingleton<EncryptionService>();
-            builder.Services.AddSingleton<ProfileService>();
-            builder.Services.AddSingleton<SettingsService>();
-            builder.Services.AddSingleton<ServerSettingsService>();
-            builder.Services.AddSingleton<LogFileReader>();
-            builder.Services.AddSingleton<SteamCmdService>();
-            builder.Services.AddSingleton<TcpClientService>();
+            builder.Services.AddSingleton<EncryptionService>(); // [cite: 2]
+            builder.Services.AddSingleton<ProfileService>(); // [cite: 2]
+            builder.Services.AddSingleton<SettingsService>(); // [cite: 2]
+            builder.Services.AddSingleton<ServerSettingsService>(); // [cite: 3]
+            builder.Services.AddSingleton<LogFileReader>(); // [cite: 3]
+            builder.Services.AddSingleton<SteamApiService>(); // [cite: 3]
+            // Thêm đăng ký DependencyManagerService theo hướng dẫn từ 1.txt [cite: 1, 4]
+            builder.Services.AddSingleton<DependencyManagerService>();
+            builder.Services.AddSingleton<SteamCmdService>(); // [cite: 4]
+            builder.Services.AddSingleton<TcpClientService>(); // [cite: 5]
+            // UserService đã được đăng ký ở trên [cite: 5]
 
             // Đăng ký các dịch vụ mới
-            builder.Services.AddSingleton<SteamApiService>();
             builder.Services.AddSingleton<UpdateCheckService>();
             builder.Services.AddHostedService(provider => provider.GetRequiredService<UpdateCheckService>());
 
