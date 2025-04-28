@@ -1595,10 +1595,37 @@ namespace SteamCmdWebAPI.Services
 
             await SafeSendLogAsync(profile.Name, "Info", $"Bắt đầu cập nhật riêng '{gameName}' (AppID: {appId})...");
 
-            // Chạy cập nhật riêng cho app cụ thể (truyền specificAppId)
-            bool result = await ExecuteProfileUpdateAsync(profileId, appId);
+            // Tối ưu: Tránh dừng các tiến trình không liên quan
+            if (_steamCmdProcesses.TryGetValue(profileId, out var existingProcess))
+            {
+                await KillProcessAsync(existingProcess, profile.Name);
+                await Task.Delay(1000); // Giảm thời gian chờ
+            }
 
-            if (result)
+            // Cập nhật trạng thái profile thành "Running"
+            profile.Status = "Running";
+            profile.StartTime = DateTime.Now;
+            await _profileService.UpdateProfile(profile);
+
+            // Chạy cập nhật chỉ cho app ID cụ thể này
+            List<string> appList = new List<string>() { appId };
+
+            // Tối ưu: Thực hiện cập nhật 1 lần không có validate trước
+            var result = await RunSteamCmdProcessAsync(profile, profileId, appList, forceValidate: false);
+
+            // Tối ưu: Chỉ kiểm tra kết quả, không thực hiện thêm bước cập nhật nào nếu không cần thiết
+            bool success = result.Success;
+
+            // Cập nhật trạng thái profile
+            profile.Status = "Stopped";
+            profile.StopTime = DateTime.Now;
+            profile.LastRun = DateTime.Now;
+            await _profileService.UpdateProfile(profile);
+
+            // Reset cờ cập nhật cho app đã cập nhật
+            await _dependencyManagerService.ResetUpdateFlagsAsync(profile.Id, appId);
+
+            if (success)
             {
                 await SafeSendLogAsync(profile.Name, "Success", $"Đã cập nhật thành công '{gameName}' (AppID: {appId})");
             }
@@ -1607,7 +1634,7 @@ namespace SteamCmdWebAPI.Services
                 await SafeSendLogAsync(profile.Name, "Error", $"Cập nhật '{gameName}' (AppID: {appId}) thất bại");
             }
 
-            return result;
+            return success;
         }
 
         public async Task RunAllProfilesAsync()
