@@ -52,6 +52,7 @@ namespace SteamCmdWebAPI.Pages
         {
             try
             {
+                // Sử dụng RunAllProfilesAsync để chạy tất cả profile và cập nhật tất cả ID (chính và phụ thuộc)
                 await _steamCmdService.RunAllProfilesAsync();
                 return new JsonResult(new { success = true });
             }
@@ -80,6 +81,7 @@ namespace SteamCmdWebAPI.Pages
         {
             try
             {
+                // Sử dụng RunProfileAsync sẽ chỉ cập nhật app ID chính
                 await _steamCmdService.RunProfileAsync(profileId);
                 return new JsonResult(new { success = true });
             }

@@ -109,56 +109,59 @@ namespace SteamCmdWebAPI.Services
         }
 
         // CheckAndRunScheduledTasksAsync from original .cs file (unchanged by 1.txt logic but semicolons added)
+        // Trong Services/AutoRunBackgroundService.cs, sửa đổi phương thức CheckAndRunScheduledTasksAsync() để đảm bảo chạy tất cả app khi tự động chạy theo lịch trình
+
         private async Task CheckAndRunScheduledTasksAsync()
         {
             if (_isRunningAutoTask)
-                return; // Semicolon added
+                return;
 
             try
             {
-                // Assuming LoadAutoRunSettings exists in ProfileService
-                var settings = await _profileService.LoadAutoRunSettings(); // Semicolon added
+                // Lấy cài đặt tự động chạy
+                var settings = await _profileService.LoadAutoRunSettings();
                 if (settings == null || !settings.AutoRunEnabled)
                 {
-                    return; // Semicolon added
+                    return;
                 }
 
-                var now = DateTime.Now; // Semicolon added
-                // Check based on time interval
-                TimeSpan timeSinceLastRun = now - _lastAutoRunTime; // Semicolon added
-                int intervalHours = settings.AutoRunIntervalHours; // Semicolon added
+                var now = DateTime.Now;
+                TimeSpan timeSinceLastRun = now - _lastAutoRunTime;
+                int intervalHours = settings.AutoRunIntervalHours;
 
                 if (intervalHours <= 0)
                 {
-                    return; // Semicolon added
+                    return;
                 }
-
 
                 if (_lastAutoRunTime == DateTime.MinValue || timeSinceLastRun.TotalHours >= intervalHours)
                 {
-                    _isRunningAutoTask = true; // Semicolon added
+                    _isRunningAutoTask = true;
                     try
                     {
-                        _logger.LogInformation("AutoRun triggered by schedule for ClientID {ClientId}. Starting all marked profiles...", _clientId); // Semicolon added
-                        // Assuming StartAllAutoRunProfilesAsync exists in SteamCmdService
-                        await _steamCmdService.StartAllAutoRunProfilesAsync(); // Semicolon added
-                        _lastAutoRunTime = now; // Semicolon added
-                        _logger.LogInformation("AutoRun task completed for ClientID {ClientId}. Next run check after {IntervalHours} hours.", _clientId, intervalHours); // Semicolon added
+                        _logger.LogInformation("AutoRun triggered by schedule for ClientID {ClientId}. Starting all marked profiles...", _clientId);
+
+                        // Đảm bảo rằng khi chạy theo lịch trình, cũng sẽ chạy tất cả apps (chính và phụ thuộc)
+                        // bằng cách gọi StartAllAutoRunProfilesAsync thay vì chạy từng profile một
+                        await _steamCmdService.StartAllAutoRunProfilesAsync();
+
+                        _lastAutoRunTime = now;
+                        _logger.LogInformation("AutoRun task completed for ClientID {ClientId}. Next run check after {IntervalHours} hours.", _clientId, intervalHours);
                     }
                     catch (Exception runEx)
                     {
-                        _logger.LogError(runEx, "Error occurred while running AutoRun profiles for ClientID {ClientId}", _clientId); // Semicolon added
+                        _logger.LogError(runEx, "Error occurred while running AutoRun profiles for ClientID {ClientId}", _clientId);
                     }
                     finally
                     {
-                        _isRunningAutoTask = false; // Semicolon added
+                        _isRunningAutoTask = false;
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi kiểm tra lịch hẹn auto-run cho ClientID {ClientId}", _clientId); // Semicolon added
-                _isRunningAutoTask = false; // Semicolon added
+                _logger.LogError(ex, "Lỗi khi kiểm tra lịch hẹn auto-run cho ClientID {ClientId}", _clientId);
+                _isRunningAutoTask = false;
             }
         }
 

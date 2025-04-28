@@ -746,7 +746,7 @@ namespace SteamCmdWebAPI.Services
         }
 
         // Updated method signature to support specificAppId based on 1.txt point 1
-        private async Task<bool> ExecuteProfileUpdateAsync(int id, string specificAppId = null)
+        private async Task<bool> ExecuteProfileUpdateAsync(int id, string specificAppId = null, bool forceValidate = false)
         {
             var profile = await _profileService.GetProfileById(id);
             if (profile == null)
@@ -835,26 +835,47 @@ namespace SteamCmdWebAPI.Services
                 // Trường hợp 2: Chạy từ nút "Chạy tất cả" - cập nhật tất cả
                 else if (_isRunningAllProfiles)
                 {
-                    // Thêm app chính
-                    appIdsToUpdate.Add(profile.AppID);
-                    _logger.LogInformation("ExecuteProfileUpdateAsync: Thêm App ID chính: {AppId} (RunAll mode)", profile.AppID);
-
-                    // Quét phụ thuộc từ thư mục steamapps
+                    // Đọc tất cả appmanifest_*.acf từ thư mục steamapps
                     string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
-                    var dependentAppIds = await _dependencyManagerService.ScanDependenciesFromManifest(steamappsDir, profile.AppID);
-
-                    // Cập nhật danh sách trong cơ sở dữ liệu
-                    await _dependencyManagerService.UpdateDependenciesAsync(profile.Id, profile.AppID, dependentAppIds);
-
-                    // Thêm tất cả app phụ thuộc
-                    foreach (var appId in dependentAppIds)
+                    if (Directory.Exists(steamappsDir))
                     {
-                        appIdsToUpdate.Add(appId);
-                        _logger.LogInformation("ExecuteProfileUpdateAsync: Thêm App ID phụ thuộc: {AppId} vào danh sách cập nhật (RunAll mode)", appId);
-                        await SafeSendLogAsync(profile.Name, "Info", $"Thêm App ID phụ thuộc: {appId}");
-                    }
+                        var manifestFiles = Directory.GetFiles(steamappsDir, "appmanifest_*.acf");
+                        var regex = new Regex(@"appmanifest_(\d+)\.acf");
 
-                    _logger.LogInformation("ExecuteProfileUpdateAsync: Tổng số App ID để cập nhật: {Count} (RunAll mode)", appIdsToUpdate.Count);
+                        _logger.LogInformation("ExecuteProfileUpdateAsync: Tìm thấy {Count} file manifest trong thư mục {Dir}",
+                            manifestFiles.Length, steamappsDir);
+
+                        foreach (var manifestFile in manifestFiles)
+                        {
+                            var match = regex.Match(Path.GetFileName(manifestFile));
+                            if (match.Success)
+                            {
+                                string appId = match.Groups[1].Value;
+                                appIdsToUpdate.Add(appId);
+                                _logger.LogInformation("ExecuteProfileUpdateAsync: Thêm App ID {AppId} từ file manifest", appId);
+                            }
+                        }
+
+                        _logger.LogInformation("ExecuteProfileUpdateAsync: Tổng số App ID để cập nhật: {Count} (từ các file manifest)",
+                            appIdsToUpdate.Count);
+
+                        // Vẫn thêm ID chính nếu không có trong danh sách
+                        if (!appIdsToUpdate.Contains(profile.AppID))
+                        {
+                            appIdsToUpdate.Add(profile.AppID);
+                            _logger.LogInformation("ExecuteProfileUpdateAsync: Thêm App ID chính {AppId} do không tìm thấy trong manifest",
+                                profile.AppID);
+                        }
+
+                        await SafeSendLogAsync(profile.Name, "Info", $"Đã tìm thấy {appIdsToUpdate.Count} ứng dụng để cập nhật từ manifest");
+                    }
+                    else
+                    {
+                        // Thư mục steamapps không tồn tại, chỉ thêm app chính
+                        appIdsToUpdate.Add(profile.AppID);
+                        _logger.LogWarning("ExecuteProfileUpdateAsync: Thư mục steamapps không tồn tại {Dir}, chỉ cập nhật App ID chính {AppId}",
+                            steamappsDir, profile.AppID);
+                    }
                 }
                 // Trường hợp 3: Mặc định - chỉ chạy app chính
                 else
@@ -1156,12 +1177,17 @@ namespace SteamCmdWebAPI.Services
             var runResult = new SteamCmdRunResult { Success = false, ExitCode = -1 };
             string steamCmdPath = GetSteamCmdPath();
             string steamCmdDir = Path.GetDirectoryName(steamCmdPath);
+            string loginCommand = null; // Chuyển biến ra ngoài khối try-catch
 
             _lastRunHadLoginError = false;
 
+            // Các regex cho xử lý lỗi
             var invalidPasswordRegex = new Regex(@"^Logging in user '.*' \[U:1:\d+\] to Steam Public\.\.\.ERROR \(Invalid Password\)", RegexOptions.Compiled);
             var notOnlineErrorRegex = new Regex(@"^ERROR! Failed to request AppInfo update, not online or not logged in to Steam\.$", RegexOptions.Compiled);
-            var errorRegexState204 = new Regex(@"Error! App '(\d+)' state is 0x204 after update job", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            var errorAppRegex = new Regex(@"Error! App '(\d+)' state is (0x[0-9A-Fa-f]+) after update job", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+            // Danh sách app ID cần chạy lại với validate
+            var appIdsToRetry = new HashSet<string>();
 
             try
             {
@@ -1171,8 +1197,6 @@ namespace SteamCmdWebAPI.Services
                     runResult.ExitCode = -99;
                     return runResult;
                 }
-
-                string loginCommand = null;
 
                 if (!string.IsNullOrEmpty(profile.SteamUsername) && !string.IsNullOrEmpty(profile.SteamPassword))
                 {
@@ -1343,17 +1367,20 @@ namespace SteamCmdWebAPI.Services
                             foreach (var key in keysToRemove) recentOutputMessages.TryRemove(key, out _);
                         }
 
-                        var match = errorRegexState204.Match(line);
-                        if (match.Success)
+                        // Xử lý lỗi app (bắt tất cả lỗi "Error! App")
+                        var matchErrorApp = errorAppRegex.Match(line);
+                        if (matchErrorApp.Success)
                         {
-                            string failedAppId = match.Groups[1].Value;
-                            _logger.LogError($"Phát hiện lỗi cập nhật thời gian thực cho App ID {failedAppId} (trạng thái 0x204) trong log of profile '{profile.Name}'.");
+                            string failedAppId = matchErrorApp.Groups[1].Value;
+                            string errorState = matchErrorApp.Groups[2].Value;
+                            _logger.LogError($"Phát hiện lỗi {errorState} cho App ID {failedAppId} trong log của profile '{profile.Name}'.");
 
+                            appIdsToRetry.Add(failedAppId);
                             _ = Task.Run(async () =>
                             {
                                 var appInfo = await _steamApiService.GetAppUpdateInfo(failedAppId);
                                 string gameName = appInfo?.Name ?? failedAppId;
-                                await SafeSendLogAsync(profile.Name, "Error", $"Lỗi thời gian thực: Cập nhật thất bại '{gameName}' ({failedAppId}, 0x204).");
+                                await SafeSendLogAsync(profile.Name, "Error", $"Lỗi thời gian thực: Cập nhật thất bại '{gameName}' ({failedAppId}, {errorState}). Sẽ thử lại với validate.");
                             });
                         }
                     }
@@ -1396,7 +1423,8 @@ namespace SteamCmdWebAPI.Services
                     }
                 }
 
-                runResult.ExitCode = _lastRunHadLoginError ? -95 : steamCmdProcess.ExitCode;
+                runResult.ExitCode = _lastRunHadLoginError ?
+            -95 : steamCmdProcess.ExitCode;
 
                 outputTimer.Stop();
                 await SendBufferedOutput();
@@ -1405,7 +1433,6 @@ namespace SteamCmdWebAPI.Services
 
                 // Success if no login error and SteamCMD process exited with success code (0 or 2)
                 runResult.Success = !_lastRunHadLoginError && (runResult.ExitCode == 0 || runResult.ExitCode == 2);
-
                 if (runResult.Success)
                 {
                     _logger.LogInformation("Cập nhật Game cho '{ProfileName}' hoàn tất thành công. Exit Code: {ExitCode}", profile.Name, runResult.ExitCode);
@@ -1438,6 +1465,83 @@ namespace SteamCmdWebAPI.Services
             {
                 steamCmdProcess?.Dispose();
             }
+
+            // Added based on 1.txt point 35
+            // Nếu có các app cần chạy lại với validate
+            if (appIdsToRetry.Count > 0)
+            {
+                _logger.LogInformation("Phát hiện {Count} app bị lỗi cần chạy lại với validate: {AppIds}",
+                    appIdsToRetry.Count, string.Join(", ", appIdsToRetry));
+
+                await SafeSendLogAsync(profile.Name, "Info", $"Chuẩn bị chạy lại {appIdsToRetry.Count} app bị lỗi với validate...");
+
+                // Dừng process hiện tại nếu chưa thoát
+                await Task.Delay(1000);
+
+                // Giờ đây loginCommand đã có sẵn để sử dụng
+                foreach (var appId in appIdsToRetry)
+                {
+                    _logger.LogInformation("Đang chạy lại app {AppId} với validate...", appId);
+                    await SafeSendLogAsync(profile.Name, "Info", $"Đang chạy lại app ID {appId} với validate...");
+
+                    // Tạo tiến trình mới với validate cho app ID này
+                    var validationArgs = new StringBuilder(loginCommand);
+                    validationArgs.Append($" +app_update {appId} validate +quit");
+
+                    using (var validationProcess = new Process
+                    {
+                        StartInfo = new ProcessStartInfo
+                        {
+                            FileName = steamCmdPath,
+                            Arguments
+                            = validationArgs.ToString(),
+                            WorkingDirectory = steamCmdDir,
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            CreateNoWindow = true,
+                            StandardOutputEncoding = Encoding.UTF8,
+                            StandardErrorEncoding = Encoding.UTF8
+                        },
+                        EnableRaisingEvents = true
+                    })
+                    {
+                        validationProcess.OutputDataReceived += (s, e) =>
+                        {
+                            if (!string.IsNullOrEmpty(e.Data))
+                            {
+                                _ = _hubContext.Clients.All.SendAsync("ReceiveLog", e.Data.Trim());
+                            }
+                        };
+                        validationProcess.ErrorDataReceived += (s, e) =>
+                        {
+                            if (!string.IsNullOrEmpty(e.Data))
+                            {
+                                _ = _hubContext.Clients.All.SendAsync("ReceiveLog", $"LỖI SteamCMD: {e.Data.Trim()}");
+                            }
+                        };
+
+                        validationProcess.Start();
+                        validationProcess.BeginOutputReadLine();
+                        validationProcess.BeginErrorReadLine();
+                        // Đợi process kết thúc
+                        bool exited = validationProcess.WaitForExit(300000); // 5 phút timeout
+                        if (!exited)
+                        {
+                            _logger.LogWarning("Tiến trình validate cho app {AppId} quá thời gian, đang dừng...", appId);
+                            try { validationProcess.Kill(); } catch { }
+                        }
+
+                        await SafeSendLogAsync(profile.Name, "Info", $"Đã chạy lại app ID {appId} với validate (Exit code: {validationProcess.ExitCode})");
+                    }
+
+                    // Đợi giữa các lần chạy
+                    await Task.Delay(2000);
+                }
+
+                await SafeSendLogAsync(profile.Name, "Info", $"Đã hoàn thành chạy lại tất cả app bị lỗi với validate");
+            }
+
 
             return runResult;
         }
@@ -1562,6 +1666,7 @@ namespace SteamCmdWebAPI.Services
                 _isRunningAllProfiles = false;
             }
         }
+
 
         public async Task StopAllProfilesAsync()
         {

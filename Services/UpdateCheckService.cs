@@ -177,6 +177,8 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        // Trong Services/UpdateCheckService.cs, điều chỉnh phương thức CheckForUpdatesAsync() để đảm bảo nhất quán khi cập nhật lịch trình
+
         private async Task CheckForUpdatesAsync()
         {
             _logger.LogInformation("Đang kiểm tra cập nhật cho tất cả các profile...");
@@ -255,24 +257,27 @@ namespace SteamCmdWebAPI.Services
 
                         if (autoUpdateEnabled)
                         {
-                            _logger.LogInformation("--> AutoUpdateProfiles được bật. Cập nhật app chính '{0}' (AppID: {1})...",
-                                profile.Name, profile.AppID);
+                            // Nếu tự động cập nhật được bật, chúng ta sẽ đặt _isRunningAllProfiles = true
+                            // để đảm bảo cập nhật tất cả app (chính và phụ thuộc) khi chạy từ lịch trình
+                            _logger.LogInformation("--> AutoUpdateProfiles được bật. Thêm profile '{0}' vào hàng đợi để cập nhật tất cả app...",
+                                profile.Name);
 
-                            // Cập nhật riêng app chính
-                            bool success = await _steamCmdService.RunSpecificAppAsync(profile.Id, profile.AppID);
+                            // Thêm vào hàng đợi để cập nhật tất cả (chính và phụ thuộc)
+                            // Tạm thời đặt _isRunningAllProfiles = true sẽ được xử lý bên trong RunAllProfilesAsync
+                            bool success = await _steamCmdService.QueueProfileForUpdate(profile.Id);
 
                             if (success)
                             {
-                                _logger.LogInformation("--> Đã thêm app chính '{0}' (AppID: {1}) vào hàng đợi thành công.", profile.Name, profile.AppID);
+                                _logger.LogInformation("--> Đã thêm profile '{0}' vào hàng đợi thành công.", profile.Name);
                             }
                             else
                             {
-                                _logger.LogError("--> LỖI: Không thể thêm app chính '{0}' (AppID: {1}) vào hàng đợi.", profile.Name, profile.AppID);
+                                _logger.LogError("--> LỖI: Không thể thêm profile '{0}' vào hàng đợi.", profile.Name);
                             }
                         }
                         else
                         {
-                            _logger.LogInformation("--> AutoUpdateProfiles đang tắt. KHÔNG tự động cập nhật app chính '{0}' (AppID: {1}).", profile.Name, profile.AppID);
+                            _logger.LogInformation("--> AutoUpdateProfiles đang tắt. KHÔNG tự động cập nhật profile '{0}'.", profile.Name);
                         }
                     }
                 }
@@ -321,26 +326,9 @@ namespace SteamCmdWebAPI.Services
                                 // Đánh dấu app cần cập nhật
                                 await _dependencyManagerService.MarkAppForUpdateAsync(appId);
 
-                                if (autoUpdateEnabled)
-                                {
-                                    _logger.LogInformation("--> AutoUpdateProfiles được bật. Cập nhật app phụ thuộc (AppID: {0})...", appId);
-
-                                    // Cập nhật riêng app phụ thuộc
-                                    bool success = await _steamCmdService.RunSpecificAppAsync(profile.Id, appId);
-
-                                    if (success)
-                                    {
-                                        _logger.LogInformation("--> Đã thêm app phụ thuộc (AppID: {0}) vào hàng đợi thành công.", appId);
-                                    }
-                                    else
-                                    {
-                                        _logger.LogError("--> LỖI: Không thể thêm app phụ thuộc (AppID: {0}) vào hàng đợi.", appId);
-                                    }
-                                }
-                                else
-                                {
-                                    _logger.LogInformation("--> AutoUpdateProfiles đang tắt. KHÔNG tự động cập nhật app phụ thuộc (AppID: {0}).", appId);
-                                }
+                                // Lưu ý: Không cần tự động cập nhật riêng từng app phụ thuộc ở đây
+                                // vì nếu autoUpdateEnabled = true thì đã thêm toàn bộ profile 
+                                // vào hàng đợi ở trên (sẽ tự động cập nhật tất cả app phụ thuộc)
                             }
                         }
                     }
