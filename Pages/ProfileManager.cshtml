@@ -1,4 +1,5 @@
-﻿@page
+﻿
+@page
 @model ProfileManagerModel
 @{
     ViewData["Title"] = "Quản lý cấu hình";
@@ -14,10 +15,10 @@
     <div class="console-header">
         <h5>SteamCMD Console</h5>
         <div class="console-controls">
-            <button class="btn-icon" id="toggleAutoScrollBtn" title="Tự động cuộn">
+            <button class="btn-icon" id="toggleAutoScrollBtn" title="Tự động cuộn" type="button">
                 <i class="bi bi-arrow-down-square"></i>
             </button>
-            <button class="btn-icon" id="clearConsoleBtn" title="Xóa console">
+            <button class="btn-icon" id="clearConsoleBtn" title="Xóa console" type="button">
                 <i class="bi bi-eraser"></i>
             </button>
         </div>
@@ -27,10 +28,10 @@
 
 <!-- Các nút điều khiển -->
 <div class="header-actions">
-    <button id="runAllBtn" class="btn-action btn-success">
+    <button id="runAllBtn" class="btn-action btn-success" type="button">
         <i class="bi bi-play-fill"></i> Chạy tất cả
     </button>
-    <button id="stopAllBtn" class="btn-action btn-danger">
+    <button id="stopAllBtn" class="btn-action btn-danger" type="button">
         <i class="bi bi-stop-fill"></i> Dừng tất cả
     </button>
 </div>
@@ -84,20 +85,20 @@
                         <div class="btn-group">
                             @if (profile.Status != "Running")
                             {
-                                <button class="btn-icon play run-btn" data-id="@profile.Id" title="Chạy">
+                                <button class="btn-icon play run-btn" type="button" data-id="@profile.Id" title="Chạy">
                                     <i class="bi bi-play-fill"></i>
                                 </button>
                             }
                             else
                             {
-                                <button class="btn-icon stop stop-btn" data-id="@profile.Id" title="Dừng">
+                                <button class="btn-icon stop stop-btn" type="button" data-id="@profile.Id" title="Dừng">
                                     <i class="bi bi-stop-fill"></i>
                                 </button>
                             }
                             <a href="/Edit?id=@profile.Id" class="btn-icon edit" title="Sửa">
                                 <i class="bi bi-pencil"></i>
                             </a>
-                            <button class="btn-icon delete delete-btn" data-id="@profile.Id" title="Xóa">
+                            <button class="btn-icon delete delete-btn" type="button" data-id="@profile.Id" title="Xóa">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>
@@ -112,11 +113,11 @@
     <script>
         $(document).ready(function() {
             // Form để xử lý CSRF token
-            $('body').append('<form id="antiForgeryForm">@Html.AntiForgeryToken()</form>');
             var token = $('input[name="__RequestVerificationToken"]').val();
 
             // Xử lý sự kiện "Chạy tất cả"
-            $("#runAllBtn").click(function() {
+            $("#runAllBtn").click(function(event) {
+                event.preventDefault();
                 $(this).prop("disabled", true).html('<i class="bi bi-hourglass"></i> Đang chạy...');
 
                 $.ajax({
@@ -130,7 +131,6 @@
                             if (window.steamConsole) {
                                 window.steamConsole.addLine("Đã thêm tất cả profile vào hàng đợi thực thi", "success");
                             }
-                            // Không reload trang, giữ cho console hiển thị liên tục
                             // Cập nhật UI tất cả profile thành running
                             $("tr").each(function() {
                                 $(this).addClass("table-success");
@@ -142,7 +142,7 @@
                                 var runBtn = $(this).find('.run-btn');
                                 if (runBtn.length > 0) {
                                     var profileId = runBtn.data('id');
-                                    var btnHtml = '<button class="btn-icon stop stop-btn" data-id="' + profileId + '" title="Dừng"><i class="bi bi-stop-fill"></i></button>';
+                                    var btnHtml = '<button class="btn-icon stop stop-btn" type="button" data-id="' + profileId + '" title="Dừng"><i class="bi bi-stop-fill"></i></button>';
                                     runBtn.replaceWith(btnHtml);
                                 }
                             });
@@ -163,8 +163,9 @@
                 });
             });
 
-            // Xử lý sự kiện "Dừng tất cả"
-            $("#stopAllBtn").click(function() {
+            // Xử lý nút "Dừng tất cả"
+            $("#stopAllBtn").click(function(event) {
+                event.preventDefault();
                 $(this).prop("disabled", true).html('<i class="bi bi-hourglass"></i> Đang dừng...');
 
                 $.ajax({
@@ -186,7 +187,7 @@
                             // Chuyển nút stop thành run
                             $(".stop-btn").each(function() {
                                 var id = $(this).data("id");
-                                $(this).replaceWith('<button class="btn-icon play run-btn" data-id="' + id + '" title="Chạy"><i class="bi bi-play-fill"></i></button>');
+                                $(this).replaceWith('<button class="btn-icon play run-btn" type="button" data-id="' + id + '" title="Chạy"><i class="bi bi-play-fill"></i></button>');
                             });
                         } else {
                             if (window.steamConsole) {
@@ -206,7 +207,8 @@
             });
 
             // Xử lý sự kiện "Chạy" cho từng profile
-            $(document).on('click', '.run-btn', function() {
+            $(document).on('click', '.run-btn', function(event) {
+                event.preventDefault();
                 var profileId = $(this).data('id');
                 var button = $(this);
                 var row = button.closest('tr');
@@ -236,7 +238,7 @@
                                 .html('<i class="bi bi-play-circle"></i> Running');
 
                             // Thay đổi nút từ "run" thành "stop"
-                            var btnHtml = '<button class="btn-icon stop stop-btn" data-id="' + profileId + '" title="Dừng"><i class="bi bi-stop-fill"></i></button>';
+                            var btnHtml = '<button class="btn-icon stop stop-btn" type="button" data-id="' + profileId + '" title="Dừng"><i class="bi bi-stop-fill"></i></button>';
                             button.replaceWith(btnHtml);
 
                             if (window.steamConsole) {
@@ -261,7 +263,8 @@
             });
 
             // Xử lý sự kiện "Dừng" cho từng profile
-            $(document).on('click', '.stop-btn', function() {
+            $(document).on('click', '.stop-btn', function(event) {
+                event.preventDefault();
                 var profileId = $(this).data('id');
                 var button = $(this);
                 var row = button.closest('tr');
@@ -290,7 +293,7 @@
                                 .html('<i class="bi bi-stop-circle"></i> Stopped');
 
                             // Thay đổi nút từ "stop" thành "run"
-                            var btnHtml = '<button class="btn-icon play run-btn" data-id="' + profileId + '" title="Chạy"><i class="bi bi-play-fill"></i></button>';
+                            var btnHtml = '<button class="btn-icon play run-btn" type="button" data-id="' + profileId + '" title="Chạy"><i class="bi bi-play-fill"></i></button>';
                             button.replaceWith(btnHtml);
 
                             if (window.steamConsole) {
@@ -314,8 +317,9 @@
                 });
             });
 
-            // Xử lý sự kiện "Xóa" profile
-            $(document).on('click', '.delete-btn', function() {
+            // Xử lý nút xóa profile
+            $(document).on('click', '.delete-btn', function(event) {
+                event.preventDefault();
                 var profileId = $(this).data('id');
                 var profileName = $(this).closest('tr').find('td:nth-child(2)').text();
 
@@ -358,3 +362,4 @@
         });
     </script>
 }
+```

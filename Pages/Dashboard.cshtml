@@ -37,10 +37,12 @@
     </div>
 </div>
 
-<!-- Activity Chart -->
-<div class="chart-container">
+<!-- Activity Chart - Đã điều chỉnh kích thước -->
+<div class="chart-container" style="max-height: 250px;">
     <h5>Hoạt động trong 7 ngày qua</h5>
-    <canvas id="activityChart"></canvas>
+    <div style="height: 180px;">
+        <canvas id="activityChart"></canvas>
+    </div>
 </div>
 
 <!-- Recent Logs -->
@@ -76,6 +78,7 @@
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 plugins: {
                     legend: {
                         display: false
@@ -83,7 +86,10 @@
                 },
                 scales: {
                     y: {
-                        beginAtZero: true
+                        beginAtZero: true,
+                        ticks: {
+                            precision: 0
+                        }
                     }
                 }
             }

@@ -63,6 +63,98 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     });
 
+    // Khởi tạo Console object nếu chưa tồn tại
+    if (document.getElementById('steamcmd-console') && !window.steamConsole) {
+        window.steamConsole = {
+            addLine: function (message, type = 'info') {
+                const consoleElement = document.getElementById('steamcmd-console');
+                if (!consoleElement) return;
+
+                const lineElement = document.createElement('div');
+                lineElement.classList.add('console-line');
+
+                if (type === 'error') {
+                    lineElement.classList.add('error');
+                } else if (type === 'warning') {
+                    lineElement.classList.add('warning');
+                } else if (type === 'success') {
+                    lineElement.classList.add('success');
+                }
+
+                lineElement.innerText = message;
+                consoleElement.appendChild(lineElement);
+
+                this.scrollToBottom();
+            },
+
+            clear: function () {
+                const consoleElement = document.getElementById('steamcmd-console');
+                if (consoleElement) {
+                    consoleElement.innerHTML = '';
+                }
+            },
+
+            scrollToBottom: function () {
+                const consoleElement = document.getElementById('steamcmd-console');
+                if (consoleElement) {
+                    consoleElement.scrollTop = consoleElement.scrollHeight;
+                }
+            },
+
+            setProfileId: function (id) {
+                this.profileId = id;
+            },
+
+            setAutoScroll: function (enabled) {
+                this.autoScroll = enabled;
+                if (enabled) {
+                    this.scrollToBottom();
+                }
+            },
+
+            autoScroll: true,
+            profileId: null
+        };
+    }
+
+    // Xử lý hiển thị Modal
+    function showModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+
+        modal.style.display = 'block';
+        modal.classList.add('show');
+        document.body.classList.add('modal-open');
+    }
+
+    function hideModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+
+        modal.style.display = 'none';
+        modal.classList.remove('show');
+        document.body.classList.remove('modal-open');
+    }
+
+    // Xử lý đóng Modal với nút close
+    document.querySelectorAll('.modal .close-modal, .modal .btn-close').forEach(button => {
+        button.addEventListener('click', function () {
+            const modal = this.closest('.modal');
+            if (modal) {
+                hideModal(modal.id);
+            }
+        });
+    });
+
+    // Xử lý khi click ra ngoài Modal
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('click', function (e) {
+            if (e.target === this) {
+                hideModal(this.id);
+            }
+        });
+    });
+
     // Thêm xử lý cho nút tìm kiếm trong bảng
     const profileSearch = document.getElementById('profileSearch');
     if (profileSearch) {
@@ -97,4 +189,81 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
     }
+
+    // Khởi tạo các tooltip nếu có Bootstrap
+    if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.forEach(function (tooltipTriggerEl) {
+            new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    }
+
+    // Hiện các alert thông báo tự động biến mất sau thời gian nhất định
+    document.querySelectorAll('.alert:not(.alert-persistent)').forEach(alert => {
+        setTimeout(() => {
+            if (alert.parentElement) {
+                alert.classList.add('fade');
+                setTimeout(() => {
+                    if (alert.parentElement) {
+                        alert.parentElement.removeChild(alert);
+                    }
+                }, 500);
+            }
+        }, 5000);
+    });
+
+    // Hàm hiển thị thông báo toast
+    window.showToast = function (message, type = 'success', duration = 3000) {
+        const toastContainer = document.getElementById('toast-container') || createToastContainer();
+
+        const toast = document.createElement('div');
+        toast.className = `toast align-items-center text-white bg-${type} border-0`;
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
+        toast.setAttribute('aria-atomic', 'true');
+
+        toast.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body">
+                    ${message}
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        `;
+
+        toastContainer.appendChild(toast);
+
+        // Sử dụng Bootstrap toast nếu có sẵn, ngược lại tự xử lý
+        if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
+            const bsToast = new bootstrap.Toast(toast, {
+                autohide: true,
+                delay: duration
+            });
+            bsToast.show();
+        } else {
+            toast.style.opacity = '1';
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 500);
+            }, duration);
+        }
+
+        return toast;
+    };
+
+    function createToastContainer() {
+        const container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+        document.body.appendChild(container);
+        return container;
+    }
+
+    // Kiểm tra hiệu suất trang
+    const perfNow = window.performance.now();
+    console.log("Thời gian load trang: " + perfNow + "ms");
 });
