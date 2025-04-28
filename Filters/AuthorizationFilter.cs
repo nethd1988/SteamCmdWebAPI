@@ -19,12 +19,12 @@ namespace SteamCmdWebAPI.Filters
             _logger = logger;
 
             // Danh sách các trang cho phép truy cập mà không cần kiểm tra
-            _allowedPages = new HashSet<string>
+            _allowedPages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                "/Login",
-                "/Register",
-                "/Error",
-                "/LicenseError"
+                "Login",
+                "Register",
+                "Error",
+                "LicenseError"
             };
         }
 
@@ -36,19 +36,23 @@ namespace SteamCmdWebAPI.Filters
         public void OnPageHandlerExecuting(PageHandlerExecutingContext context)
         {
             string pagePath = context.ActionDescriptor.DisplayName?.Split(' ')[0] ?? "";
+            
+            // Loại bỏ dấu / ở đầu và cuối nếu có
+            pagePath = pagePath.Trim('/');
+            
+            _logger.LogInformation("Filter: Đang xử lý đường dẫn: {Page}", pagePath);
 
             // Cho phép các trang trong danh sách được truy cập tự do
-            foreach (var allowedPage in _allowedPages)
+            if (_allowedPages.Contains(pagePath))
             {
-                if (pagePath.Contains(allowedPage))
-                {
-                    return;
-                }
+                _logger.LogInformation("Filter: Cho phép truy cập trang {Page} vì nó nằm trong danh sách cho phép", pagePath);
+                return;
             }
 
             // Nếu người dùng đã đăng nhập, cho phép truy cập
             if (context.HttpContext.User?.Identity?.IsAuthenticated == true)
             {
+                _logger.LogInformation("Filter: Cho phép truy cập trang {Page} vì người dùng đã đăng nhập", pagePath);
                 return;
             }
 
