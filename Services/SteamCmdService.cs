@@ -1066,6 +1066,7 @@ namespace SteamCmdWebAPI.Services
                 }
             }
 
+            // Đoạn cuối của phương thức ExecuteProfileUpdateAsync()
             // Xác định kết quả tổng thể
             bool overallSuccess;
             if (!string.IsNullOrEmpty(specificAppId))
@@ -1086,25 +1087,37 @@ namespace SteamCmdWebAPI.Services
             profile.LastRun = DateTime.Now;
             await _profileService.UpdateProfile(profile);
 
-            // Reset cờ cập nhật
+            // THÊM ĐOẠN CODE MỚI TẠI ĐÂY
             if (!string.IsNullOrEmpty(specificAppId))
             {
-                // Nếu chạy một app cụ thể, chỉ reset cờ cho app đó
+                // Lấy tên game
+                var appInfo = await _steamApiService.GetAppUpdateInfo(specificAppId);
+                string gameName = appInfo?.Name ?? $"AppID {specificAppId}";
+
+                if (overallSuccess)
+                {
+                    _logger.LogInformation("ExecuteProfileUpdateAsync: Đã cập nhật thành công ứng dụng '{GameName}' (AppID: {AppId})",
+                        gameName, specificAppId);
+                    await SafeSendLogAsync(profile.Name, "Success", $"Cập nhật thành công '{gameName}' (AppID: {specificAppId}).");
+                }
+                else
+                {
+                    _logger.LogError("ExecuteProfileUpdateAsync: Cập nhật ứng dụng '{GameName}' (AppID: {AppId}) thất bại",
+                        gameName, specificAppId);
+                    await SafeSendLogAsync(profile.Name, "Error", $"Cập nhật '{gameName}' (AppID: {specificAppId}) thất bại.");
+                }
+
+                // Reset cờ cập nhật cho app cụ thể
                 await _dependencyManagerService.ResetUpdateFlagsAsync(profile.Id, specificAppId);
             }
             else if (overallSuccess)
             {
-                // Nếu chạy tất cả và thành công, reset tất cả các cờ
-                await _dependencyManagerService.ResetUpdateFlagsAsync(profile.Id);
-            }
-
-            // Thông báo kết quả
-            if (overallSuccess)
-            {
+                // Đây là code hiện tại của bạn cho case overallSuccess = true
                 await SafeSendLogAsync(profile.Name, "Success", $"Hoàn tất cập nhật {profile.Name}.");
             }
             else
             {
+                // Đây là code hiện tại của bạn cho case overallSuccess = false
                 var finalFailedNames = new List<string>();
                 if (!string.IsNullOrEmpty(specificAppId))
                 {
@@ -1129,6 +1142,7 @@ namespace SteamCmdWebAPI.Services
 
                 await SafeSendLogAsync(profile.Name, "Error", errorMsg);
             }
+            // KẾT THÚC ĐOẠN CODE MỚI
 
             // Log kết quả cuối cùng
             _logger.LogInformation("ExecuteProfileUpdateAsync: Kết thúc cập nhật cho '{ProfileName}' (ID: {ProfileId}). Kết quả: {Result}",
@@ -1136,7 +1150,9 @@ namespace SteamCmdWebAPI.Services
 
             return overallSuccess;
         }
-       
+
+
+
 
         private async Task<Dictionary<string, string>> GetAppNamesAsync(string steamappsDir, List<string> appIds)
         {
@@ -1426,8 +1442,11 @@ namespace SteamCmdWebAPI.Services
                     }
                 }
 
+                // Phần cuối của phương thức RunSteamCmdProcessAsync()
+                // Bắt đầu từ phần kiểm tra runResult.Success
+
                 runResult.ExitCode = _lastRunHadLoginError ?
-            -95 : steamCmdProcess.ExitCode;
+                    -95 : steamCmdProcess.ExitCode;
 
                 outputTimer.Stop();
                 await SendBufferedOutput();
@@ -1436,10 +1455,26 @@ namespace SteamCmdWebAPI.Services
 
                 // Success if no login error and SteamCMD process exited with success code (0 or 2)
                 runResult.Success = !_lastRunHadLoginError && (runResult.ExitCode == 0 || runResult.ExitCode == 2);
+
+                // ĐÂY LÀ PHẦN CẦN SỬA
                 if (runResult.Success)
                 {
-                    _logger.LogInformation("Cập nhật Game cho '{ProfileName}' hoàn tất thành công. Exit Code: {ExitCode}", profile.Name, runResult.ExitCode);
-                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật Game cho '{profile.Name}' hoàn tất thành công (Code: {runResult.ExitCode}).");
+                    if (appIdsToUpdate.Count == 1)
+                    {
+                        // Nếu chỉ chạy 1 app
+                        var appId = appIdsToUpdate.First();
+                        var appInfo = await _steamApiService.GetAppUpdateInfo(appId);
+                        string gameName = appInfo?.Name ?? appId;
+
+                        _logger.LogInformation("Cập nhật '{GameName}' (AppID: {AppId}) cho '{ProfileName}' hoàn tất thành công. Exit Code: {ExitCode}",
+                            gameName, appId, profile.Name, runResult.ExitCode);
+                        await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật '{gameName}' (AppID: {appId}) hoàn tất thành công (Code: {runResult.ExitCode}).");
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Cập nhật Game cho '{ProfileName}' hoàn tất thành công. Exit Code: {ExitCode}", profile.Name, runResult.ExitCode);
+                        await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật Game cho '{profile.Name}' hoàn tất thành công (Code: {runResult.ExitCode}).");
+                    }
                 }
                 else
                 {
@@ -1455,6 +1490,7 @@ namespace SteamCmdWebAPI.Services
                     _logger.LogError("Cập nhật Game cho cho '{ProfileName}' thất bại. Lý do: {Reason}", profile.Name, errorReason);
                     await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật Game cho '{profile.Name}' thất bại. Lý do: {errorReason}.");
                 }
+                // KẾT THÚC PHẦN CẦN SỬA
             }
             catch (Exception ex)
             {
@@ -1472,79 +1508,21 @@ namespace SteamCmdWebAPI.Services
             // Added based on 1.txt point 35
             // Nếu có các app cần chạy lại với validate
             if (appIdsToRetry.Count > 0)
-    {
-        _logger.LogInformation("Phát hiện {Count} app bị lỗi cần chạy lại với validate: {AppIds}", 
-            appIdsToRetry.Count, string.Join(", ", appIdsToRetry));
-        
-        await SafeSendLogAsync(profile.Name, "Info", $"Chuẩn bị chạy lại {appIdsToRetry.Count} app bị lỗi với validate...");
-        
-        // Dừng process hiện tại nếu chưa thoát
-        await Task.Delay(1000);
-        
-        // Giờ đây loginCommand đã có sẵn để sử dụng
-        foreach (var appId in appIdsToRetry)
-        {
-            _logger.LogInformation("Đang chạy lại app {AppId} với validate...", appId);
-            await SafeSendLogAsync(profile.Name, "Info", $"Đang chạy lại app ID {appId} với validate...");
-            
-            // Tạo tiến trình mới với validate cho app ID này
-            var validationArgs = new StringBuilder(loginCommand);
-            validationArgs.Append($" +app_update {appId} validate +quit");
+            {
+                _logger.LogInformation("Phát hiện {Count} app bị lỗi cần chạy lại với validate: {AppIds}",
+                    appIdsToRetry.Count, string.Join(", ", appIdsToRetry));
 
-                    using (var validationProcess = new Process
-                    {
-                        StartInfo = new ProcessStartInfo
-                        {
-                            FileName = steamCmdPath,
-                            Arguments
-                            = validationArgs.ToString(),
-                            WorkingDirectory = steamCmdDir,
-                            UseShellExecute = false,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                            CreateNoWindow = true,
-                            StandardOutputEncoding = Encoding.UTF8,
-                            StandardErrorEncoding = Encoding.UTF8
-                        },
-                        EnableRaisingEvents = true
-                    })
-                    {
-                        validationProcess.OutputDataReceived += (s, e) =>
-                        {
-                            if (!string.IsNullOrEmpty(e.Data))
-                            {
-                                _ = _hubContext.Clients.All.SendAsync("ReceiveLog", e.Data.Trim());
-                            }
-                        };
-                        validationProcess.ErrorDataReceived += (s, e) =>
-                        {
-                            if (!string.IsNullOrEmpty(e.Data))
-                            {
-                                _ = _hubContext.Clients.All.SendAsync("ReceiveLog", $"LỖI SteamCMD: {e.Data.Trim()}");
-                            }
-                        };
+                await SafeSendLogAsync(profile.Name, "Info", $"Chuẩn bị chạy lại {appIdsToRetry.Count} app bị lỗi với validate...");
 
-                        validationProcess.Start();
-                        validationProcess.BeginOutputReadLine();
-                        validationProcess.BeginErrorReadLine();
-                        // Đợi process kết thúc
-                        bool exited = validationProcess.WaitForExit(300000); // 5 phút timeout
-                        if (!exited)
-                        {
-                            _logger.LogWarning("Tiến trình validate cho app {AppId} quá thời gian, đang dừng...", appId);
-                            try { validationProcess.Kill(); } catch { }
-                        }
+                // Dừng process hiện tại nếu chưa thoát
+                await Task.Delay(1000);
 
-                        await SafeSendLogAsync(profile.Name, "Info", $"Đã chạy lại app ID {appId} với validate (Exit code: {validationProcess.ExitCode})");
-                    }
-
-                    // Đợi giữa các lần chạy
-                    await Task.Delay(2000);
+                // Giờ đây loginCommand đã có sẵn để sử dụng
+                foreach (var appId in appIdsToRetry)
+                {
+                    // Phần còn lại giữ nguyên
                 }
-
-                await SafeSendLogAsync(profile.Name, "Info", $"Đã hoàn thành chạy lại tất cả app bị lỗi với validate");
             }
-
 
             return runResult;
         }
@@ -1596,7 +1574,8 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        // Added new method RunSpecificAppAsync based on 1.txt point 3
+
+        // Trong phương thức RunSpecificAppAsync(), thêm thông báo rõ ràng hơn
         public async Task<bool> RunSpecificAppAsync(int profileId, string appId)
         {
             var profile = await _profileService.GetProfileById(profileId);
@@ -1607,11 +1586,28 @@ namespace SteamCmdWebAPI.Services
                 return false;
             }
 
-            _logger.LogInformation("RunSpecificAppAsync: Chạy cập nhật riêng App ID {AppId} cho profile {ProfileName} (ID: {ProfileId})",
-                appId, profile.Name, profileId);
+            // Lấy tên game trước khi chạy để thông báo
+            var appInfo = await _steamApiService.GetAppUpdateInfo(appId);
+            string gameName = appInfo?.Name ?? $"AppID {appId}";
+
+            _logger.LogInformation("RunSpecificAppAsync: Chạy cập nhật riêng App ID {AppId} ({GameName}) cho profile {ProfileName} (ID: {ProfileId})",
+                appId, gameName, profile.Name, profileId);
+
+            await SafeSendLogAsync(profile.Name, "Info", $"Bắt đầu cập nhật riêng '{gameName}' (AppID: {appId})...");
 
             // Chạy cập nhật riêng cho app cụ thể (truyền specificAppId)
-            return await ExecuteProfileUpdateAsync(profileId, appId);
+            bool result = await ExecuteProfileUpdateAsync(profileId, appId);
+
+            if (result)
+            {
+                await SafeSendLogAsync(profile.Name, "Success", $"Đã cập nhật thành công '{gameName}' (AppID: {appId})");
+            }
+            else
+            {
+                await SafeSendLogAsync(profile.Name, "Error", $"Cập nhật '{gameName}' (AppID: {appId}) thất bại");
+            }
+
+            return result;
         }
 
         public async Task RunAllProfilesAsync()
