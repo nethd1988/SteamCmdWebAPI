@@ -1450,6 +1450,41 @@ namespace SteamCmdWebAPI.Services
             await SafeSendLogAsync("System", "Success", "Đã dừng tất cả các profile và xóa hàng đợi.");
         }
 
+        public async Task<bool> StopProfileAsync(int profileId)
+        {
+            try
+            {
+                var profile = await _profileService.GetProfileById(profileId);
+                if (profile == null)
+                {
+                    _logger.LogWarning("Không tìm thấy profile ID {ProfileId} để dừng", profileId);
+                    return false;
+                }
+
+                if (_steamCmdProcesses.TryRemove(profileId, out var process))
+                {
+                    await KillProcessAsync(process, profile.Name);
+                    process.Dispose();
+                }
+
+                profile.Status = "Stopped";
+                profile.StopTime = DateTime.Now;
+                profile.Pid = 0;
+                await _profileService.UpdateProfile(profile);
+
+                _logger.LogInformation("Đã dừng profile ID {ProfileId} ('{ProfileName}')", profileId, profile.Name);
+                await SafeSendLogAsync(profile.Name, "Success", $"Đã dừng profile {profile.Name}");
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi dừng profile ID {ProfileId}", profileId);
+                await SafeSendLogAsync($"Profile {profileId}", "Error", $"Lỗi khi dừng: {ex.Message}");
+                return false;
+            }
+        }
+
         public async Task<bool> RestartProfileAsync(int profileId)
         {
             var profile = await _profileService.GetProfileById(profileId);

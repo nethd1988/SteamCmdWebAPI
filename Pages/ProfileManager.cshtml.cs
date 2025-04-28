@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Models;
 using SteamCmdWebAPI.Services;
+using Microsoft.AspNetCore.Mvc;
 
 namespace SteamCmdWebAPI.Pages
 {
@@ -12,6 +13,7 @@ namespace SteamCmdWebAPI.Pages
         private readonly ILogger<ProfileManagerModel> _logger;
         private readonly ProfileService _profileService;
         private readonly SteamApiService _steamApiService;
+        private readonly SteamCmdService _steamCmdService;
 
         public List<SteamCmdProfile> Profiles { get; set; } = new List<SteamCmdProfile>();
         public Dictionary<string, string> GameSizes { get; set; } = new Dictionary<string, string>();
@@ -19,17 +21,19 @@ namespace SteamCmdWebAPI.Pages
         public ProfileManagerModel(
             ILogger<ProfileManagerModel> logger,
             ProfileService profileService,
-            SteamApiService steamApiService)
+            SteamApiService steamApiService,
+            SteamCmdService steamCmdService)
         {
             _logger = logger;
             _profileService = profileService;
             _steamApiService = steamApiService;
+            _steamCmdService = steamCmdService;
         }
 
         public async Task OnGetAsync()
         {
             Profiles = await _profileService.GetAllProfiles();
-            
+
             foreach (var profile in Profiles)
             {
                 var appInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID);
@@ -41,6 +45,80 @@ namespace SteamCmdWebAPI.Pages
                 {
                     GameSizes[profile.AppID] = "N/A";
                 }
+            }
+        }
+
+        public async Task<IActionResult> OnPostRunAllAsync()
+        {
+            try
+            {
+                await _steamCmdService.RunAllProfilesAsync();
+                return new JsonResult(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi chạy tất cả profile");
+                return new JsonResult(new { success = false, error = ex.Message });
+            }
+        }
+
+        public async Task<IActionResult> OnPostStopAllAsync()
+        {
+            try
+            {
+                await _steamCmdService.StopAllProfilesAsync();
+                return new JsonResult(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi dừng tất cả profile");
+                return new JsonResult(new { success = false, error = ex.Message });
+            }
+        }
+
+        public async Task<IActionResult> OnPostRunAsync(int profileId)
+        {
+            try
+            {
+                await _steamCmdService.RunProfileAsync(profileId);
+                return new JsonResult(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi chạy profile {ProfileId}", profileId);
+                return new JsonResult(new { success = false, error = ex.Message });
+            }
+        }
+
+        public async Task<IActionResult> OnPostStopAsync(int profileId)
+        {
+            try
+            {
+                await _steamCmdService.StopProfileAsync(profileId);
+                return new JsonResult(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi dừng profile {ProfileId}", profileId);
+                return new JsonResult(new { success = false, error = ex.Message });
+            }
+        }
+
+        public async Task<IActionResult> OnPostDeleteAsync(int profileId)
+        {
+            try
+            {
+                var result = await _profileService.DeleteProfile(profileId);
+                if (result)
+                {
+                    return new JsonResult(new { success = true });
+                }
+                return new JsonResult(new { success = false, error = "Không tìm thấy profile" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xóa profile {ProfileId}", profileId);
+                return new JsonResult(new { success = false, error = ex.Message });
             }
         }
 

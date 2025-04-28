@@ -1,5 +1,4 @@
-﻿
-@page
+﻿@page
 @model ProfileManagerModel
 @{
     ViewData["Title"] = "Quản lý cấu hình";
@@ -25,6 +24,10 @@
     </div>
     <div class="console-body" id="steamcmd-console"></div>
 </div>
+
+<form id="csrfForm" method="post" style="display:none;">
+    @Html.AntiForgeryToken()
+</form>
 
 <!-- Các nút điều khiển -->
 <div class="header-actions">
@@ -112,8 +115,8 @@
 @section Scripts {
     <script>
         $(document).ready(function() {
-            // Form để xử lý CSRF token
-            var token = $('input[name="__RequestVerificationToken"]').val();
+            // Lấy CSRF token từ form đã thêm
+            var token = $('#csrfForm input[name="__RequestVerificationToken"]').val();
 
             // Xử lý sự kiện "Chạy tất cả"
             $("#runAllBtn").click(function(event) {
@@ -362,4 +365,3 @@
         });
     </script>
 }
-```
