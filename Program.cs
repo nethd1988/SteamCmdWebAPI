@@ -71,9 +71,20 @@ namespace SteamCmdWebAPI
                 }
                 else
                 {
-                    // Dừng ứng dụng nếu không có cache hợp lệ
-                    Environment.Exit(1);
-                    return;
+                    // Thay vì dừng ứng dụng, chỉ khóa chức năng
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("Ứng dụng sẽ bị khóa do không có giấy phép hợp lệ.");
+                    Console.WriteLine("Vui lòng kiểm tra lại giấy phép hoặc liên hệ nhà cung cấp.");
+                    Console.ResetColor();
+                    
+                    // Tạo file báo lỗi chi tiết
+                    var detailedErrorPath = Path.Combine(baseDirectory, "license_detailed_error.txt");
+                    var errorDetails = $"Thời gian: {DateTime.Now}\n" +
+                                      $"Lỗi: {licenseResult.Message}\n" +
+                                      $"Trạng thái: Không có giấy phép hợp lệ\n" +
+                                      $"Cache: Không có\n" +
+                                      $"API: Không kết nối được";
+                    await File.WriteAllTextAsync(detailedErrorPath, errorDetails);
                 }
             }
 
@@ -316,6 +327,9 @@ namespace SteamCmdWebAPI
 
             // Middleware kiểm tra người dùng đầu tiên (đặt sau xác thực)
             app.UseFirstUserSetup();
+
+            // Thêm middleware kiểm tra license
+            app.UseMiddleware<LicenseCheckMiddleware>();
 
             // Endpoint routing
             app.MapRazorPages();

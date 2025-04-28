@@ -29,6 +29,7 @@ namespace SteamCmdWebAPI.Services
         private readonly SteamApiService _steamApiService;
         private readonly DependencyManagerService _dependencyManagerService;
         private readonly LogService _logService;
+        private readonly LicenseService _licenseService;
 
         private const int MaxLogEntries = 5000;
         private const int RetryDelayMs = 5000;
@@ -83,7 +84,8 @@ namespace SteamCmdWebAPI.Services
             LogFileReader logFileReader,
             SteamApiService steamApiService,
             DependencyManagerService dependencyManagerService,
-            LogService logService)
+            LogService logService,
+            LicenseService licenseService)
         {
             _logger = logger;
             _hubContext = hubContext;
@@ -94,6 +96,7 @@ namespace SteamCmdWebAPI.Services
             _steamApiService = steamApiService;
             _dependencyManagerService = dependencyManagerService;
             _logService = logService;
+            _licenseService = licenseService;
 
             _scheduleTimer = new System.Timers.Timer(60000);
             _scheduleTimer.Elapsed += async (s, e) => await CheckScheduleAsync();
@@ -362,6 +365,12 @@ namespace SteamCmdWebAPI.Services
 
         public async Task InstallSteamCmd()
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                return;
+            }
+
             string steamCmdDir = Path.Combine(Directory.GetCurrentDirectory(), "steamcmd");
             string zipPath = Path.Combine(steamCmdDir, "steamcmd.zip");
             string steamCmdPath = GetSteamCmdPath();
@@ -625,6 +634,12 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<bool> QueueProfileForUpdate(int profileId)
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                return false;
+            }
+
             try
             {
                 var profile = await _profileService.GetProfileById(profileId);
@@ -786,6 +801,12 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<bool> RunProfileAsync(int id)
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                return false;
+            }
+
             // Khi chạy một profile riêng lẻ từ UI, chỉ chạy app ID chính
             var profile = await _profileService.GetProfileById(id);
             if (profile == null)
@@ -1644,6 +1665,12 @@ namespace SteamCmdWebAPI.Services
         // Trong phương thức RunSpecificAppAsync(), thêm thông báo rõ ràng hơn
         public async Task<bool> RunSpecificAppAsync(int profileId, string appId)
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                return false;
+            }
+
             var profile = await _profileService.GetProfileById(profileId);
             if (profile == null)
             {
@@ -1705,6 +1732,12 @@ namespace SteamCmdWebAPI.Services
 
         public async Task RunAllProfilesAsync()
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                return;
+            }
+
             if (_isRunningAllProfiles)
             {
                 _logger.LogWarning("RunAllProfilesAsync called but already running.");
@@ -1760,6 +1793,12 @@ namespace SteamCmdWebAPI.Services
 
         public async Task StopAllProfilesAsync()
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                return;
+            }
+
             _logger.LogInformation("StopAllProfilesAsync: Đang dừng tất cả các profile và xóa hàng đợi...");
             await SafeSendLogAsync("System", "Info", "Đang dừng tất cả các profile và xóa hàng đợi.");
 
@@ -1793,6 +1832,12 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<bool> StopProfileAsync(int profileId)
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                return false;
+            }
+
             try
             {
                 var profile = await _profileService.GetProfileById(profileId);
@@ -1828,6 +1873,12 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<bool> RestartProfileAsync(int profileId)
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                return false;
+            }
+
             var profile = await _profileService.GetProfileById(profileId);
             if (profile == null) return false;
 
@@ -1846,6 +1897,12 @@ namespace SteamCmdWebAPI.Services
 
         public async Task ShutdownAsync()
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                return;
+            }
+
             _logger.LogInformation("Đang tắt dịch vụ SteamCMD...");
             await SafeSendLogAsync("System", "Info", "Đang tắt ứng dụng...");
 

@@ -386,6 +386,18 @@ body {
     background: linear-gradient(135deg, #ef4444, #dc2626);
 }
 
+.stat-card .icon.license {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+}
+
+.stat-card .icon.license.valid {
+    background: linear-gradient(135deg, #10b981, #059669);
+}
+
+.stat-card .icon.license.invalid {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
 .stat-card h3 {
     font-size: 28px;
     font-weight: 600;
@@ -397,6 +409,18 @@ body {
     font-size: 14px;
     color: #64748b;
     margin: 0;
+}
+
+.license-details {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.license-details small {
+    color: var(--text-muted);
+    font-size: 12px;
 }
 
 /* Action Buttons */
@@ -1294,4 +1318,76 @@ body {
         color: var(--text-muted);
         white-space: nowrap;
     }
+}
+
+/* License Information */
+.license-info {
+    margin-bottom: 30px;
+}
+
+.license-card {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.license-card.valid {
+    border-left: 4px solid var(--success-color);
+}
+
+.license-card.invalid {
+    border-left: 4px solid var(--danger-color);
+}
+
+.license-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.license-header i {
+    font-size: 24px;
+    margin-right: 12px;
+    color: var(--primary-color);
+}
+
+.license-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--dark-color);
+}
+
+.license-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+}
+
+.license-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.license-item .label {
+    font-size: 14px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.license-item .value {
+    font-size: 16px;
+    color: var(--text-color);
+    font-weight: 600;
+}
+
+.license-item .value.text-success {
+    color: var(--success-color);
+}
+
+.license-item .value.text-danger {
+    color: var(--danger-color);
 }

@@ -17,6 +17,7 @@ namespace SteamCmdWebAPI.Pages
         private readonly SteamCmdService _steamCmdService;
         private readonly SteamApiService _steamApiService;
         private readonly DependencyManagerService _dependencyManagerService;
+        private readonly LicenseService _licenseService;
 
         public int RunningProfilesCount { get; set; }
         public int TotalProfilesCount { get; set; }
@@ -26,23 +27,34 @@ namespace SteamCmdWebAPI.Pages
         public List<SteamCmdService.LogEntry> RecentLogs { get; set; } = new List<SteamCmdService.LogEntry>();
         public List<string> ActivityDates { get; set; } = new List<string>();
         public List<int> ActivityCounts { get; set; } = new List<int>();
+        public ViewLicenseDto LicenseInfo { get; set; }
+        public string LicenseStatus { get; set; }
+        public string LicenseUsername { get; set; }
 
         public DashboardModel(
             ILogger<DashboardModel> logger,
             ProfileService profileService,
             SteamCmdService steamCmdService,
             SteamApiService steamApiService,
-            DependencyManagerService dependencyManagerService)
+            DependencyManagerService dependencyManagerService,
+            LicenseService licenseService)
         {
             _logger = logger;
             _profileService = profileService;
             _steamCmdService = steamCmdService;
             _steamApiService = steamApiService;
             _dependencyManagerService = dependencyManagerService;
+            _licenseService = licenseService;
         }
 
         public async Task OnGetAsync()
         {
+            // Kiểm tra license
+            var licenseResult = await _licenseService.ValidateLicenseAsync();
+            LicenseInfo = licenseResult.License;
+            LicenseStatus = licenseResult.IsValid ? "Hợp lệ" : "Không hợp lệ";
+            LicenseUsername = _licenseService.GetLicenseUsername();
+
             var profiles = await _profileService.GetAllProfiles();
             TotalProfilesCount = profiles.Count;
             RunningProfilesCount = profiles.Count(p => p.Status == "Running");

@@ -8,6 +8,20 @@
 <!-- Statistics Cards -->
 <div class="stats-container">
     <div class="stat-card">
+        <div class="icon license @(Model.LicenseStatus == "Hợp lệ" ? "valid" : "invalid")">
+            <i class="bi bi-shield-check"></i>
+        </div>
+        <h3>@Model.LicenseStatus</h3>
+        <p>Trạng thái giấy phép</p>
+        <div class="license-details">
+            <small>@Model.LicenseUsername</small>
+            @if (Model.LicenseInfo != null)
+            {
+                <small>Còn @Model.LicenseInfo.DayLeft ngày</small>
+            }
+        </div>
+    </div>
+    <div class="stat-card">
         <div class="icon active">
             <i class="bi bi-play-circle"></i>
         </div>

@@ -15,9 +15,11 @@ namespace SteamCmdWebAPI.Services
         private readonly ILogger<LicenseService> _logger;
         private readonly HttpClient _httpClient;
         private const string LICENSE_CACHE_FILE = "license_cache.json";
-
-        // Thêm thuộc tính để lưu trữ thông tin license hiện tại
         private ViewLicenseDto _currentLicense;
+        private bool _isOnline = false;
+        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+        private Timer _statusUpdateTimer;
+        private const int STATUS_UPDATE_INTERVAL = 10; // 10 phút
 
         // Thông tin API license
         private const string API_URL = "http://127.0.0.1:60999/api/thirdparty/license";
@@ -40,6 +42,91 @@ namespace SteamCmdWebAPI.Services
                 Timeout = TimeSpan.FromSeconds(10)
             };
             _httpClient.DefaultRequestHeaders.Add("X-Api-Key", API_KEY);
+
+            // Khởi tạo timer để cập nhật trạng thái online/offline
+            _statusUpdateTimer = new Timer(async _ => await UpdateOnlineStatusAsync(true), 
+                null, 
+                TimeSpan.Zero, 
+                TimeSpan.FromMinutes(STATUS_UPDATE_INTERVAL));
+        }
+
+        // Thêm phương thức mới để kiểm tra license trước mỗi hoạt động
+        public async Task<bool> CheckLicenseBeforeOperationAsync()
+        {
+            try
+            {
+                await _semaphore.WaitAsync();
+                var result = await ValidateLicenseAsync();
+                
+                if (!result.IsValid)
+                {
+                    _logger.LogError("License không hợp lệ: {Message}", result.Message);
+                    return false;
+                }
+
+                // Nếu license hợp lệ, cập nhật trạng thái online
+                if (!_isOnline)
+                {
+                    await UpdateOnlineStatusAsync(true);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi kiểm tra license");
+                return false;
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
+        }
+
+        // Thêm phương thức để cập nhật trạng thái online/offline
+        private async Task UpdateOnlineStatusAsync(bool isOnline)
+        {
+            try
+            {
+                var username = GetLicenseUsername();
+                if (string.IsNullOrEmpty(username))
+                {
+                    _logger.LogWarning("Không thể cập nhật trạng thái online/offline: không tìm thấy username");
+                    return;
+                }
+
+                var statusUrl = $"{API_URL}/status";
+                var statusData = new
+                {
+                    Username = username,
+                    IsOnline = isOnline,
+                    LastUpdate = DateTime.UtcNow
+                };
+
+                var content = new StringContent(
+                    JsonConvert.SerializeObject(statusData),
+                    Encoding.UTF8,
+                    "application/json"
+                );
+
+                var response = await _httpClient.PostAsync(statusUrl, content);
+                if (response.IsSuccessStatusCode)
+                {
+                    _isOnline = isOnline;
+                    _logger.LogInformation("Đã cập nhật trạng thái {Status} cho user {Username}", 
+                        isOnline ? "online" : "offline", 
+                        username);
+                }
+                else
+                {
+                    _logger.LogWarning("Không thể cập nhật trạng thái online/offline: {StatusCode}", 
+                        response.StatusCode);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi cập nhật trạng thái online/offline");
+            }
         }
 
         public async Task<LicenseValidationResult> ValidateLicenseAsync()
@@ -390,7 +477,14 @@ namespace SteamCmdWebAPI.Services
 
         public void Dispose()
         {
+            // Cập nhật trạng thái offline khi dispose
+            if (_isOnline)
+            {
+                UpdateOnlineStatusAsync(false).Wait();
+            }
             _httpClient?.Dispose();
+            _semaphore?.Dispose();
+            _statusUpdateTimer?.Dispose();
         }
     }
 

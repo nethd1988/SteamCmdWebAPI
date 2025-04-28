@@ -11,6 +11,8 @@ namespace SteamCmdWebAPI.Services
         private readonly ILogger<AutoRunService> _logger;
         private readonly ProfileService _profileService;
         private readonly SteamCmdService _steamCmdService;
+        private readonly SettingsService _settingsService;
+        private readonly LicenseService _licenseService;
 
         private TimeSpan _interval = TimeSpan.FromHours(12);
         private bool _enabled = true;
@@ -18,11 +20,15 @@ namespace SteamCmdWebAPI.Services
         public AutoRunService(
             ILogger<AutoRunService> logger,
             ProfileService profileService,
-            SteamCmdService steamCmdService)
+            SteamCmdService steamCmdService,
+            SettingsService settingsService,
+            LicenseService licenseService)
         {
             _logger = logger;
             _profileService = profileService;
             _steamCmdService = steamCmdService;
+            _settingsService = settingsService;
+            _licenseService = licenseService;
         }
 
         public void Configure(TimeSpan interval, bool enabled)
@@ -76,5 +82,18 @@ namespace SteamCmdWebAPI.Services
                 await Task.Delay(_interval, stoppingToken);
             }
         }
+
+        public async Task<bool> EnableAutoRunAsync()
+        {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                return false;
+            }
+
+            // ... existing code ...
+            return true;
+        }
+
     }
 }

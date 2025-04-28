@@ -16,10 +16,20 @@ namespace SteamCmdWebAPI.Services
         private readonly ILogger<ProfileService> _logger;
         private readonly object _fileLock = new object(); // Khóa để xử lý đồng thời
         private readonly string _backupFolder;
+        private readonly SettingsService _settingsService;
+        private readonly EncryptionService _encryptionService;
+        private readonly LicenseService _licenseService;
 
-        public ProfileService(ILogger<ProfileService> logger)
+        public ProfileService(
+            ILogger<ProfileService> logger,
+            SettingsService settingsService,
+            EncryptionService encryptionService,
+            LicenseService licenseService)
         {
             _logger = logger;
+            _settingsService = settingsService;
+            _encryptionService = encryptionService;
+            _licenseService = licenseService;
             var currentDir = AppDomain.CurrentDomain.BaseDirectory;
             // Lưu file profiles.json trong thư mục data
             string dataDir = Path.Combine(currentDir, "data");
@@ -141,6 +151,12 @@ namespace SteamCmdWebAPI.Services
 
         public async Task AddProfileAsync(SteamCmdProfile profile)
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                throw new Exception("License không hợp lệ, không thể thực hiện thao tác");
+            }
+
             try
             {
                 _logger.LogInformation("Bắt đầu thêm profile: {Name}", profile.Name);
@@ -160,6 +176,12 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<bool> DeleteProfile(int id)
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                return false;
+            }
+
             try
             {
                 _logger.LogInformation("Bắt đầu xóa profile với ID {0}", id);
@@ -185,6 +207,12 @@ namespace SteamCmdWebAPI.Services
 
         public async Task UpdateProfile(SteamCmdProfile updatedProfile)
         {
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+            {
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
+                throw new Exception("License không hợp lệ, không thể thực hiện thao tác");
+            }
+
             try
             {
                 _logger.LogInformation("Bắt đầu cập nhật profile với ID {0}", updatedProfile.Id);
