@@ -19,6 +19,9 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication;
 using SteamCmdWebAPI.Models;
 using System.Threading;
+using Serilog;
+using Serilog.Events;
+using Serilog.Sinks.SystemConsole.Themes;
 
 namespace SteamCmdWebAPI
 {
@@ -240,6 +243,9 @@ namespace SteamCmdWebAPI
                 settings.SourceName = "SteamCmdWebAPI";
                 settings.LogName = "Application";
             });
+
+            // Đăng ký LogService
+            builder.Services.AddSingleton<LogService>();
 
             // Cấu hình log levels
             builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));

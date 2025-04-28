@@ -28,6 +28,10 @@ body {
     background: var(--light-color);
     color: var(--text-color);
     display: flex;
+    position: relative;
+    overflow-x: hidden;
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
 }
 
 /* Sidebar Styles */
@@ -343,55 +347,57 @@ body {
     padding: 24px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
     transition: transform 0.3s ease, box-shadow 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
 }
 
-    .stat-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-    }
+.stat-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+}
 
-    .stat-card .icon {
-        width: 50px;
-        height: 50px;
-        border-radius: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 15px;
-        font-size: 24px;
-    }
+.stat-card .icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    font-size: 24px;
+    color: white;
+}
 
-        .stat-card .icon.active {
-            background: #e8f5e9;
-            color: #2e7d32;
-        }
+.stat-card .icon.total {
+    background: linear-gradient(135deg, #4f46e5, #3b82f6);
+}
 
-        .stat-card .icon.total {
-            background: #e3f2fd;
-            color: #1565c0;
-        }
+.stat-card .icon.games {
+    background: linear-gradient(135deg, #10b981, #059669);
+}
 
-        .stat-card .icon.storage {
-            background: #fff3e0;
-            color: #ef6c00;
-        }
+.stat-card .icon.storage {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+}
 
-        .stat-card .icon.recent {
-            background: #f3e5f5;
-            color: #7b1fa2;
-        }
+.stat-card .icon.active {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+}
 
-    .stat-card h3 {
-        font-size: 32px;
-        font-weight: 700;
-        color: var(--dark-color);
-        margin-bottom: 5px;
-    }
+.stat-card h3 {
+    font-size: 28px;
+    font-weight: 600;
+    margin: 0 0 8px 0;
+    color: #1e293b;
+}
 
-    .stat-card p {
-        color: var(--text-muted);
-        font-size: 14px;
-    }
+.stat-card p {
+    font-size: 14px;
+    color: #64748b;
+    margin: 0;
+}
 
 /* Action Buttons */
 .header-actions {
@@ -497,6 +503,10 @@ body {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
     overflow: hidden;
     margin-top: 20px;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .table-header {
@@ -1013,6 +1023,19 @@ tbody tr:hover {
     animation: fadeIn 0.5s ease-out;
 }
 
+/* Mobile Responsive Fixes */
+html, body {
+    overflow-x: hidden;
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    position: relative;
+}
+
 /* Cập nhật CSS cho menu responsive */
 @media (max-width: 1024px) {
     .sidebar {
@@ -1026,14 +1049,41 @@ tbody tr:hover {
         top: 0;
     }
 
-        .sidebar.menu-active {
-            left: 0;
-        }
+    .sidebar.menu-active {
+        left: 0;
+    }
 
     .main-content {
         margin-left: 0;
         width: 100%;
         padding-top: 60px;
+        overflow-x: hidden;
+    }
+
+    .container, .container-fluid {
+        padding-left: 15px;
+        padding-right: 15px;
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+
+    .row {
+        margin-left: -7.5px;
+        margin-right: -7.5px;
+    }
+
+    .col, [class*="col-"] {
+        padding-left: 7.5px;
+        padding-right: 7.5px;
+    }
+
+    .table-responsive {
+        margin: 0;
+        padding: 0;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        -ms-overflow-style: -ms-autohiding-scrollbar;
     }
 
     .menu-toggler {
@@ -1083,5 +1133,165 @@ tbody tr:hover {
         border-top: 1px solid rgba(255, 255, 255, 0.1);
         padding-top: 15px;
         display: block !important;
+    }
+}
+
+/* Additional Mobile Optimizations */
+@media (max-width: 576px) {
+    .container {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .row {
+        margin-left: -5px;
+        margin-right: -5px;
+    }
+
+    .col, [class*="col-"] {
+        padding-left: 5px;
+        padding-right: 5px;
+    }
+
+    .card {
+        margin-bottom: 15px;
+    }
+
+    .table-responsive {
+        border: 0;
+        margin-bottom: 15px;
+    }
+
+    .table {
+        margin-bottom: 0;
+    }
+
+    /* Ensure text doesn't overflow */
+    .text-truncate {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+.table-responsive {
+    width: 100%;
+    margin-bottom: 15px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    display: block;
+}
+
+.table-responsive table {
+    margin-bottom: 0;
+    white-space: nowrap;
+    width: 100%;
+}
+
+/* Mobile Responsive Fixes */
+@media (max-width: 1024px) {
+    .main-content {
+        margin-left: 0;
+        width: 100%;
+        padding: 15px;
+        overflow-x: hidden;
+    }
+
+    .table-container {
+        margin: 10px -15px;
+        border-radius: 0;
+        width: calc(100% + 30px);
+    }
+
+    .table-responsive {
+        margin: 0;
+        padding: 0;
+        border: 0;
+    }
+
+    .table {
+        min-width: 650px; /* Ensure minimum width for content */
+    }
+
+    /* Improve touch scrolling */
+    .table-responsive::-webkit-scrollbar {
+        height: 6px;
+    }
+
+    .table-responsive::-webkit-scrollbar-track {
+        background: #f1f1f1;
+    }
+
+    .table-responsive::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 3px;
+    }
+
+    /* Add horizontal scroll indicators */
+    .table-container::before,
+    .table-container::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 30px;
+        z-index: 3;
+        pointer-events: none;
+    }
+
+    .table-container::before {
+        left: 0;
+        background: linear-gradient(to right, rgba(255,255,255,0.9), rgba(255,255,255,0));
+    }
+
+    .table-container::after {
+        right: 0;
+        background: linear-gradient(to left, rgba(255,255,255,0.9), rgba(255,255,255,0));
+    }
+}
+
+/* Additional Mobile Optimizations */
+@media (max-width: 576px) {
+    .main-content {
+        padding: 10px;
+    }
+
+    .table-container {
+        margin: 5px -10px;
+        width: calc(100% + 20px);
+    }
+
+    .card {
+        margin-bottom: 10px;
+        border-radius: 8px;
+    }
+
+    /* Adjust padding for better touch targets */
+    tbody td, 
+    thead th {
+        padding: 12px 15px;
+    }
+
+    /* Make action buttons more touch-friendly */
+    .btn-icon {
+        width: 44px;
+        height: 44px;
+    }
+
+    /* Add pull-to-refresh hint */
+    .table-responsive {
+        position: relative;
+    }
+
+    .table-responsive::after {
+        content: '← Kéo để xem thêm →';
+        position: absolute;
+        bottom: -20px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 12px;
+        color: var(--text-muted);
+        white-space: nowrap;
     }
 }

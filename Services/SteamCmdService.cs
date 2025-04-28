@@ -27,7 +27,8 @@ namespace SteamCmdWebAPI.Services
         private readonly EncryptionService _encryptionService;
         private readonly LogFileReader _logFileReader;
         private readonly SteamApiService _steamApiService;
-        private readonly DependencyManagerService _dependencyManagerService; // Added based on 1.txt point 5
+        private readonly DependencyManagerService _dependencyManagerService;
+        private readonly LogService _logService;
 
         private const int MaxLogEntries = 5000;
         private const int RetryDelayMs = 5000;
@@ -74,14 +75,15 @@ namespace SteamCmdWebAPI.Services
         private Task _queueProcessorTask = null;
 
         public SteamCmdService(
-    ILogger<SteamCmdService> logger,
-    IHubContext<LogHub> hubContext,
-    ProfileService profileService,
-    SettingsService settingsService,
-    EncryptionService encryptionService,
-    LogFileReader logFileReader,
-    SteamApiService steamApiService,
-    DependencyManagerService dependencyManagerService)
+            ILogger<SteamCmdService> logger,
+            IHubContext<LogHub> hubContext,
+            ProfileService profileService,
+            SettingsService settingsService,
+            EncryptionService encryptionService,
+            LogFileReader logFileReader,
+            SteamApiService steamApiService,
+            DependencyManagerService dependencyManagerService,
+            LogService logService)
         {
             _logger = logger;
             _hubContext = hubContext;
@@ -90,7 +92,8 @@ namespace SteamCmdWebAPI.Services
             _encryptionService = encryptionService;
             _logFileReader = logFileReader;
             _steamApiService = steamApiService;
-            _dependencyManagerService = dependencyManagerService; // Added based on 1.txt point 5
+            _dependencyManagerService = dependencyManagerService;
+            _logService = logService;
 
             _scheduleTimer = new System.Timers.Timer(60000);
             _scheduleTimer.Elapsed += async (s, e) => await CheckScheduleAsync();
@@ -108,39 +111,102 @@ namespace SteamCmdWebAPI.Services
         #region Log and Notification Methods
         private void AddLog(LogEntry entry)
         {
-            lock (_logs)
+            // Chỉ lưu các log quan trọng
+            if (IsImportantLog(entry))
             {
-                _logs.Add(entry);
-                if (_logs.Count > MaxLogEntries)
+                lock (_logs)
                 {
-                    _logs.RemoveRange(0, _logs.Count - MaxLogEntries);
+                    _logs.Add(entry);
+                    if (_logs.Count > MaxLogEntries)
+                    {
+                        _logs.RemoveRange(0, _logs.Count - MaxLogEntries);
+                    }
                 }
+
+                // Thêm log vào LogService với màu xanh lá cây cho log thành công
+                string level = entry.Status.Equals("Success", StringComparison.OrdinalIgnoreCase) ? "SUCCESS" : "INFO";
+                _logService.AddLog(level, entry.Message, entry.ProfileName, entry.Status);
             }
+        }
+
+        private bool IsImportantLog(LogEntry entry)
+        {
+            // Lưu lại các thông báo cụ thể về đăng nhập và cập nhật game
+            return (entry.Message.Contains("Success! App", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Error! App", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("cập nhật thành công", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("cập nhật thất bại", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Cập nhật", StringComparison.OrdinalIgnoreCase) && 
+                   (entry.Message.Contains("không thành công", StringComparison.OrdinalIgnoreCase) || 
+                    entry.Message.Contains("thành công", StringComparison.OrdinalIgnoreCase)) ||
+                   entry.Message.Contains("Đăng nhập Steam thành công", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Thử lại cho", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Rate Limit Exceeded", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("hoàn tất thành công", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Cập nhật thành công cho", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Đã xử lý cập nhật thành công cho", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Cập nhật thành công cho", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi đăng nhập", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi kết nối Steam", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi thời gian thực", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi nghiêm trọng", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi chạy SteamCMD", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi cập nhật", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi đăng nhập", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi giải mã", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi đọc file", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi tạo thư mục", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi tạo liên kết", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi xóa file", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi xóa thư mục", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi tải file", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi giải nén", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi cài đặt", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi khởi động", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi dừng", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi khởi động lại", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi tắt", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi kiểm tra", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi xử lý", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi gửi log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi nhận log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi lưu log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi đọc log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi xóa log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi dọn dẹp log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi kiểm tra log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi xử lý log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi gửi log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi nhận log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi lưu log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi đọc log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi xóa log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi dọn dẹp log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi kiểm tra log", StringComparison.OrdinalIgnoreCase) ||
+                   entry.Message.Contains("Lỗi khi xử lý log", StringComparison.OrdinalIgnoreCase));
         }
 
         private async Task SafeSendLogAsync(string profileName, string status, string message)
         {
             try
             {
-                string logKey = $"{profileName}:{status}:{message}";
-
-                if (_recentLogMessages.Contains(logKey))
+                var logEntry = new LogEntry(DateTime.Now, profileName, status, message);
+                
+                // Chỉ gửi và lưu các log quan trọng
+                if (IsImportantLog(logEntry))
                 {
-                    return;
-                }
-                _recentLogMessages.Add(logKey);
-                if (_recentLogMessages.Count > _maxRecentLogMessages)
-                {
-                    _recentLogMessages.Clear();
-                }
+                    AddLog(logEntry);
 
-                if (!_recentHubMessages.TryGetValue(message, out var lastSentTime) || (DateTime.Now - lastSentTime).TotalSeconds > HubMessageCacheDurationSeconds)
-                {
-                    await _hubContext.Clients.All.SendAsync("ReceiveLog", message);
-                    _recentHubMessages[message] = DateTime.Now;
+                    // Gửi log qua SignalR với màu xanh lá cây cho log thành công
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", new
+                    {
+                        timestamp = logEntry.Timestamp,
+                        profileName = logEntry.ProfileName,
+                        status = logEntry.Status,
+                        message = logEntry.Message,
+                        isSuccess = status.Equals("Success", StringComparison.OrdinalIgnoreCase)
+                    });
                 }
-
-                AddLog(new LogEntry(DateTime.Now, profileName, status, message));
             }
             catch (Exception ex)
             {
@@ -152,7 +218,7 @@ namespace SteamCmdWebAPI.Services
         {
             lock (_logs)
             {
-                return new List<LogEntry>(_logs);
+                return _logs.OrderByDescending(l => l.Timestamp).ToList();
             }
         }
 

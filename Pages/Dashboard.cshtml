@@ -22,18 +22,18 @@
         <p>Tổng số profile</p>
     </div>
     <div class="stat-card">
+        <div class="icon games">
+            <i class="bi bi-controller"></i>
+        </div>
+        <h3>@Model.TotalGamesCount</h3>
+        <p>Tổng số game</p>
+    </div>
+    <div class="stat-card">
         <div class="icon storage">
             <i class="bi bi-hdd"></i>
         </div>
         <h3>@Model.TotalStorageUsed</h3>
-        <p>Dung lượng đã dùng</p>
-    </div>
-    <div class="stat-card">
-        <div class="icon recent">
-            <i class="bi bi-clock-history"></i>
-        </div>
-        <h3>@Model.RecentUpdatesCount</h3>
-        <p>Cập nhật gần đây</p>
+        <p>Tổng dung lượng game</p>
     </div>
 </div>
 
@@ -62,18 +62,19 @@
 @section Scripts {
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-        // Activity chart
-        const ctx = document.getElementById('activityChart').getContext('2d');
-        new Chart(ctx, {
+        // Activity Chart
+        var ctx = document.getElementById('activityChart').getContext('2d');
+        var activityChart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: @Html.Raw(Json.Serialize(Model.ActivityDates)),
+                labels: @Json.Serialize(Model.ActivityDates),
                 datasets: [{
                     label: 'Số lần chạy',
-                    data: @Html.Raw(Json.Serialize(Model.ActivityCounts)),
-                    borderColor: '#3b82f6',
+                    data: @Json.Serialize(Model.ActivityCounts),
+                    borderColor: '#4f46e5',
+                    backgroundColor: 'rgba(79, 70, 229, 0.1)',
                     tension: 0.4,
-                    fill: false
+                    fill: true
                 }]
             },
             options: {
@@ -88,7 +89,7 @@
                     y: {
                         beginAtZero: true,
                         ticks: {
-                            precision: 0
+                            stepSize: 1
                         }
                     }
                 }

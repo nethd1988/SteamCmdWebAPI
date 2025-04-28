@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Services;
 using SteamCmdWebAPI.Models;
+using System.IO;
 
 namespace SteamCmdWebAPI.Pages
 {
@@ -14,9 +15,12 @@ namespace SteamCmdWebAPI.Pages
         private readonly ILogger<DashboardModel> _logger;
         private readonly ProfileService _profileService;
         private readonly SteamCmdService _steamCmdService;
+        private readonly SteamApiService _steamApiService;
+        private readonly DependencyManagerService _dependencyManagerService;
 
         public int RunningProfilesCount { get; set; }
         public int TotalProfilesCount { get; set; }
+        public int TotalGamesCount { get; set; }
         public string TotalStorageUsed { get; set; }
         public int RecentUpdatesCount { get; set; }
         public List<SteamCmdService.LogEntry> RecentLogs { get; set; } = new List<SteamCmdService.LogEntry>();
@@ -26,11 +30,15 @@ namespace SteamCmdWebAPI.Pages
         public DashboardModel(
             ILogger<DashboardModel> logger,
             ProfileService profileService,
-            SteamCmdService steamCmdService)
+            SteamCmdService steamCmdService,
+            SteamApiService steamApiService,
+            DependencyManagerService dependencyManagerService)
         {
             _logger = logger;
             _profileService = profileService;
             _steamCmdService = steamCmdService;
+            _steamApiService = steamApiService;
+            _dependencyManagerService = dependencyManagerService;
         }
 
         public async Task OnGetAsync()
@@ -39,13 +47,53 @@ namespace SteamCmdWebAPI.Pages
             TotalProfilesCount = profiles.Count;
             RunningProfilesCount = profiles.Count(p => p.Status == "Running");
             
-            // Calculate total storage used
+            // Calculate total storage used and unique games count
             long totalBytes = 0;
+            var uniqueAppIds = new HashSet<string>();
+            
             foreach (var profile in profiles)
             {
-                // Giả định có cách lấy dung lượng từ profile
-                // totalBytes += GetProfileStorageSize(profile);
+                // Exclude App ID 228980 as it's not a game
+                if (profile.AppID != "228980")
+                {
+                    uniqueAppIds.Add(profile.AppID);
+                    
+                    // Get size from app update info for main app
+                    var appInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID);
+                    if (appInfo != null && appInfo.SizeOnDisk > 0)
+                    {
+                        totalBytes += appInfo.SizeOnDisk;
+                    }
+
+                    // Get dependent apps from manifest
+                    try
+                    {
+                        string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
+                        var dependentAppIds = await _dependencyManagerService.ScanDependenciesFromManifest(steamappsDir, profile.AppID);
+                        
+                        foreach (var depAppId in dependentAppIds)
+                        {
+                            if (depAppId != "228980")
+                            {
+                                uniqueAppIds.Add(depAppId);
+                                
+                                // Get size from app update info for dependent app
+                                var depAppInfo = await _steamApiService.GetAppUpdateInfo(depAppId);
+                                if (depAppInfo != null && depAppInfo.SizeOnDisk > 0)
+                                {
+                                    totalBytes += depAppInfo.SizeOnDisk;
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi đọc manifest cho profile {0} (AppID: {1})", profile.Name, profile.AppID);
+                    }
+                }
             }
+            
+            TotalGamesCount = uniqueAppIds.Count;
             TotalStorageUsed = FormatFileSize(totalBytes);
 
             // Get recent updates count (last 24 hours)

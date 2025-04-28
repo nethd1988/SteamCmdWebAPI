@@ -94,14 +94,17 @@
         </div>
 
         <!-- Phần chọn profile từ server -->
-        <div class="card mt-3">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">Chọn profile từ Server</h5>
+        <div class="card mt-4">
+            <div class="card-header bg-gradient-primary text-white py-3">
+                <h5 class="mb-0">
+                    <i class="bi bi-cloud-download me-2"></i>
+                    Chọn profile từ Server
+                </h5>
             </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <label for="serverProfile" class="form-label">Profiles có sẵn trên server:</label>
-                    <select id="serverProfile" class="form-select">
+            <div class="card-body p-4">
+                <div class="mb-4">
+                    <label for="serverProfile" class="form-label fw-bold mb-2">Profiles có sẵn trên server:</label>
+                    <select id="serverProfile" class="form-select form-select-lg">
                         <option value="">-- Chọn profile từ server --</option>
                         @foreach (var profileName in Model.ServerProfiles)
                         {
@@ -110,9 +113,13 @@
                     </select>
                 </div>
 
-                <div class="d-flex">
-                    <button id="getProfileBtn" class="btn btn-info me-2">Tải thông tin</button>
-                    <button id="importProfileBtn" class="btn btn-success">Nhập profile từ server</button>
+                <div class="d-flex gap-3">
+                    <button id="getProfileBtn" class="btn btn-info btn-lg flex-grow-1">
+                        <i class="bi bi-download me-2"></i>Tải thông tin
+                    </button>
+                    <button id="importProfileBtn" class="btn btn-success btn-lg flex-grow-1">
+                        <i class="bi bi-cloud-download me-2"></i>Nhập profile từ server
+                    </button>
                 </div>
             </div>
         </div>
@@ -120,25 +127,52 @@
 
     <!-- Phần hướng dẫn - Bên phải -->
     <div class="col-md-4">
-        <div class="card">
-            <div class="card-header bg-success text-white">
-                <h5 class="mb-0">Hướng dẫn</h5>
+        <div class="card sticky-top" style="top: 20px;">
+            <div class="card-header bg-gradient-success text-white py-3">
+                <h5 class="mb-0">
+                    <i class="bi bi-info-circle me-2"></i>
+                    Hướng dẫn
+                </h5>
             </div>
-            <div class="card-body">
-                <h6>Cách tạo profile mới</h6>
-                <p>Nhập thông tin cần thiết cho profile game:</p>
+            <div class="card-body p-4">
+                <div class="guide-section mb-4">
+                    <h6 class="fw-bold mb-3">
+                        <i class="bi bi-1-circle me-2 text-primary"></i>
+                        Cách tạo profile mới
+                    </h6>
+                    <p class="text-muted">Nhập thông tin cần thiết cho profile game:</p>
+                    <ul class="list-unstyled">
+                        <li class="mb-2">
+                            <i class="bi bi-check-circle-fill text-success me-2"></i>
+                            <strong>Tên Profile:</strong> Tên để nhận diện profile
+                        </li>
+                        <li class="mb-2">
+                            <i class="bi bi-check-circle-fill text-success me-2"></i>
+                            <strong>App ID:</strong> ID của game trên Steam
+                        </li>
+                        <li class="mb-2">
+                            <i class="bi bi-check-circle-fill text-success me-2"></i>
+                            <strong>Đường dẫn cài đặt:</strong> Thư mục cài đặt game
+                        </li>
+                        <li class="mb-2">
+                            <i class="bi bi-check-circle-fill text-success me-2"></i>
+                            <strong>Tham số bổ sung:</strong> Các tham số tùy chọn
+                        </li>
+                    </ul>
+                </div>
 
-                <ul>
-                    <li><strong>Tên Profile:</strong> Tên để nhận diện profile</li>
-                    <li><strong>App ID:</strong> ID của game trên Steam</li>
-                    <li><strong>Đường dẫn cài đặt:</strong> Thư mục cài đặt game</li>
-                    <li><strong>Tham số bổ sung:</strong> Các tham số tùy chọn</li>
-                </ul>
-
-                <p>Nhập thông tin tài khoản Steam để tải game (nếu game yêu cầu đăng nhập):</p>
-
-                <div class="alert alert-info">
-                    <i class="bi bi-info-circle"></i> Bạn cũng có thể sử dụng nút "Quét danh sách game" để tự động tìm kiếm các game đã cài đặt trên máy.
+                <div class="guide-section">
+                    <h6 class="fw-bold mb-3">
+                        <i class="bi bi-2-circle me-2 text-primary"></i>
+                        Tài khoản Steam
+                    </h6>
+                    <p class="text-muted">Nhập thông tin tài khoản Steam để tải game (nếu game yêu cầu đăng nhập):</p>
+                    <div class="alert alert-info d-flex align-items-center">
+                        <i class="bi bi-info-circle-fill me-2 fs-4"></i>
+                        <div>
+                            Bạn cũng có thể sử dụng nút "Quét danh sách game" để tự động tìm kiếm các game đã cài đặt trên máy.
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

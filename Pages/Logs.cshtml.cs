@@ -9,24 +9,33 @@ namespace SteamCmdWebAPI.Pages
     public class LogsModel : PageModel
     {
         private readonly ILogger<LogsModel> _logger;
-        private readonly SteamCmdService _steamCmdService;
+        private readonly LogService _logService;
+        private const int PageSize = 20;
 
-        public List<SteamCmdService.LogEntry> Logs { get; set; } = new List<SteamCmdService.LogEntry>();
+        public List<LogService.LogEntry> Logs { get; set; } = new List<LogService.LogEntry>();
+        public int CurrentPage { get; set; } = 1;
+        public int TotalPages { get; set; }
+        public int TotalLogs { get; set; }
 
-        public LogsModel(ILogger<LogsModel> logger, SteamCmdService steamCmdService)
+        public LogsModel(ILogger<LogsModel> logger, LogService logService)
         {
             _logger = logger;
-            _steamCmdService = steamCmdService;
+            _logService = logService;
         }
 
-        public void OnGet()
+        public void OnGet(int page = 1)
         {
             _logger.LogInformation("Đang tải danh sách logs...");
-            // Chỉ lấy các log có trạng thái "Success" hoặc "Error"
-            Logs = _steamCmdService.GetLogs()
-                .Where(l => l.Status == "Success" || l.Status == "Error")
-                .ToList();
-            _logger.LogInformation("Đã tải {0} logs", Logs.Count);
+            
+            // Lấy logs từ LogService
+            Logs = _logService.GetLogs(page, PageSize);
+            
+            // Tính toán phân trang
+            TotalLogs = Logs.Count;
+            TotalPages = (int)Math.Ceiling(TotalLogs / (double)PageSize);
+            CurrentPage = Math.Max(1, Math.Min(page, TotalPages));
+
+            _logger.LogInformation("Đã tải {0} logs cho trang {1}/{2}", Logs.Count, CurrentPage, TotalPages);
         }
     }
 }
