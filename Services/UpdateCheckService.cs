@@ -64,7 +64,7 @@ namespace SteamCmdWebAPI.Services
                 if (File.Exists(_settingsFilePath))
                 {
                     string json = File.ReadAllText(_settingsFilePath);
-                    var settings = JsonConvert.DeserializeObject<UpdateCheckSettings>(json);
+                    var settings = JsonConvert.DeserializeObject<Models.UpdateCheckSettings>(json);
 
                     if (settings != null)
                     {

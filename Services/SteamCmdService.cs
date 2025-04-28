@@ -74,14 +74,14 @@ namespace SteamCmdWebAPI.Services
         private Task _queueProcessorTask = null;
 
         public SteamCmdService(
-            ILogger<SteamCmdService> logger,
-            IHubContext<LogHub> hubContext,
-            ProfileService profileService,
-            SettingsService settingsService,
-            EncryptionService encryptionService,
-            LogFileReader logFileReader,
-            SteamApiService steamApiService,
-            DependencyManagerService dependencyManagerService) // Modified based on 1.txt point 5
+    ILogger<SteamCmdService> logger,
+    IHubContext<LogHub> hubContext,
+    ProfileService profileService,
+    SettingsService settingsService,
+    EncryptionService encryptionService,
+    LogFileReader logFileReader,
+    SteamApiService steamApiService,
+    DependencyManagerService dependencyManagerService)
         {
             _logger = logger;
             _hubContext = hubContext;

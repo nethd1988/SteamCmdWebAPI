@@ -90,6 +90,7 @@ namespace SteamCmdWebAPI
             builder.Services.AddSingleton<DependencyManagerService>();
             builder.Services.AddSingleton<SteamCmdService>(); // [cite: 4]
             builder.Services.AddSingleton<TcpClientService>(); // [cite: 5]
+            builder.Services.AddSteamCmdServices(); // Sử dụng extension method từ ServiceCollectionExtensions
             // UserService đã được đăng ký ở trên [cite: 5]
 
             // Đăng ký các dịch vụ mới

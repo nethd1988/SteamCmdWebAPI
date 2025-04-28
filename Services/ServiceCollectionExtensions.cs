@@ -19,6 +19,7 @@ namespace SteamCmdWebAPI.Services
             services.AddSingleton<SteamCmdService>();
             services.AddSingleton<TcpClientService>();
             services.AddSingleton<UserService>();
+            services.AddSingleton<DependencyManagerService>();
 
             // Cấu hình AutoRun và UpdateCheck
             services.AddSingleton<AutoRunConfiguration>();
