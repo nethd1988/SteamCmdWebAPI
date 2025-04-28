@@ -1013,7 +1013,7 @@ tbody tr:hover {
     animation: fadeIn 0.5s ease-out;
 }
 
-/* Responsive */
+/* Cập nhật CSS cho menu responsive */
 @media (max-width: 1024px) {
     .sidebar {
         left: -100%;
@@ -1036,17 +1036,6 @@ tbody tr:hover {
         padding-top: 60px;
     }
 
-    .stats-container {
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    }
-
-    .sidebar-nav .bottom-nav {
-        position: static;
-        margin-top: 20px;
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
-        padding-top: 15px;
-    }
-
     .menu-toggler {
         display: flex !important;
         position: fixed;
@@ -1064,32 +1053,35 @@ tbody tr:hover {
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         border: none;
     }
-}
 
-@media (max-width: 768px) {
-    .page-header {
-        flex-direction: column;
-        gap: 15px;
-        align-items: flex-start;
+    /* Thêm các CSS mới để đảm bảo menu hiện đầy đủ */
+    .sidebar-nav .nav-list {
+        display: block !important;
+        padding: 20px 15px;
+        visibility: visible !important;
     }
 
-    .table-header {
-        flex-direction: column;
-        gap: 15px;
-        align-items: stretch;
+    .sidebar-nav .nav-link {
+        opacity: 1 !important;
+        visibility: visible !important;
+        display: flex !important;
     }
 
-    .search-box input {
-        width: 100%;
+    .sidebar-nav .nav-label {
+        display: block !important;
+        opacity: 1 !important;
+        visibility: visible !important;
     }
 
-    .header-actions {
-        flex-direction: column;
-        width: 100%;
+    .sidebar.menu-active .nav-label {
+        display: block !important;
     }
 
-    .btn-action {
-        width: 100%;
-        justify-content: center;
+    .sidebar-nav .bottom-nav {
+        position: static;
+        margin-top: 20px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        padding-top: 15px;
+        display: block !important;
     }
 }

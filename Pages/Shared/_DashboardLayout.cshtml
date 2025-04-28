@@ -5,7 +5,7 @@
 <html lang="vi">
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>@ViewData["Title"] - SteamAUTO</title>
 
     <!-- Google fonts for icons -->
@@ -27,7 +27,7 @@
             <a href="/Dashboard" class="header-logo">
                 <img src="~/images/logo.png" alt="SteamAUTO">
             </a>
-            <button class="toggler sidebar-toggler">
+            <button class="toggler sidebar-toggler" type="button" aria-label="Toggle Sidebar">
                 <span class="material-symbols-rounded">chevron_left</span>
             </button>
         </header>
@@ -86,20 +86,22 @@
             </ul>
 
             <!-- Bottom menu -->
-            <ul class="nav-list bottom-nav">
-                <li class="nav-item">
-                    <a href="/ChangePassword" class="nav-link @(ViewData["ActivePage"] as string == "ChangePassword" ? "active" : "")">
-                        <span class="nav-icon material-symbols-rounded">key</span>
-                        <span class="nav-label">Đổi mật khẩu</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="/Logout" class="nav-link">
-                        <span class="nav-icon material-symbols-rounded">logout</span>
-                        <span class="nav-label">Đăng xuất</span>
-                    </a>
-                </li>
-            </ul>
+            <div class="bottom-nav">
+                <ul class="nav-list">
+                    <li class="nav-item">
+                        <a href="/ChangePassword" class="nav-link @(ViewData["ActivePage"] as string == "ChangePassword" ? "active" : "")">
+                            <span class="nav-icon material-symbols-rounded">key</span>
+                            <span class="nav-label">Đổi mật khẩu</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="/Logout" class="nav-link">
+                            <span class="nav-icon material-symbols-rounded">logout</span>
+                            <span class="nav-label">Đăng xuất</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
         </nav>
     </aside>
 

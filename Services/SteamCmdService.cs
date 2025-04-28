@@ -865,15 +865,15 @@ namespace SteamCmdWebAPI.Services
                         var appIdsListForLog = appIdsToUpdate.Any() ? string.Join(", ", appIdsToUpdate) : "Không tìm thấy App ID nào ngoài ID chính";
                         _logger.LogInformation("ExecuteProfileUpdateAsync: Tổng số App ID để cập nhật: {Count} (từ các ID chính Và ID phụ): {AppIds}",
                            appIdsToUpdate.Count, appIdsListForLog);
-                        await SafeSendLogAsync(profile.Name, "Info", $"Đã thu thập {appIdsToUpdate.Count} ứng dụng để cập nhật chính: [{appIdsListForLog}]");
+                        await SafeSendLogAsync(profile.Name, "Info", $"Đã thu thập {appIdsToUpdate.Count} ứng dụng để cập nhật: [{appIdsListForLog}]");
                     }
                     else
                     {
                         // Thư mục steamapps không tồn tại, chỉ thêm app chính
                         appIdsToUpdate.Add(profile.AppID);
-                        _logger.LogWarning("ExecuteProfileUpdateAsync: Thư mục steamapps không tồn tại {Dir}, chỉ cập nhật App ID chính {AppId}",
+                        _logger.LogWarning("ExecuteProfileUpdateAsync: Thư mục steamapps không tồn tại {Dir}, chỉ cập nhật App ID {AppId}",
                             steamappsDir, profile.AppID);
-                        await SafeSendLogAsync(profile.Name, "Warning", $"Thư mục steamapps không tồn tại tại {steamappsDir}. Chỉ cập nhật App ID chính: {profile.AppID}.");
+                        await SafeSendLogAsync(profile.Name, "Warning", $"Thư mục steamapps không tồn tại tại {steamappsDir}. Chỉ cập nhật App ID: {profile.AppID}.");
                     }
                 }
                 // Trường hợp 3: Mặc định - chỉ chạy app chính
@@ -881,13 +881,13 @@ namespace SteamCmdWebAPI.Services
                 {
                     appIdsToUpdate.Add(profile.AppID);
                     _logger.LogInformation("ExecuteProfileUpdateAsync: Chỉ cập nhật App ID chính: {AppId} (Normal mode)", profile.AppID);
-                    await SafeSendLogAsync(profile.Name, "Info", $"Chỉ cập nhật App ID chính: {profile.AppID}");
+                    await SafeSendLogAsync(profile.Name, "Info", $"Chỉ cập nhật App ID : {profile.AppID}");
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "ExecuteProfileUpdateAsync: Lỗi khi xử lý App ID phụ thuộc cho profile {ProfileName}", profile.Name);
-                await SafeSendLogAsync(profile.Name, "Warning", $"Lỗi khi xử lý App ID phụ thuộc: {ex.Message}. Sẽ chỉ cập nhật App ID chính.");
+                await SafeSendLogAsync(profile.Name, "Warning", $"Lỗi khi xử lý App ID phụ thuộc: {ex.Message}. Sẽ chỉ cập nhật App ID.");
 
                 // Đảm bảo ít nhất có app chính trong danh sách cập nhật
                 if (!appIdsToUpdate.Contains(profile.AppID))
