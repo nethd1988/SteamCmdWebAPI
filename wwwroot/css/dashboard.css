@@ -61,21 +61,23 @@ body {
     width: 40px;
     height: 40px;
     object-fit: contain;
-    border-radius: 8px;
+    border-radius: 5px;
 }
 
 .sidebar-header .toggler {
-    height: 35px;
-    width: 35px;
-    color: var(--dark-color);
+    height: 30px;
+    width: 30px;
+    color: white;
     border: none;
     cursor: pointer;
     display: flex;
-    background: white;
+    background: transparent;
     align-items: center;
     justify-content: center;
-    border-radius: 8px;
+    border-radius: 50%;
     transition: all 0.3s ease;
+    position: absolute;
+    right: 10px;
 }
 
     .sidebar-header .toggler:hover {
@@ -100,13 +102,14 @@ body {
         display: flex;
         gap: 15px;
         white-space: nowrap;
-        border-radius: 12px;
-        padding: 14px 20px;
+        border-radius: 8px;
+        padding: 12px 15px;
         align-items: center;
         text-decoration: none;
         transition: all 0.3s ease;
-        margin: 5px 0;
+        margin: 4px 0;
         font-weight: 500;
+        font-size: 14px;
     }
 
         .sidebar-nav .nav-link:hover {
@@ -117,8 +120,8 @@ body {
 
         .sidebar-nav .nav-link.active {
             color: #fff;
-            background: linear-gradient(90deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-            box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+            background: #3b82f6;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         }
 
     .sidebar-nav .bottom-nav {
@@ -1013,24 +1016,24 @@ tbody tr:hover {
 /* Responsive */
 @media (max-width: 1024px) {
     .sidebar {
-        left: 0;
-        width: 100%;
-        max-height: 56px;
-        height: auto;
-        overflow: hidden;
-        transition: max-height 0.4s ease;
+        left: -100%;
+        width: 260px;
+        height: 100vh;
+        overflow-y: auto;
+        transition: left 0.3s ease;
         z-index: 1100;
+        position: fixed;
+        top: 0;
     }
 
         .sidebar.menu-active {
-            max-height: 100vh;
-            overflow-y: auto;
+            left: 0;
         }
 
     .main-content {
         margin-left: 0;
         width: 100%;
-        padding-top: 80px;
+        padding-top: 60px;
     }
 
     .stats-container {
@@ -1048,17 +1051,18 @@ tbody tr:hover {
         display: flex !important;
         position: fixed;
         top: 10px;
-        left: 10px;
+        right: 10px;
         z-index: 1200;
-        width: 45px;
-        height: 45px;
-        border-radius: 50%;
-        background: var(--primary-color);
-        color: white;
+        width: 40px;
+        height: 40px;
+        border-radius: 5px;
+        background: white;
+        color: #1a1f36;
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        border: none;
     }
 }
 

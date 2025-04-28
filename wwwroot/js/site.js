@@ -86,33 +86,41 @@ document.addEventListener('DOMContentLoaded', function () {
         };
     })();
 
-    // Các chức năng toàn cục
+    // Xử lý lỗi Ajax
     function handleAjaxErrors() {
-        $(document).ajaxError(function (event, jqXHR, settings, thrownError) {
-            console.error('AJAX Error:', thrownError);
-            // Không hiển thị alert mà chỉ ghi log
-            console.error('Có lỗi xảy ra:', thrownError);
-        });
+        if (typeof $ !== 'undefined') {
+            $(document).ajaxError(function (event, jqXHR, settings, thrownError) {
+                console.error('AJAX Error:', thrownError);
+                // Không hiển thị alert mà chỉ ghi log
+                console.error('Có lỗi xảy ra:', thrownError);
+            });
+        }
     }
 
     handleAjaxErrors();
 
-    // Hàm cập nhật trạng thái profile (Giữ lại từ site.js gốc nếu cần thiết cho các phần khác)
+    // Hàm cập nhật trạng thái profile
     window.updateProfileStatus = function (profileId, status) {
-        const profileRow = $(`tr[data-profile-id="${profileId}"]`);
-        const statusBadge = profileRow.find(".badge"); // Dùng class .badge từ site.js
+        const profileRow = document.querySelector(`tr[data-profile-id="${profileId}"]`);
+        if (!profileRow) return;
+
+        const statusBadge = profileRow.querySelector(".badge");
+        if (!statusBadge) return;
 
         if (status === "Running") {
-            profileRow.addClass('table-success');
-            statusBadge.removeClass("bg-secondary").addClass("bg-success").text("Running"); // Dùng class bg-* từ site.js
+            profileRow.classList.add('table-success');
+            statusBadge.classList.remove("bg-secondary");
+            statusBadge.classList.add("bg-success");
+            statusBadge.textContent = "Running";
         } else if (status === "Stopped") {
-            profileRow.removeClass('table-success');
-            statusBadge.removeClass("bg-success").addClass("bg-secondary").text("Stopped"); // Dùng class bg-* từ site.js
+            profileRow.classList.remove('table-success');
+            statusBadge.classList.remove("bg-success");
+            statusBadge.classList.add("bg-secondary");
+            statusBadge.textContent = "Stopped";
         }
-        // Thêm các trạng thái khác nếu cần (ví dụ: Error)
     };
 
-    // Hàm xử lý các popup alert và error (Giữ lại từ site.js gốc)
+    // Xử lý các popup alert và error
     (function () {
         // Chặn các dialog cảnh báo từ trình duyệt
         const originalOnError = window.onerror;
@@ -152,7 +160,7 @@ document.addEventListener('DOMContentLoaded', function () {
         };
     })();
 
-    // Hàm hiển thị thông báo (Giữ lại từ site.js gốc)
+    // Hàm hiển thị thông báo
     window.showToast = function (message, type = 'success', duration = 3000) {
         const toastContainer = document.getElementById('toast-container') || createToastContainer();
 
@@ -173,16 +181,23 @@ document.addEventListener('DOMContentLoaded', function () {
 
         toastContainer.appendChild(toast);
 
-        const bsToast = new bootstrap.Toast(toast, {
-            autohide: true,
-            delay: duration
-        });
-
-        bsToast.show();
-
-        toast.addEventListener('hidden.bs.toast', function () {
-            toast.remove();
-        });
+        if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
+            const bsToast = new bootstrap.Toast(toast, {
+                autohide: true,
+                delay: duration
+            });
+            bsToast.show();
+        } else {
+            toast.style.opacity = '1';
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 500);
+            }, duration);
+        }
 
         return toast;
     };
@@ -195,58 +210,60 @@ document.addEventListener('DOMContentLoaded', function () {
         return container;
     }
 
-    // --- Bắt đầu phần tích hợp từ 1.txt ---
+    // Thêm mobile menu toggle nếu chưa có và đang ở mobile
+    if (!document.querySelector('.menu-toggler') && window.innerWidth <= 1024) {
+        const mobileMenuBtn = document.createElement('button');
+        mobileMenuBtn.className = 'menu-toggler';
+        mobileMenuBtn.innerHTML = '<span class="bi bi-list"></span>';
+        document.body.appendChild(mobileMenuBtn);
 
-    // Lấy CSRF token [cite: 1]
-    // Cần đảm bảo @Html.AntiForgeryToken() được render đúng trong form hoặc có input chứa token
-    var token = $('input[name="__RequestVerificationToken"]').val();
-    if (!token) {
-        console.error("CSRF token not found!");
-        // Thêm một form tạm thời nếu cần thiết và server render nó đúng cách
-        // $('body').append('<form id="antiForgeryForm" style="display:none;">@Html.AntiForgeryToken()</form>');
-        // token = $('#antiForgeryForm input[name="__RequestVerificationToken"]').val();
+        mobileMenuBtn.addEventListener('click', () => {
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar) {
+                sidebar.classList.toggle('menu-active');
+            }
+        });
     }
 
-    // Xử lý nút "Chạy tất cả" [cite: 1]
+    // Xử lý nút "Chạy tất cả"
     $("#runAllBtn").click(function (event) {
         event.preventDefault();
         var button = $(this);
         button.prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang chạy...');
 
+        var token = $('input[name="__RequestVerificationToken"]').val();
         $.ajax({
-            url: "/ProfileManager?handler=RunAll", // Endpoint từ 1.txt [cite: 1]
+            url: "/ProfileManager?handler=RunAll",
             method: "POST",
             headers: {
-                "RequestVerificationToken": token // Sử dụng token đã lấy [cite: 2]
+                "RequestVerificationToken": token
             },
             success: function (response) {
                 if (response && response.success) {
                     if (window.steamConsole) {
-                        window.steamConsole.addLine("Đã thêm tất cả profile vào hàng đợi thực thi", "success"); // [cite: 3]
+                        window.steamConsole.addLine("Đã thêm tất cả profile vào hàng đợi thực thi", "success");
                     }
                     // Cập nhật UI tất cả profile thành running
-                    $("tr[data-profile-id]").each(function () { // Target các row có data-profile-id
+                    $("tr[data-profile-id]").each(function () {
                         var row = $(this);
-                        row.addClass("table-success"); // Class từ site.js
-                        var statusBadge = row.find('.badge'); // Class từ site.js
-                        statusBadge.removeClass('bg-secondary').addClass('bg-success').text('Running'); // Classes + text từ site.js [cite: 5]
+                        row.addClass("table-success");
+                        var statusBadge = row.find('.badge');
+                        statusBadge.removeClass('bg-secondary').addClass('bg-success').text('Running');
 
                         // Chuyển tất cả nút run thành stop
                         var runBtn = row.find('.run-btn');
-                        if (runBtn.length > 0) { // [cite: 7]
+                        if (runBtn.length > 0) {
                             var profileId = runBtn.data('id');
-                            // Sử dụng cấu trúc button từ site.js gốc (nếu có) hoặc cấu trúc từ 1.txt
-                            var btnHtml = `<button class="btn btn-danger btn-sm stop-btn" type="button" data-id="${profileId}" title="Dừng"><i class="bi bi-stop-fill"></i> Dừng</button>`; // Giả định cấu trúc nút Stop
-                            runBtn.replaceWith(btnHtml); // [cite: 8]
+                            var btnHtml = `<button class="btn btn-danger btn-sm stop-btn" type="button" data-id="${profileId}" title="Dừng"><i class="bi bi-stop-fill"></i> Dừng</button>`;
+                            runBtn.replaceWith(btnHtml);
                         }
-                    }); // [cite: 9]
-                } else { // [cite: 10]
+                    });
+                } else {
                     const errorMsg = "Lỗi: " + (response && response.error ? response.error : "Không thể chạy tất cả profile");
                     if (window.steamConsole) {
                         window.steamConsole.addLine(errorMsg, "error");
                     }
-                    showToast(errorMsg, 'danger'); // Sử dụng toast từ site.js
-                    // [cite: 11]
+                    showToast(errorMsg, 'danger');
                 }
             },
             error: function (xhr, status, error) {
@@ -255,50 +272,47 @@ document.addEventListener('DOMContentLoaded', function () {
                     window.steamConsole.addLine(errorMsg, "error");
                 }
                 showToast(errorMsg, 'danger');
-                // [cite: 12]
             },
             complete: function () {
-                button.prop("disabled", false).html('<i class="bi bi-play-fill"></i> Chạy tất cả'); // Khôi phục nút [cite: 12]
-                // [cite: 13]
+                button.prop("disabled", false).html('<i class="bi bi-play-fill"></i> Chạy tất cả');
             }
         });
     });
 
-    // Xử lý nút "Dừng tất cả" [cite: 14]
+    // Xử lý nút "Dừng tất cả"
     $("#stopAllBtn").click(function (event) {
         event.preventDefault();
         var button = $(this);
         button.prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang dừng...');
 
+        var token = $('input[name="__RequestVerificationToken"]').val();
         $.ajax({
-            url: "/ProfileManager?handler=StopAll", // Endpoint từ 1.txt [cite: 14]
+            url: "/ProfileManager?handler=StopAll",
             method: "POST",
             headers: {
-                "RequestVerificationToken": token // Sử dụng token đã lấy [cite: 14]
-            }, // [cite: 15]
+                "RequestVerificationToken": token
+            },
             success: function (response) {
                 if (response && response.success) {
                     if (window.steamConsole) {
-                        window.steamConsole.addLine("Đã dừng tất cả profile thành công", "success"); // [cite: 15]
-                    } // [cite: 16]
+                        window.steamConsole.addLine("Đã dừng tất cả profile thành công", "success");
+                    }
                     // Cập nhật UI mà không reload trang
-                    $("tr.table-success").removeClass("table-success"); // Class từ site.js
-                    $(".badge.bg-success").removeClass("bg-success").addClass("bg-secondary").text("Stopped"); // Classes + text từ site.js [cite: 17]
+                    $("tr.table-success").removeClass("table-success");
+                    $(".badge.bg-success").removeClass("bg-success").addClass("bg-secondary").text("Stopped");
 
                     // Chuyển nút stop thành run
-                    $(".stop-btn").each(function () { // Target các nút stop hiện có
+                    $(".stop-btn").each(function () {
                         var id = $(this).data("id");
-                        // Sử dụng cấu trúc button từ site.js gốc hoặc cấu trúc từ 1.txt
-                        var btnHtml = `<button class="btn btn-success btn-sm run-btn" type="button" data-id="${id}" title="Chạy"><i class="bi bi-play-fill"></i> Chạy</button>`; // Giả định cấu trúc nút Run
-                        $(this).replaceWith(btnHtml); // [cite: 18]
+                        var btnHtml = `<button class="btn btn-success btn-sm run-btn" type="button" data-id="${id}" title="Chạy"><i class="bi bi-play-fill"></i> Chạy</button>`;
+                        $(this).replaceWith(btnHtml);
                     });
-                } else { // [cite: 19]
+                } else {
                     const errorMsg = "Lỗi: " + (response && response.error ? response.error : "Không thể dừng tất cả profile");
                     if (window.steamConsole) {
                         window.steamConsole.addLine(errorMsg, "error");
                     }
                     showToast(errorMsg, 'danger');
-                    // [cite: 20]
                 }
             },
             error: function (xhr, status, error) {
@@ -307,16 +321,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     window.steamConsole.addLine(errorMsg, "error");
                 }
                 showToast(errorMsg, 'danger');
-                // [cite: 21]
             },
             complete: function () {
-                button.prop("disabled", false).html('<i class="bi bi-stop-fill"></i> Dừng tất cả'); // Khôi phục nút [cite: 21]
-                // [cite: 22]
+                button.prop("disabled", false).html('<i class="bi bi-stop-fill"></i> Dừng tất cả');
             }
         });
     });
 
-    // Xử lý sự kiện "Chạy" cho từng profile [cite: 23]
+    // Xử lý sự kiện "Chạy" cho từng profile
     $(document).on('click', '.run-btn', function (event) {
         event.preventDefault();
         var profileId = $(this).data('id');
@@ -325,34 +337,27 @@ document.addEventListener('DOMContentLoaded', function () {
         var profileName = row.find('td:nth-child(2)').text(); // Lấy tên từ cột thứ 2
 
         // Cập nhật UI ngay lập tức
-        row.addClass('table-success'); // Class từ site.js
-        var statusBadge = row.find('.badge'); // Class từ site.js
-        statusBadge.removeClass('bg-secondary').addClass('bg-success').text('Running'); // Classes + text từ site.js [cite: 27]
+        row.addClass('table-success');
+        var statusBadge = row.find('.badge');
+        statusBadge.removeClass('bg-secondary').addClass('bg-success').text('Running');
 
         // Thay đổi nút từ "run" thành "stop" ngay lập tức để tránh double click
-        var btnHtml = `<button class="btn btn-danger btn-sm stop-btn" type="button" data-id="${profileId}" title="Dừng"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Dừng</button>`; // Hiển thị tạm loading
+        var btnHtml = `<button class="btn btn-danger btn-sm stop-btn" type="button" data-id="${profileId}" title="Dừng"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Dừng</button>`;
         button.replaceWith(btnHtml);
 
         if (window.steamConsole) {
             window.steamConsole.clear();
-            window.steamConsole.setProfileId(profileId); // Cập nhật profile ID cho console nếu cần
-            window.steamConsole.addLine(`Đang chuẩn bị chạy profile: ${profileName} (ID: ${profileId})`, 'info'); // [cite: 24]
+            window.steamConsole.setProfileId(profileId);
+            window.steamConsole.addLine(`Đang chuẩn bị chạy profile: ${profileName} (ID: ${profileId})`, 'info');
         }
 
-        // Cập nhật badge console (nếu hàm tồn tại từ site.js gốc)
-        if (typeof updateActiveProfileBadge === 'function') {
-            updateActiveProfileBadge(profileId, profileName);
-        }
-
-        $("#steamcmd-console").attr("data-profile-id", profileId); // Cập nhật data attribute console nếu cần
-
-
+        var token = $('input[name="__RequestVerificationToken"]').val();
         $.ajax({
-            url: "/ProfileManager?handler=Run", // Endpoint từ 1.txt [cite: 24]
-            method: "POST", // [cite: 25]
+            url: "/ProfileManager?handler=Run",
+            method: "POST",
             data: { profileId: profileId },
             headers: {
-                "RequestVerificationToken": token // Sử dụng token đã lấy [cite: 25]
+                "RequestVerificationToken": token
             },
             success: function (response) {
                 // Tìm lại nút stop vừa tạo
@@ -361,26 +366,25 @@ document.addEventListener('DOMContentLoaded', function () {
                 var finalBtnHtml = `<button class="btn btn-danger btn-sm stop-btn" type="button" data-id="${profileId}" title="Dừng"><i class="bi bi-stop-fill"></i> Dừng</button>`;
                 currentStopBtn.replaceWith(finalBtnHtml);
 
-                if (response && response.success) { // [cite: 26]
+                if (response && response.success) {
                     // UI đã được cập nhật ở trên
                     if (window.steamConsole) {
-                        window.steamConsole.addLine("Đã bắt đầu chạy profile: " + profileName, "success"); // [cite: 29]
-                    } // [cite: 30]
+                        window.steamConsole.addLine("Đã bắt đầu chạy profile: " + profileName, "success");
+                    }
                     showToast(`Đã bắt đầu chạy profile: ${profileName}`, 'success');
-                } else { // [cite: 30]
+                } else {
                     // Khôi phục UI nếu có lỗi
                     row.removeClass('table-success');
                     statusBadge.removeClass('bg-success').addClass('bg-secondary').text('Stopped');
                     // Thay nút stop lại thành run
                     var runBtnHtml = `<button class="btn btn-success btn-sm run-btn" type="button" data-id="${profileId}" title="Chạy"><i class="bi bi-play-fill"></i> Chạy</button>`;
-                    row.find('.stop-btn').replaceWith(runBtnHtml); // Thay thế nút stop lỗi bằng nút run
+                    row.find('.stop-btn').replaceWith(runBtnHtml);
 
                     const errorMsg = "Lỗi: " + (response && response.error ? response.error : "Không thể chạy profile");
                     if (window.steamConsole) {
                         window.steamConsole.addLine(errorMsg, "error");
                     }
                     showToast(errorMsg, 'danger');
-                    // [cite: 31, 32]
                 }
             },
             error: function (xhr, status, error) {
@@ -396,12 +400,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     window.steamConsole.addLine(errorMsg, "error");
                 }
                 showToast(errorMsg, 'danger');
-                // [cite: 33, 34]
             }
-        }); // [cite: 35]
+        });
     });
 
-    // Xử lý sự kiện "Dừng" cho từng profile [cite: 35]
+    // Xử lý sự kiện "Dừng" cho từng profile
     $(document).on('click', '.stop-btn', function (event) {
         event.preventDefault();
         var profileId = $(this).data('id');
@@ -410,44 +413,40 @@ document.addEventListener('DOMContentLoaded', function () {
         var profileName = row.find('td:nth-child(2)').text();
 
         // Cập nhật UI ngay lập tức
-        row.removeClass('table-success'); // Class từ site.js
-        var statusBadge = row.find('.badge'); // Class từ site.js
-        statusBadge.removeClass('bg-success').addClass('bg-secondary').text('Stopped'); // Classes + text từ site.js [cite: 39]
+        row.removeClass('table-success');
+        var statusBadge = row.find('.badge');
+        statusBadge.removeClass('bg-success').addClass('bg-secondary').text('Stopped');
 
         // Thay đổi nút từ "stop" thành "run" ngay lập tức
-        var btnHtml = `<button class="btn btn-success btn-sm run-btn" type="button" data-id="${profileId}" title="Chạy"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Chạy</button>`; // Hiển thị tạm loading
+        var btnHtml = `<button class="btn btn-success btn-sm run-btn" type="button" data-id="${profileId}" title="Chạy"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Chạy</button>`;
         button.replaceWith(btnHtml);
 
         if (window.steamConsole) {
-            window.steamConsole.addLine(`Đang dừng profile: ${profileName} (ID: ${profileId})`, 'warning'); // [cite: 36]
+            window.steamConsole.addLine(`Đang dừng profile: ${profileName} (ID: ${profileId})`, 'warning');
         }
 
-        // Cập nhật badge console (nếu hàm tồn tại từ site.js gốc)
-        if (typeof updateActiveProfileBadge === 'function') {
-            updateActiveProfileBadge(null); // Không có profile nào active
-        }
-
+        var token = $('input[name="__RequestVerificationToken"]').val();
         $.ajax({
-            url: "/ProfileManager?handler=Stop", // Endpoint từ 1.txt [cite: 36]
+            url: "/ProfileManager?handler=Stop",
             method: "POST",
             data: { profileId: profileId },
             headers: {
-                "RequestVerificationToken": token // Sử dụng token đã lấy [cite: 37]
+                "RequestVerificationToken": token
             },
             success: function (response) {
                 // Tìm lại nút run vừa tạo
                 var currentRunBtn = row.find('.run-btn');
                 // Cập nhật nút run cuối cùng sau khi thành công
-                var finalBtnHtml = `<button class="btn btn-success btn-sm run-btn" type="button" data-id="${profileId}" title="Chạy"><i class="bi bi-play-fill"></i> Chạy</button>`; // [cite: 40]
-                currentRunBtn.replaceWith(finalBtnHtml); // [cite: 41]
+                var finalBtnHtml = `<button class="btn btn-success btn-sm run-btn" type="button" data-id="${profileId}" title="Chạy"><i class="bi bi-play-fill"></i> Chạy</button>`;
+                currentRunBtn.replaceWith(finalBtnHtml);
 
-                if (response && response.success) { // [cite: 38]
+                if (response && response.success) {
                     // UI đã được cập nhật ở trên
                     if (window.steamConsole) {
-                        window.steamConsole.addLine("Đã dừng profile: " + profileName, "success"); // [cite: 41]
-                    } // [cite: 42]
+                        window.steamConsole.addLine("Đã dừng profile: " + profileName, "success");
+                    }
                     showToast(`Đã dừng profile: ${profileName}`, 'success');
-                } else { // [cite: 42]
+                } else {
                     // Khôi phục UI nếu có lỗi
                     row.addClass('table-success');
                     statusBadge.removeClass('bg-secondary').addClass('bg-success').text('Running');
@@ -460,7 +459,6 @@ document.addEventListener('DOMContentLoaded', function () {
                         window.steamConsole.addLine(errorMsg, "error");
                     }
                     showToast(errorMsg, 'danger');
-                    // [cite: 43, 44]
                 }
             },
             error: function (xhr, status, error) {
@@ -476,12 +474,11 @@ document.addEventListener('DOMContentLoaded', function () {
                     window.steamConsole.addLine(errorMsg, "error");
                 }
                 showToast(errorMsg, 'danger');
-                // [cite: 45, 46]
             }
-        }); // [cite: 47]
+        });
     });
 
-    // Xử lý nút xóa profile [cite: 47]
+    // Xử lý nút xóa profile
     $(document).on('click', '.delete-btn', function (event) {
         event.preventDefault();
         var profileId = $(this).data('id');
@@ -492,58 +489,53 @@ document.addEventListener('DOMContentLoaded', function () {
         // Sử dụng confirm dialog chuẩn của trình duyệt hoặc một thư viện modal đẹp hơn
         if (confirm(`Bạn có chắc chắn muốn xóa profile '${profileName}' không?`)) {
             if (window.steamConsole) {
-                window.steamConsole.addLine(`Đang xóa profile: ${profileName} (ID: ${profileId})...`, 'warning'); // [cite: 48]
+                window.steamConsole.addLine(`Đang xóa profile: ${profileName} (ID: ${profileId})...`, 'warning');
             }
 
+            var token = $('input[name="__RequestVerificationToken"]').val();
             $.ajax({
-                url: "/ProfileManager?handler=Delete", // Endpoint từ 1.txt [cite: 48]
+                url: "/ProfileManager?handler=Delete",
                 method: "POST",
                 data: { profileId: profileId },
                 headers: {
-                    "RequestVerificationToken": token // Sử dụng token đã lấy [cite: 49]
+                    "RequestVerificationToken": token
                 },
                 success: function (response) {
-                    if (response && response.success) { // [cite: 50]
+                    if (response && response.success) {
                         // Xóa row khỏi bảng với hiệu ứng fadeOut
                         row.fadeOut(300, function () {
-                            $(this).remove(); // [cite: 51]
+                            $(this).remove();
                         });
 
                         if (window.steamConsole) {
-                            window.steamConsole.addLine("Đã xóa profile: " + profileName, "success"); // [cite: 51]
+                            window.steamConsole.addLine("Đã xóa profile: " + profileName, "success");
                         }
                         showToast(`Đã xóa profile: ${profileName}`, 'success');
-                        // [cite: 52]
-                    } else { // [cite: 52]
+                    } else {
                         const errorMsg = "Lỗi: " + (response && response.error ? response.error : "Không thể xóa profile");
                         if (window.steamConsole) {
                             window.steamConsole.addLine(errorMsg, "error");
                         }
                         showToast(errorMsg, 'danger');
-                        // [cite: 53]
                     }
                 },
                 error: function (xhr, status, error) {
                     const errorMsg = "Lỗi khi gửi yêu cầu xóa: " + (xhr.responseText || error);
                     if (window.steamConsole) {
-                        window.steamConsole.addLine(errorMsg, "error"); // [cite: 54]
+                        window.steamConsole.addLine(errorMsg, "error");
                     }
                     showToast(errorMsg, 'danger');
-                    // [cite: 55]
                 }
-            }); // [cite: 56]
-        } // [cite: 56]
+            });
+        }
     });
 
-    // --- Kết thúc phần tích hợp từ 1.txt ---
-
-
-    // Thêm sự kiện toggle cho auto-scroll (Giữ lại từ site.js gốc)
+    // Thêm sự kiện toggle cho auto-scroll
     $(document).on('click', '#toggleAutoScrollBtn', function () {
         const autoScrollEnabled = $(this).hasClass('btn-outline-secondary');
         $(this).toggleClass('btn-outline-secondary btn-secondary');
-        $(this).find('i').toggleClass('bi-arrow-down-circle bi-arrow-down-circle-fill'); // Toggle icon
-        $(this).attr('title', autoScrollEnabled ? 'Bật tự cuộn' : 'Tắt tự cuộn'); // Toggle title
+        $(this).find('i').toggleClass('bi-arrow-down-circle bi-arrow-down-circle-fill');
+        $(this).attr('title', autoScrollEnabled ? 'Bật tự cuộn' : 'Tắt tự cuộn');
 
         if (window.steamConsole && typeof window.steamConsole.setAutoScroll === 'function') {
             window.steamConsole.setAutoScroll(autoScrollEnabled);
@@ -552,7 +544,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // Thêm sự kiện xóa console (Giữ lại từ site.js gốc)
+    // Thêm sự kiện xóa console
     $(document).on('click', '#clearConsoleBtn', function () {
         if (window.steamConsole && typeof window.steamConsole.clear === 'function') {
             window.steamConsole.clear();
@@ -561,21 +553,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // Khởi tạo các tooltip (Giữ lại từ site.js gốc)
+    // Khởi tạo các tooltip
     if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
         const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
         tooltipTriggerList.forEach(function (tooltipTriggerEl) {
             new bootstrap.Tooltip(tooltipTriggerEl);
         });
     }
+});
 
-    // Kiểm tra hiệu suất trang (Giữ lại từ site.js gốc)
-    // const perfNow = window.performance.now();
-    // console.log("Thời gian xử lý JS sau khi DOM load: " + perfNow + "ms");
-
-}); // Kết thúc document.addEventListener('DOMContentLoaded', ...)
-
-// Function to format bytes (Giữ lại từ site.js gốc)
+// Function to format bytes
 function formatBytes(bytes, decimals = 2) {
     if (!+bytes) return '0 Bytes'; // Sửa lỗi khi bytes là 0 hoặc không phải số
 
