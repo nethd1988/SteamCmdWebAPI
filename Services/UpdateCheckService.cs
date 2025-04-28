@@ -177,8 +177,6 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        // Trong Services/UpdateCheckService.cs, điều chỉnh phương thức CheckForUpdatesAsync() để đảm bảo nhất quán khi cập nhật lịch trình
-
         private async Task CheckForUpdatesAsync()
         {
             _logger.LogInformation("Đang kiểm tra cập nhật cho tất cả các profile...");
@@ -257,14 +255,12 @@ namespace SteamCmdWebAPI.Services
 
                         if (autoUpdateEnabled)
                         {
-                            // Nếu tự động cập nhật được bật, chúng ta sẽ đặt _isRunningAllProfiles = true
-                            // để đảm bảo cập nhật tất cả app (chính và phụ thuộc) khi chạy từ lịch trình
-                            _logger.LogInformation("--> AutoUpdateProfiles được bật. Thêm profile '{0}' vào hàng đợi để cập nhật tất cả app...",
+                            // Thêm vào hàng đợi để cập nhật tất cả (chính và phụ thuộc)
+                            _logger.LogInformation("--> AutoUpdateProfiles được bật. Thêm profile '{0}' vào hàng đợi để cập nhật app chính...",
                                 profile.Name);
 
-                            // Thêm vào hàng đợi để cập nhật tất cả (chính và phụ thuộc)
-                            // Tạm thời đặt _isRunningAllProfiles = true sẽ được xử lý bên trong RunAllProfilesAsync
-                            bool success = await _steamCmdService.QueueProfileForUpdate(profile.Id);
+                            // Thêm vào hàng đợi để cập nhật app chính
+                            bool success = await _steamCmdService.RunProfileAsync(profile.Id);
 
                             if (success)
                             {
@@ -326,9 +322,31 @@ namespace SteamCmdWebAPI.Services
                                 // Đánh dấu app cần cập nhật
                                 await _dependencyManagerService.MarkAppForUpdateAsync(appId);
 
-                                // Lưu ý: Không cần tự động cập nhật riêng từng app phụ thuộc ở đây
-                                // vì nếu autoUpdateEnabled = true thì đã thêm toàn bộ profile 
-                                // vào hàng đợi ở trên (sẽ tự động cập nhật tất cả app phụ thuộc)
+                                if (autoUpdateEnabled)
+                                {
+                                    // Cập nhật riêng từng app phụ thuộc cần cập nhật
+                                    _logger.LogInformation("--> AutoUpdateProfiles được bật. Thêm app phụ thuộc '{0}' ({1}) vào hàng đợi để cập nhật riêng...",
+                                        appInfo?.Name ?? appId, appId);
+
+                                    // Sử dụng RunSpecificAppAsync để chỉ cập nhật app phụ thuộc cụ thể
+                                    bool success = await _steamCmdService.RunSpecificAppAsync(profile.Id, appId);
+
+                                    if (success)
+                                    {
+                                        _logger.LogInformation("--> Đã thêm app phụ thuộc '{0}' ({1}) vào hàng đợi thành công.",
+                                            appInfo?.Name ?? appId, appId);
+                                    }
+                                    else
+                                    {
+                                        _logger.LogError("--> LỖI: Không thể thêm app phụ thuộc '{0}' ({1}) vào hàng đợi.",
+                                            appInfo?.Name ?? appId, appId);
+                                    }
+                                }
+                                else
+                                {
+                                    _logger.LogInformation("--> AutoUpdateProfiles đang tắt. KHÔNG tự động cập nhật app phụ thuộc '{0}' ({1}).",
+                                        appInfo?.Name ?? appId, appId);
+                                }
                             }
                         }
                     }
@@ -352,6 +370,5 @@ namespace SteamCmdWebAPI.Services
         }
     }
 
-    // Sử dụng trực tiếp class từ Models thay vì định nghĩa lại
-    // Class đã được định nghĩa trong Models/UpdateCheckSettings.cs
+  
 }
