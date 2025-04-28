@@ -626,33 +626,42 @@ namespace SteamCmdWebAPI.Services
                 return;
             }
             _isProcessingQueue = true;
-            _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Set _isProcessingQueue = true");
+            _logger.LogInformation("ProcessUpdateQueueAsync: Set _isProcessingQueue = true");
 
             try
             {
-                _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Bắt đầu xử lý hàng đợi (Queue Count: {Count})", _updateQueue.Count);
+                _logger.LogInformation("ProcessUpdateQueueAsync: Bắt đầu xử lý hàng đợi (Queue Count: {Count})", _updateQueue.Count);
                 await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Bắt đầu xử lý hàng đợi cập nhật (Số lượng: {_updateQueue.Count})");
 
                 while (_updateQueue.TryDequeue(out int profileId))
                 {
                     var profile = await _profileService.GetProfileById(profileId);
                     string profileName = profile?.Name ?? $"Profile {profileId}";
-                    _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Dequeued {ProfileName} (ID: {ProfileId})", profileName, profileId);
+                    _logger.LogInformation("ProcessUpdateQueueAsync: Dequeued {ProfileName} (ID: {ProfileId})", profileName, profileId);
 
                     _lastRunHadLoginError = false;
 
-
                     try
                     {
-                        _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Processing {ProfileName}...", profileName);
+                        _logger.LogInformation("ProcessUpdateQueueAsync: Processing {ProfileName}...", profileName);
                         await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Đang xử lý cập nhật cho {profileName} (ID: {profileId})...");
 
-                        _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Calling ExecuteProfileUpdateAsync for {ProfileName}...", profileName);
+                        // Khi chạy từ hàng đợi thông thường, chỉ xử lý profile chính
+                        // Nếu là từ RunAllProfilesAsync, sẽ xử lý cả app chính và phụ thuộc
+                        bool success = false;
 
-                        // Modified to call ExecuteProfileUpdateAsync with specificAppId=null for queue processing
-                        bool success = await ExecuteProfileUpdateAsync(profileId, null);
-                        _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: ExecuteProfileUpdateAsync completed for {ProfileName}. Success: {SuccessState}", profileName, success);
-
+                        if (_isRunningAllProfiles)
+                        {
+                            // Khi chạy tất cả, thực hiện cập nhật tất cả ID (chính và phụ thuộc)
+                            _logger.LogInformation("ProcessUpdateQueueAsync: Executing full update (main app + dependencies) for {ProfileName} as part of RunAllProfiles", profileName);
+                            success = await ExecuteProfileUpdateAsync(profileId, null);
+                        }
+                        else
+                        {
+                            // Khi chạy bình thường, chỉ cập nhật app ID chính
+                            _logger.LogInformation("ProcessUpdateQueueAsync: Executing update for main app only for {ProfileName}", profileName);
+                            success = await ExecuteProfileUpdateAsync(profileId, profile?.AppID);
+                        }
 
                         if (success)
                         {
@@ -672,9 +681,9 @@ namespace SteamCmdWebAPI.Services
                             }
                         }
 
-                        _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Waiting 3000ms before next item...");
+                        _logger.LogInformation("ProcessUpdateQueueAsync: Waiting 3000ms before next item...");
                         await Task.Delay(3000);
-                        _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Finished wait.");
+                        _logger.LogInformation("ProcessUpdateQueueAsync: Finished wait.");
                     }
                     catch (Exception ex)
                     {
@@ -693,10 +702,10 @@ namespace SteamCmdWebAPI.Services
                             break;
                         }
                     }
-                    _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: End of loop iteration for {ProfileName}. Remaining queue count: {Count}", profileName, _updateQueue.Count);
+                    _logger.LogInformation("ProcessUpdateQueueAsync: End of loop iteration for {ProfileName}. Remaining queue count: {Count}", profileName, _updateQueue.Count);
                 }
 
-                _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Queue is now empty.");
+                _logger.LogInformation("ProcessUpdateQueueAsync: Queue is now empty.");
                 await _hubContext.Clients.All.SendAsync("ReceiveLog", "Đã xử lý xong hàng đợi cập nhật");
             }
             catch (Exception ex)
@@ -706,7 +715,7 @@ namespace SteamCmdWebAPI.Services
             }
             finally
             {
-                _logger.LogInformation(">>>>>>>>>> ProcessUpdateQueueAsync: Setting _isProcessingQueue = false");
+                _logger.LogInformation("ProcessUpdateQueueAsync: Setting _isProcessingQueue = false");
                 _isProcessingQueue = false;
             }
         }
@@ -1105,7 +1114,6 @@ namespace SteamCmdWebAPI.Services
             var notOnlineErrorRegex = new Regex(@"^ERROR! Failed to request AppInfo update, not online or not logged in to Steam\.$", RegexOptions.Compiled);
             var errorRegexState204 = new Regex(@"Error! App '(\d+)' state is 0x204 after update job", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-
             try
             {
                 if (!File.Exists(steamCmdPath))
@@ -1224,25 +1232,26 @@ namespace SteamCmdWebAPI.Services
                 outputTimer.Elapsed += async (sender, e) => await SendBufferedOutput();
                 outputTimer.AutoReset = true;
 
-                steamCmdProcess.OutputDataReceived += (sender, e) => {
+                steamCmdProcess.OutputDataReceived += (sender, e) =>
+                {
                     if (e.Data == null) return;
                     string line = e.Data.Trim();
                     if (string.IsNullOrEmpty(line)) return;
 
                     Regex[] linesToRemoveRegex = {
-                        new Regex(@"^Redirecting stderr to '.*steamcmd\\logs\\stderr\.txt'$", RegexOptions.Compiled),
-                        new Regex(@"^Logging directory: '.*steamcmd/logs'$", RegexOptions.Compiled),
-                        new Regex(@"^\[\s*0%\] Checking for available updates\.\.\.$", RegexOptions.Compiled),
-                        new Regex(@"^\[----\].*Verifying installation\.\.\.$", RegexOptions.Compiled),
-                        new Regex(@"^Loading Steam API\.\.\.OK$", RegexOptions.Compiled),
-                        new Regex(@"^Logging in user '.*'", RegexOptions.Compiled),
-                        new Regex(@"^Logging in using username/password\.$", RegexOptions.Compiled),
-                        new Regex(@"^Waiting for client config\.\.\.OK$", RegexOptions.Compiled),
-                        new Regex(@"^Waiting for user info\.\.\.OK$", RegexOptions.Compiled),
-                        new Regex(@"^Unloading Steam API\.\.\.OK$", RegexOptions.Compiled),
-                        new Regex(@"^Steam Console Client \(c\) Valve Corporation - version \d+$", RegexOptions.Compiled),
-                        new Regex(@"^-- type 'quit' to exit --$", RegexOptions.Compiled),
-                    };
+                new Regex(@"^Redirecting stderr to '.*steamcmd\\logs\\stderr\.txt'$", RegexOptions.Compiled),
+                new Regex(@"^Logging directory: '.*steamcmd/logs'$", RegexOptions.Compiled),
+                new Regex(@"^\[\s*0%\] Checking for available updates\.\.\.$", RegexOptions.Compiled),
+                new Regex(@"^\[----\].*Verifying installation\.\.\.$", RegexOptions.Compiled),
+                new Regex(@"^Loading Steam API\.\.\.OK$", RegexOptions.Compiled),
+                new Regex(@"^Logging in user '.*'", RegexOptions.Compiled),
+                new Regex(@"^Logging in using username/password\.$", RegexOptions.Compiled),
+                new Regex(@"^Waiting for client config\.\.\.OK$", RegexOptions.Compiled),
+                new Regex(@"^Waiting for user info\.\.\.OK$", RegexOptions.Compiled),
+                new Regex(@"^Unloading Steam API\.\.\.OK$", RegexOptions.Compiled),
+                new Regex(@"^Steam Console Client \(c\) Valve Corporation - version \d+$", RegexOptions.Compiled),
+                new Regex(@"^-- type 'quit' to exit --$", RegexOptions.Compiled),
+            };
 
                     var loginSuccessRegex = new Regex(@"^Logging in user '.*' \[U:1:\d+\] to Steam Public\.\.\.OK$", RegexOptions.Compiled);
 
@@ -1291,7 +1300,8 @@ namespace SteamCmdWebAPI.Services
                             string failedAppId = match.Groups[1].Value;
                             _logger.LogError($"Phát hiện lỗi cập nhật thời gian thực cho App ID {failedAppId} (trạng thái 0x204) trong log of profile '{profile.Name}'.");
 
-                            _ = Task.Run(async () => {
+                            _ = Task.Run(async () =>
+                            {
                                 var appInfo = await _steamApiService.GetAppUpdateInfo(failedAppId);
                                 string gameName = appInfo?.Name ?? failedAppId;
                                 await SafeSendLogAsync(profile.Name, "Error", $"Lỗi thời gian thực: Cập nhật thất bại '{gameName}' ({failedAppId}, 0x204).");
@@ -1300,7 +1310,8 @@ namespace SteamCmdWebAPI.Services
                     }
                 };
 
-                steamCmdProcess.ErrorDataReceived += (sender, e) => {
+                steamCmdProcess.ErrorDataReceived += (sender, e) =>
+                {
                     if (string.IsNullOrEmpty(e.Data)) return;
                     string errorLine = e.Data.Trim();
                     if (errorLine.Contains("Invalid platform") || errorLine.Contains("missing loadexisting"))
@@ -1349,7 +1360,7 @@ namespace SteamCmdWebAPI.Services
                 if (runResult.Success)
                 {
                     _logger.LogInformation("Cập nhật Game cho '{ProfileName}' hoàn tất thành công. Exit Code: {ExitCode}", profile.Name, runResult.ExitCode);
-                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật Game cho '{profile.Name}' hoàn tất thành công (Code: {runResult.ExitCode}).", "warning");
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật Game cho '{profile.Name}' hoàn tất thành công (Code: {runResult.ExitCode}).");
                 }
                 else
                 {
