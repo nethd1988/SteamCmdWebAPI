@@ -191,7 +191,7 @@ namespace SteamCmdWebAPI.Pages
                     _logger.LogInformation("Đã gửi profile {Name} về server", Profile.Name);
                 }
 
-                return RedirectToPage("./Index");
+                return RedirectToPage("/Dashboard");
             }
             catch (Exception ex)
             {
@@ -245,7 +245,7 @@ namespace SteamCmdWebAPI.Pages
                 {
                     success = true,
                     message = $"Đã nhập profile '{profileName}' từ server thành công",
-                    redirectUrl = "./Index"
+                    redirectUrl = "/Dashboard"
                 });
             }
             catch (Exception ex)
