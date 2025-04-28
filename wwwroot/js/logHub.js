@@ -7,15 +7,59 @@ const connection = new signalR.HubConnectionBuilder()
     .build();
 
 // Đăng ký sự kiện nhận log
-connection.on("ReceiveLog", function (message) {
+connection.on("ReceiveLog", function (logData) {
     const logContainer = document.getElementById("logContainer");
 
     if (logContainer) {
-        // Thêm log mới
-        appendLog(message);
+        let message = "";
+        let profileName = "";
+        let status = "";
+        let timestamp = new Date();
+        let colorClass = "text-info";
+        
+        // Xử lý dữ liệu log
+        try {
+            const logObject = typeof logData === 'string' ? JSON.parse(logData) : logData;
+            if (logObject && typeof logObject === 'object') {
+                message = logObject.message || "";
+                profileName = logObject.profileName || "System";
+                status = logObject.status || "Info";
+                timestamp = logObject.timestamp ? new Date(logObject.timestamp) : new Date();
+                colorClass = logObject.colorClass || "text-info";
+            } else {
+                message = logData;
+            }
+        } catch {
+            message = logData;
+        }
 
-        // Cuộn xuống dưới
-        logContainer.scrollTop = logContainer.scrollHeight;
+        // Tạo element mới cho log
+        const logEntry = document.createElement("div");
+        logEntry.className = `log-entry ${colorClass}`;
+
+        // Format thời gian
+        const timeStr = timestamp.toLocaleTimeString('vi-VN', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+
+        // Tạo nội dung log với định dạng nhất quán
+        const logContent = `[${timeStr}] [${profileName}] [${status}] ${message}`;
+        logEntry.textContent = logContent;
+
+        // Thêm vào container
+        logContainer.appendChild(logEntry);
+
+        // Giới hạn số lượng log hiển thị để tránh quá tải
+        while (logContainer.children.length > 1000) {
+            logContainer.removeChild(logContainer.firstChild);
+        }
+
+        // Cuộn xuống dưới nếu đang ở cuối
+        if (logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 100) {
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
     }
 });
 

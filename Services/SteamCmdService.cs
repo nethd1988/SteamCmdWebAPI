@@ -18,7 +18,7 @@ using System.Text.RegularExpressions;
 
 namespace SteamCmdWebAPI.Services
 {
-    public class SteamCmdService
+    public class SteamCmdService : IDisposable
     {
         private readonly ILogger<SteamCmdService> _logger;
         private readonly IHubContext<LogHub> _hubContext;
@@ -56,6 +56,12 @@ namespace SteamCmdWebAPI.Services
 
         private readonly HashSet<string> appIdsToRetry = new HashSet<string>();
 
+        private readonly ConcurrentQueue<(string status, string profileName, string message)> _logBuffer = new ConcurrentQueue<(string, string, string)>();
+        private readonly System.Timers.Timer _logProcessTimer;
+        private const int LOG_BATCH_SIZE = 10;
+        private const int LOG_PROCESS_INTERVAL = 500; // 500ms
+
+        private bool _disposed = false;
 
         public class LogEntry
         {
@@ -111,6 +117,12 @@ namespace SteamCmdWebAPI.Services
             _hubMessageCleanupTimer.AutoReset = true;
             _hubMessageCleanupTimer.Start();
             _logger.LogInformation("Bộ lập lịch dọn dẹp log hub đã khởi động.");
+
+            // Khởi tạo timer xử lý log
+            _logProcessTimer = new System.Timers.Timer(LOG_PROCESS_INTERVAL);
+            _logProcessTimer.Elapsed += async (s, e) => await ProcessLogBufferAsync();
+            _logProcessTimer.AutoReset = true;
+            _logProcessTimer.Start();
         }
 
         #region Log and Notification Methods
@@ -191,31 +203,40 @@ namespace SteamCmdWebAPI.Services
                    entry.Message.Contains("Lỗi khi xử lý log", StringComparison.OrdinalIgnoreCase));
         }
 
+        private bool ShouldSkipLog(string line)
+        {
+            // Danh sách các pattern cần lọc bỏ
+            string[] patternsToSkip = new[]
+            {
+                "Unloading Steam API...OK",
+                "Redirecting stderr to",
+                "Logging directory:",
+                "[  0%] Checking for available updates...",
+                "[----] Verifying installation...",
+                "Loading Steam API...OK",
+                "Logging in using username/password",
+                "Waiting for client config...OK",
+                "Waiting for user info...OK",
+                "Steam Console Client (c) Valve Corporation",
+                "-- type 'quit' to exit --",
+                // Ẩn username trong log
+                @"Logging in user '.*' \[U:1:\d+\] to Steam Public"
+            };
+
+            return patternsToSkip.Any(pattern => 
+                Regex.IsMatch(line, pattern, RegexOptions.IgnoreCase));
+        }
+
         private async Task SafeSendLogAsync(string profileName, string status, string message)
         {
             try
             {
-                var logEntry = new LogEntry(DateTime.Now, profileName, status, message);
-                
-                // Chỉ gửi và lưu các log quan trọng
-                if (IsImportantLog(logEntry))
-                {
-                    AddLog(logEntry);
-
-                    // Gửi log qua SignalR với màu xanh lá cây cho log thành công
-                    await _hubContext.Clients.All.SendAsync("ReceiveLog", new
-                    {
-                        timestamp = logEntry.Timestamp,
-                        profileName = logEntry.ProfileName,
-                        status = logEntry.Status,
-                        message = logEntry.Message,
-                        isSuccess = status.Equals("Success", StringComparison.OrdinalIgnoreCase)
-                    });
-                }
+                // Thêm log vào buffer thay vì xử lý ngay lập tức
+                _logBuffer.Enqueue((status, profileName, message));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi gửi log: {Message}", ex.Message);
+                _logger.LogError(ex, "Lỗi khi thêm log vào buffer: {Message}", ex.Message);
             }
         }
 
@@ -1916,39 +1937,116 @@ namespace SteamCmdWebAPI.Services
         {
             try
             {
-                // Đảm bảo profileName không bị trống
-                string displayProfileName = string.IsNullOrWhiteSpace(profileName) ? "System" : profileName;
-
-                // Xác định màu sắc dựa trên status
-                string colorClass = status.ToLower() switch
-                {
-                    "success" => "text-success",
-                    "error" => "text-danger",
-                    "warning" => "text-warning",
-                    _ => "text-info"
-                };
-
-                // Ghi log vào console với màu sắc phù hợp
-                _logger.LogInformation($"[{status}] [{displayProfileName}] {message}");
-
-                // Gửi log đến SignalR hub với thông tin màu sắc
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", new
-                {
-                    timestamp = DateTime.Now,
-                    profileName = displayProfileName,
-                    status = status,
-                    message = message,
-                    colorClass = colorClass,
-                    isSuccess = status.Equals("Success", StringComparison.OrdinalIgnoreCase)
-                });
-
-                // Ghi log vào hệ thống log
-                _logService.AddLog(status, message, displayProfileName, logType);
+                // Thêm log vào buffer thay vì xử lý ngay lập tức
+                _logBuffer.Enqueue((status, profileName, message));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi ghi log: {Message}", ex.Message);
+                _logger.LogError(ex, "Lỗi khi thêm log vào buffer: {Message}", ex.Message);
             }
+        }
+
+        private async Task ProcessLogBufferAsync()
+        {
+            try
+            {
+                var logBatch = new List<(string status, string profileName, string message)>();
+                
+                // Lấy tối đa LOG_BATCH_SIZE logs từ buffer
+                while (logBatch.Count < LOG_BATCH_SIZE && _logBuffer.TryDequeue(out var logEntry))
+                {
+                    if (!ShouldSkipLog(logEntry.message))
+                    {
+                        logBatch.Add(logEntry);
+                    }
+                }
+
+                if (logBatch.Count == 0) return;
+
+                // Xử lý batch logs
+                foreach (var (status, profileName, message) in logBatch)
+                {
+                    string displayProfileName = string.IsNullOrWhiteSpace(profileName) ? "System" : profileName;
+                    string colorClass = status.ToLower() switch
+                    {
+                        "success" => "text-success",
+                        "error" => "text-danger",
+                        "warning" => "text-warning",
+                        _ => "text-info"
+                    };
+
+                    var logObject = new
+                    {
+                        timestamp = DateTime.Now,
+                        profileName = displayProfileName,
+                        status = status,
+                        message = message,
+                        colorClass = colorClass
+                    };
+
+                    // Gửi log qua SignalR
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", logObject);
+                }
+
+                // Ghi logs vào console và LogService trong một batch
+                var logMessages = logBatch.Select(l => 
+                    $"[{l.status}] [{(string.IsNullOrWhiteSpace(l.profileName) ? "System" : l.profileName)}] {l.message}");
+                
+                _logger.LogInformation(string.Join(Environment.NewLine, logMessages));
+
+                // Ghi vào LogService
+                foreach (var (status, profileName, message) in logBatch)
+                {
+                    string displayProfileName = string.IsNullOrWhiteSpace(profileName) ? "System" : profileName;
+                    _logService.AddLog(status.ToUpper(), message, displayProfileName, status);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xử lý log buffer");
+            }
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    // Dispose managed resources
+                    _scheduleTimer?.Dispose();
+                    _hubMessageCleanupTimer?.Dispose();
+                    _logProcessTimer?.Dispose();
+
+                    // Dispose all running processes
+                    foreach (var process in _steamCmdProcesses.Values)
+                    {
+                        try
+                        {
+                            if (!process.HasExited)
+                            {
+                                process.Kill();
+                            }
+                            process.Dispose();
+                        }
+                        catch (Exception) { }
+                    }
+                    _steamCmdProcesses.Clear();
+                }
+
+                _disposed = true;
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        ~SteamCmdService()
+        {
+            Dispose(false);
         }
     }
 }

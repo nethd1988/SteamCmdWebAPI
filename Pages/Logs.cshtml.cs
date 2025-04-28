@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -26,10 +27,10 @@ namespace SteamCmdWebAPI.Pages
         public void OnGet(int page = 1)
         {
             _logger.LogInformation("Đang tải danh sách logs...");
-            
+
             // Lấy logs từ LogService
             Logs = _logService.GetLogs(page, PageSize);
-            
+
             // Tính toán phân trang
             TotalLogs = Logs.Count;
             TotalPages = (int)Math.Ceiling(TotalLogs / (double)PageSize);

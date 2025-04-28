@@ -3,6 +3,8 @@ using System.IO;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using System.Linq;
+using System.Collections.Generic;
 
 namespace SteamCmdWebAPI.Services
 {
@@ -15,14 +17,22 @@ namespace SteamCmdWebAPI.Services
         private readonly int _maxLogFiles = 30; // Số ngày lưu log
         private readonly int _maxLogSize = 10 * 1024 * 1024; // 10MB
         private readonly object _lockObject = new object();
+        private readonly List<LogEntry> _logs = new List<LogEntry>();
+        private const int MaxLogEntries = 5000;
 
         public class LogEntry
         {
             public DateTime Timestamp { get; set; }
             public string Level { get; set; }
-            public string Message { get; set; }
             public string ProfileName { get; set; }
             public string Status { get; set; }
+            public string Message { get; set; }
+            public string ColorClass { get; set; }
+
+            public LogEntry()
+            {
+                Timestamp = DateTime.Now;
+            }
         }
 
         public LogService(ILogger<LogService> logger)
@@ -47,16 +57,25 @@ namespace SteamCmdWebAPI.Services
 
         public void AddLog(string level, string message, string profileName = "", string status = "")
         {
-            var logEntry = new LogEntry
+            var entry = new LogEntry
             {
-                Timestamp = DateTime.Now,
                 Level = level,
                 Message = message,
-                ProfileName = profileName,
-                Status = status
+                ProfileName = string.IsNullOrWhiteSpace(profileName) ? "System" : profileName,
+                Status = status,
+                ColorClass = GetColorClassForStatus(status)
             };
 
-            _logQueue.Enqueue(logEntry);
+            _logQueue.Enqueue(entry);
+
+            lock (_lockObject)
+            {
+                _logs.Add(entry);
+                if (_logs.Count > MaxLogEntries)
+                {
+                    _logs.RemoveRange(0, _logs.Count - MaxLogEntries);
+                }
+            }
         }
 
         private async Task ProcessLogQueue()
@@ -134,38 +153,37 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        public List<LogEntry> GetLogs(int page = 1, int pageSize = 20)
+        public List<LogEntry> GetLogs()
         {
-            var logs = new List<LogEntry>();
-            try
+            lock (_lockObject)
             {
-                var logFiles = Directory.GetFiles(_logDirectory, "app_*.log")
-                    .Select(f => new FileInfo(f))
-                    .OrderByDescending(f => f.CreationTime)
-                    .ToList();
-
-                foreach (var file in logFiles)
-                {
-                    var lines = File.ReadAllLines(file.FullName);
-                    foreach (var line in lines)
-                    {
-                        if (TryParseLogLine(line, out LogEntry logEntry))
-                        {
-                            logs.Add(logEntry);
-                        }
-                    }
-                }
-
-                // Sắp xếp theo thời gian mới nhất
-                logs = logs.OrderByDescending(l => l.Timestamp).ToList();
-
-                // Phân trang
-                return logs.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+                return _logs.OrderByDescending(l => l.Timestamp).ToList();
             }
-            catch (Exception ex)
+        }
+
+        public List<LogEntry> GetLogs(int page, int pageSize)
+        {
+            lock (_lockObject)
             {
-                _logger.LogError(ex, "Lỗi khi đọc logs");
-                return logs;
+                var orderedLogs = _logs.OrderByDescending(l => l.Timestamp).ToList();
+                int skip = (page - 1) * pageSize;
+                return orderedLogs.Skip(skip).Take(pageSize).ToList();
+            }
+        }
+
+        public int GetTotalLogsCount()
+        {
+            lock (_lockObject)
+            {
+                return _logs.Count;
+            }
+        }
+
+        public void ClearLogs()
+        {
+            lock (_lockObject)
+            {
+                _logs.Clear();
             }
         }
 
@@ -178,15 +196,25 @@ namespace SteamCmdWebAPI.Services
                 var parts = line.Split(new[] { '[', ']' }, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 4)
                 {
-                    logEntry = new LogEntry
+                    var timestampPart = parts[0].Trim();
+                    if (DateTime.TryParse(timestampPart, out DateTime timestamp))
                     {
-                        Timestamp = DateTime.Parse(parts[0].Trim()),
-                        Level = parts[1].Trim(),
-                        ProfileName = parts[2].Trim(),
-                        Status = parts[3].Trim(),
-                        Message = string.Join(" ", parts.Skip(4)).Trim()
-                    };
-                    return true;
+                        var level = parts[1].Trim();
+                        var profileName = parts[2].Trim();
+                        var status = parts[3].Trim();
+                        var message = string.Join(" ", parts.Skip(4)).Trim();
+
+                        logEntry = new LogEntry
+                        {
+                            Timestamp = timestamp,
+                            Level = level,
+                            ProfileName = profileName,
+                            Status = status,
+                            Message = message,
+                            ColorClass = GetColorClassForStatus(status)
+                        };
+                        return true;
+                    }
                 }
             }
             catch
@@ -195,5 +223,54 @@ namespace SteamCmdWebAPI.Services
             }
             return false;
         }
+
+        private string GetColorClassForStatus(string status)
+        {
+            return status?.ToLower() switch
+            {
+                "success" => "text-success",
+                "error" => "text-danger",
+                "warning" => "text-warning",
+                _ => "text-info"
+            };
+        }
+
+        public void LoadLogsFromFiles()
+        {
+            try
+            {
+                lock (_lockObject)
+                {
+                    _logs.Clear();
+                    var logFiles = Directory.GetFiles(_logDirectory, "app_*.log")
+                        .Select(f => new FileInfo(f))
+                        .OrderByDescending(f => f.CreationTime)
+                        .ToList();
+
+                    foreach (var file in logFiles)
+                    {
+                        if (File.Exists(file.FullName))
+                        {
+                            var lines = File.ReadAllLines(file.FullName);
+                            foreach (var line in lines)
+                            {
+                                if (TryParseLogLine(line, out LogEntry logEntry))
+                                {
+                                    _logs.Add(logEntry);
+                                    if (_logs.Count >= MaxLogEntries)
+                                        break;
+                                }
+                            }
+                            if (_logs.Count >= MaxLogEntries)
+                                break;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi tải logs từ files");
+            }
+        }
     }
-} 
+}
