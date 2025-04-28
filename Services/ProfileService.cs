@@ -187,10 +187,12 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogInformation("Bắt đầu xóa profile với ID {0}", id);
                 var profiles = await GetAllProfiles();
                 var profile = profiles.FirstOrDefault(p => p.Id == id);
+                
+                // Nếu profile không tồn tại, coi như đã xóa thành công
                 if (profile == null)
                 {
-                    _logger.LogWarning("Không tìm thấy profile với ID {0} để xóa", id);
-                    return false;
+                    _logger.LogInformation("Profile với ID {0} không tồn tại, coi như đã xóa thành công", id);
+                    return true;
                 }
 
                 profiles.Remove(profile);
