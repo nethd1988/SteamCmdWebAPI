@@ -60,6 +60,12 @@
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a href="/AutoRegister" class="nav-link @(ViewData["ActivePage"] as string == "AutoRegister" ? "active" : "")">
+                        <span class="nav-icon material-symbols-rounded">device_hub</span>
+                        <span class="nav-label">Đăng ký với Server</span>
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a href="/Settings" class="nav-link @(ViewData["ActivePage"] as string == "Settings" ? "active" : "")">
                         <span class="nav-icon material-symbols-rounded">settings</span>
                         <span class="nav-label">Cài đặt</span>
@@ -75,6 +81,12 @@
 
             <!-- Secondary bottom nav -->
             <ul class="nav-list secondary-nav">
+                <li class="nav-item">
+                    <a href="/Privacy" class="nav-link @(ViewData["ActivePage"] as string == "Privacy" ? "active" : "")">
+                        <span class="nav-icon material-symbols-rounded">info</span>
+                        <span class="nav-label">Thông tin</span>
+                    </a>
+                </li>
                 <li class="nav-item">
                     <a href="/ChangePassword" class="nav-link @(ViewData["ActivePage"] as string == "ChangePassword" ? "active" : "")">
                         <span class="nav-icon material-symbols-rounded">key</span>
@@ -100,6 +112,7 @@
 
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/js/dashboard.js" asp-append-version="true"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
 
     <!-- Thêm script SignalR và SteamCMD Console vào tất cả các trang -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>

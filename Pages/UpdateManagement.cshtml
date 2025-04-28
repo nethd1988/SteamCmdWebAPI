@@ -5,130 +5,151 @@
     ViewData["ActivePage"] = "UpdateManagement";
 }
 
-<div class="container">
+<div class="page-header">
     <h1>Quản lý cập nhật game</h1>
+</div>
 
-    @if (!string.IsNullOrEmpty(Model.StatusMessage))
-    {
-        <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
-            @Model.StatusMessage
+@if (!string.IsNullOrEmpty(Model.StatusMessage))
+{
+    <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")">
+        <i class="bi bi-@(Model.IsSuccess ? "check-circle" : "exclamation-triangle") me-2"></i>
+        @Model.StatusMessage
+    </div>
+}
+
+<form method="post" id="antiForgeryForm">
+    @Html.AntiForgeryToken()
+</form>
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">Thao tác thủ công</h5>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <p>Sử dụng các nút dưới đây để kiểm tra cập nhật ngay lập tức hoặc xóa cache thông tin cập nhật.</p>
+            <div class="d-flex gap-2 flex-wrap">
+                <button id="checkUpdatesBtn" class="btn btn-primary">
+                    <i class="bi bi-cloud-download me-1"></i> Kiểm tra cập nhật ngay
+                </button>
+                <button id="clearCacheBtn" class="btn btn-secondary">
+                    <i class="bi bi-trash me-1"></i> Xóa cache cập nhật
+                </button>
+            </div>
         </div>
-    }
-
-    <form method="post" id="antiForgeryForm">
-        @Html.AntiForgeryToken()
-    </form>
-
-    <div class="card mb-4">
-        <div class="card-header bg-primary text-white">
-            <h5 class="mb-0">Thao tác thủ công</h5>
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            <strong>Lưu ý:</strong> "Kiểm tra cập nhật ngay" sẽ kiểm tra tất cả profile và thêm các game có cập nhật mới vào hàng đợi.
+            "Xóa cache cập nhật" sẽ buộc hệ thống tải lại thông tin từ Steam API ở lần kiểm tra tiếp theo.
         </div>
-        <div class="card-body">
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-success text-white">
+        <h5 class="mb-0">Cài đặt kiểm tra cập nhật tự động</h5>
+    </div>
+    <div class="card-body">
+        <form method="post" asp-page-handler="SaveUpdateCheckSettings">
+            @Html.AntiForgeryToken()
+            <div class="form-check mb-3">
+                <input type="checkbox" class="form-check-input" id="updateCheckEnabled" asp-for="UpdateCheckEnabled" />
+                <label class="form-check-label" for="updateCheckEnabled">Kích hoạt kiểm tra cập nhật tự động</label>
+            </div>
             <div class="mb-3">
-                <p>Sử dụng các nút dưới đây để kiểm tra cập nhật ngay lập tức hoặc xóa cache thông tin cập nhật.</p>
-                <button id="checkUpdatesBtn" class="btn btn-primary"><i class="bi bi-cloud-download"></i> Kiểm tra cập nhật ngay</button>
-                <button id="clearCacheBtn" class="btn btn-secondary"><i class="bi bi-trash"></i> Xóa cache cập nhật</button>
+                <label for="updateCheckIntervalMinutes" class="form-label">Khoảng thời gian kiểm tra (phút)</label>
+                <input type="number" class="form-control" id="updateCheckIntervalMinutes" asp-for="UpdateCheckIntervalMinutes" min="10" max="1440" step="10" />
+                <small class="form-text text-muted">Hệ thống sẽ kiểm tra cập nhật mới sau mỗi khoảng thời gian này (tối thiểu 10 phút, tối đa 1440 phút).</small>
             </div>
-            <div class="alert alert-info">
-                <strong>Lưu ý:</strong> "Kiểm tra cập nhật ngay" sẽ kiểm tra tất cả profile và thêm các game có cập nhật mới vào hàng đợi.
-                "Xóa cache cập nhật" sẽ buộc hệ thống tải lại thông tin từ Steam API ở lần kiểm tra tiếp theo.
+            <div class="form-check mb-3">
+                <input type="checkbox" class="form-check-input" id="autoUpdateProfiles" asp-for="AutoUpdateProfiles" />
+                <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật profile khi có cập nhật mới</label>
             </div>
-        </div>
+            <button type="submit" class="btn btn-success">
+                <i class="bi bi-save me-1"></i>
+                Lưu cài đặt kiểm tra cập nhật
+            </button>
+        </form>
     </div>
+</div>
 
-    <div class="card mb-4">
-        <div class="card-header bg-success text-white">
-            <h5 class="mb-0">Cài đặt kiểm tra cập nhật tự động</h5>
-        </div>
-        <div class="card-body">
-            <form method="post" asp-page-handler="SaveUpdateCheckSettings">
-                @Html.AntiForgeryToken()
-                <div class="form-check mb-3">
-                    <input type="checkbox" class="form-check-input" id="updateCheckEnabled" asp-for="UpdateCheckEnabled" />
-                    <label class="form-check-label" for="updateCheckEnabled">Kích hoạt kiểm tra cập nhật tự động</label>
-                </div>
-                <div class="form-group mb-3">
-                    <label for="updateCheckIntervalMinutes">Khoảng thời gian kiểm tra (phút)</label>
-                    <input type="number" class="form-control" id="updateCheckIntervalMinutes" asp-for="UpdateCheckIntervalMinutes" min="10" max="1440" step="10" />
-                    <small class="form-text text-muted">Hệ thống sẽ kiểm tra cập nhật mới sau mỗi khoảng thời gian này (tối thiểu 10 phút, tối đa 1440 phút).</small>
-                </div>
-                <div class="form-check mb-3">
-                    <input type="checkbox" class="form-check-input" id="autoUpdateProfiles" asp-for="AutoUpdateProfiles" />
-                    <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật profile khi có cập nhật mới</label>
-                </div>
-                <button type="submit" class="btn btn-success">Lưu cài đặt kiểm tra cập nhật</button>
-            </form>
-        </div>
+<div class="card">
+    <div class="card-header bg-success text-white">
+        <h5 class="mb-0">Thông tin cập nhật game đã kiểm tra</h5>
     </div>
-
-    <div class="card">
-        <div class="card-header bg-success text-white">
-            <h5 class="mb-0">Thông tin cập nhật game đã kiểm tra</h5>
-        </div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-bordered table-hover">
-                    <thead>
-                        <tr>
-                            <th>App ID</th>
-                            <th>Tên game</th>
-                            <th>Cập nhật gần nhất (Lần trước)</th>
-                            <th>Cập nhật gần nhất (Hiện tại)</th>
-                            <th>ChangeNumber (Lần trước)</th>
-                            <th>ChangeNumber (Hiện tại)</th>
-                            <th>Dung lượng</th>
-                            <th>Trạng thái cập nhật</th>
-                            <th>Thao tác</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (Model.UpdateInfos != null && Model.UpdateInfos.Any())
-                        {
-                            foreach (var vm in Model.UpdateInfos)
-                            {
-                                <tr>
-                                    <td>@vm.ApiInfo.AppID</td>
-                                    <td>@vm.ApiInfo.Name</td>
-                                    <td>@(vm.ApiInfo.LastCheckedUpdateDateTime.HasValue ? vm.ApiInfo.LastCheckedUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") : "Chưa có")</td>
-                                    <td>@(vm.ApiInfo.LastUpdateDateTime.HasValue ? vm.ApiInfo.LastUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") : vm.ApiInfo.LastUpdate)</td>
-                                    <td>@vm.ApiInfo.LastCheckedChangeNumber</td>
-                                    <td>@vm.ApiInfo.ChangeNumber</td>
-                                    <td>@vm.FormattedSize</td>
-                                    <td>
-                                        @if (vm.NeedsUpdate)
-                                        {
-                                            <span class="badge bg-success">@(vm.LastUpdateStatus ?? "Có cập nhật mới")</span>
-                                        }
-                                        else if (vm.ApiInfo.LastCheckedChangeNumber > 0 && vm.ApiInfo.ChangeNumber != vm.ApiInfo.LastCheckedChangeNumber)
-                                        {
-                                            <span class="badge bg-warning">Thay đổi ChangeNumber</span>
-                                        }
-                                        else if (vm.ApiInfo.LastCheckedUpdateDateTime.HasValue &&
-                                        vm.ApiInfo.LastUpdateDateTime.HasValue &&
-                                        vm.ApiInfo.LastUpdateDateTime.Value != vm.ApiInfo.LastCheckedUpdateDateTime.Value)
-                                        {
-                                            <span class="badge bg-warning">Thay đổi thời gian cập nhật</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge bg-secondary">@(vm.LastUpdateStatus ?? "Đã cập nhật")</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        <button class="btn btn-sm btn-primary update-btn" data-appid="@vm.ApiInfo.AppID">Cập nhật</button>
-                                    </td>
-                                </tr>
-                            }
-                        }
-                        else
+    <div class="card-body">
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>App ID</th>
+                        <th>Tên game</th>
+                        <th>Cập nhật trước</th>
+                        <th>Cập nhật hiện tại</th>
+                        <th>ChangeNumber</th>
+                        <th>Dung lượng</th>
+                        <th>Trạng thái</th>
+                        <th>Thao tác</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (Model.UpdateInfos != null && Model.UpdateInfos.Any())
+                    {
+                        foreach (var vm in Model.UpdateInfos)
                         {
                             <tr>
-                                <td colspan="9" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
+                                <td>@vm.ApiInfo.AppID</td>
+                                <td>@vm.ApiInfo.Name</td>
+                                <td>@(vm.ApiInfo.LastCheckedUpdateDateTime.HasValue ? vm.ApiInfo.LastCheckedUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "Chưa có")</td>
+                                <td>@(vm.ApiInfo.LastUpdateDateTime.HasValue ? vm.ApiInfo.LastUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : vm.ApiInfo.LastUpdate)</td>
+                                <td>
+                                    @if (vm.ApiInfo.LastCheckedChangeNumber > 0)
+                                    {
+                                        <span class="text-muted">@vm.ApiInfo.LastCheckedChangeNumber</span>
+                                        <span class="ms-1 me-1">→</span>
+                                    }
+                                    <span>@vm.ApiInfo.ChangeNumber</span>
+                                </td>
+                                <td>@vm.FormattedSize</td>
+                                <td>
+                                    @if (vm.NeedsUpdate)
+                                    {
+                                        <span class="status-badge running">
+                                            <i class="bi bi-cloud-arrow-down"></i>
+                                            Cần cập nhật
+                                        </span>
+                                    }
+                                    else if (vm.ApiInfo.LastCheckedChangeNumber > 0 && vm.ApiInfo.ChangeNumber != vm.ApiInfo.LastCheckedChangeNumber)
+                                    {
+                                        <span class="status-badge running">
+                                            <i class="bi bi-cloud-arrow-down"></i>
+                                            Thay đổi
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge stopped">
+                                            <i class="bi bi-check-circle"></i>
+                                            Đã cập nhật
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    <button class="btn-icon edit update-btn" data-appid="@vm.ApiInfo.AppID" title="Cập nhật">
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    </button>
+                                </td>
                             </tr>
                         }
-                    </tbody>
-                </table>
-            </div>
+                    }
+                    else
+                    {
+                        <tr>
+                            <td colspan="8" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -141,7 +162,7 @@
 
             // Kiểm tra cập nhật ngay
             $("#checkUpdatesBtn").click(function() {
-                $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split'></i> Đang kiểm tra...");
+                $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split me-1'></i> Đang kiểm tra...");
 
                 $.ajax({
                     url: "/UpdateManagement?handler=CheckUpdates",
@@ -161,7 +182,7 @@
                         alert("Lỗi khi kiểm tra cập nhật: " + error);
                     },
                     complete: function() {
-                        $("#checkUpdatesBtn").prop("disabled", false).html("<i class='bi bi-cloud-download'></i> Kiểm tra cập nhật ngay");
+                        $("#checkUpdatesBtn").prop("disabled", false).html("<i class='bi bi-cloud-download me-1'></i> Kiểm tra cập nhật ngay");
                     }
                 });
             });
@@ -169,7 +190,7 @@
             // Xóa cache cập nhật
             $("#clearCacheBtn").click(function() {
                 if (confirm("Bạn có chắc muốn xóa cache cập nhật không? Thao tác này sẽ buộc hệ thống kiểm tra lại thông tin từ Steam API ở lần kiểm tra tiếp theo.")) {
-                    $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split'></i> Đang xóa...");
+                    $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split me-1'></i> Đang xóa...");
 
                     $.ajax({
                         url: "/UpdateManagement?handler=ClearCache",
@@ -189,7 +210,7 @@
                             alert("Lỗi khi xóa cache cập nhật: " + error);
                         },
                         complete: function() {
-                            $("#clearCacheBtn").prop("disabled", false).html("<i class='bi bi-trash'></i> Xóa cache cập nhật");
+                            $("#clearCacheBtn").prop("disabled", false).html("<i class='bi bi-trash me-1'></i> Xóa cache cập nhật");
                         }
                     });
                 }
@@ -200,7 +221,8 @@
                 var appId = $(this).data("appid");
                 var button = $(this);
 
-                button.prop("disabled", true).html("<i class='bi bi-hourglass-split'></i> Đang cập nhật...");
+                button.prop("disabled", true);
+                button.html("<i class='bi bi-hourglass-split'></i>");
 
                 $.ajax({
                     url: "/UpdateManagement?handler=UpdateApp",
@@ -220,7 +242,8 @@
                         alert("Lỗi khi cập nhật game: " + error);
                     },
                     complete: function() {
-                        button.prop("disabled", false).html("Cập nhật");
+                        button.prop("disabled", false);
+                        button.html("<i class='bi bi-arrow-repeat'></i>");
                     }
                 });
             });

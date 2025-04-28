@@ -2,94 +2,115 @@
 @model SteamCmdWebAPI.Pages.AutoRegisterModel
 @{
     ViewData["Title"] = "Đăng ký tự động với Server";
+    ViewData["ActivePage"] = "AutoRegister";
 }
 
-<div class="container">
+<div class="page-header">
     <h1>Đăng ký tự động với Server</h1>
+</div>
 
-    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
-    {
-        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-            @Model.ErrorMessage
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-    }
+@if (!string.IsNullOrEmpty(Model.ErrorMessage))
+{
+    <div class="alert alert-danger">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        @Model.ErrorMessage
+    </div>
+}
 
-    @if (!string.IsNullOrEmpty(Model.SuccessMessage))
-    {
-        <div class="alert alert-success alert-dismissible fade show" role="alert">
-            <i class="bi bi-check-circle-fill me-2"></i>
-            @Model.SuccessMessage
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-    }
+@if (!string.IsNullOrEmpty(Model.SuccessMessage))
+{
+    <div class="alert alert-success">
+        <i class="bi bi-check-circle-fill me-2"></i>
+        @Model.SuccessMessage
+    </div>
+}
 
-    <div class="row">
-        <div class="col-md-8">
-            <div class="card">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0">Trạng thái đăng ký</h5>
-                </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label class="form-label">Thông tin máy client</label>
-                        <div class="form-control-plaintext">
-                            <strong>Máy tính:</strong> @Environment.MachineName<br>
-                            <strong>Người dùng:</strong> @Environment.UserName<br>
-                            <strong>IP hiện tại:</strong> <span id="currentIp">Đang lấy thông tin...</span>
-                        </div>
-                    </div>
-
-                    <div class="mb-3">
-                        <div class="d-flex align-items-center">
-                            <div class="spinner-border text-primary me-2" role="status" id="loadingSpinner">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <span id="statusMessage">Đang xử lý đăng ký tự động...</span>
-                        </div>
-                    </div>
-
-                    <a asp-page="/Index" class="btn btn-secondary">
-                        <i class="bi bi-arrow-left me-2"></i>Quay lại
-                    </a>
-                </div>
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Trạng thái đăng ký</h5>
             </div>
-        </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Thông tin máy client</label>
+                    <div class="p-3 bg-light rounded">
+                        <div class="d-flex align-items-center mb-2">
+                            <i class="bi bi-pc-display me-2 text-primary"></i>
+                            <strong>Máy tính:</strong>
+                            <span class="ms-2">@Environment.MachineName</span>
+                        </div>
+                        <div class="d-flex align-items-center mb-2">
+                            <i class="bi bi-person me-2 text-primary"></i>
+                            <strong>Người dùng:</strong>
+                            <span class="ms-2">@Environment.UserName</span>
+                        </div>
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-wifi me-2 text-primary"></i>
+                            <strong>IP hiện tại:</strong>
+                            <span class="ms-2" id="currentIp">Đang lấy thông tin...</span>
+                        </div>
+                    </div>
+                </div>
 
-        <div class="col-md-4">
-            <div class="card">
-                <div class="card-header bg-info text-white">
-                    <h5 class="mb-0">Thông tin</h5>
+                <div class="mb-3">
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border text-primary me-2" role="status" id="loadingSpinner">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span id="statusMessage">Đang xử lý đăng ký tự động...</span>
+                    </div>
                 </div>
-                <div class="card-body">
-                    <p>Hệ thống sẽ tự động:</p>
-                    <ul>
-                        <li>Tạo ClientID duy nhất cho máy này</li>
-                        <li>Gửi thông tin đăng ký lên server</li>
-                        <li>Lưu thông tin đăng ký để tái sử dụng</li>
-                    </ul>
-                </div>
+
+                <a asp-page="/Index" class="btn btn-secondary">
+                    <i class="bi bi-arrow-left me-2"></i>Quay lại
+                </a>
             </div>
         </div>
     </div>
 
-    @if (Model.IsRegistered)
-    {
-        <div class="card mt-4">
-            <div class="card-header bg-success text-white">
-                <h5 class="mb-0">Thông tin đăng ký hiện tại</h5>
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">Thông tin</h5>
             </div>
             <div class="card-body">
-                <p><strong>Client ID:</strong> @Model.CurrentClientId</p>
-                <p><strong>Thời gian đăng ký:</strong> @Model.RegisteredTime?.ToString("dd/MM/yyyy HH:mm:ss")</p>
-                <button type="button" class="btn btn-danger" id="unregisterBtn">
-                    <i class="bi bi-x-circle me-2"></i>Hủy đăng ký
-                </button>
+                <p>Hệ thống sẽ tự động:</p>
+                <ul>
+                    <li>Tạo ClientID duy nhất cho máy này</li>
+                    <li>Gửi thông tin đăng ký lên server</li>
+                    <li>Lưu thông tin đăng ký để tái sử dụng</li>
+                </ul>
             </div>
         </div>
-    }
+    </div>
 </div>
+
+@if (Model.IsRegistered)
+{
+    <div class="card">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0">Thông tin đăng ký hiện tại</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <div class="d-flex align-items-center mb-2">
+                    <i class="bi bi-fingerprint me-2 text-success"></i>
+                    <strong>Client ID:</strong>
+                    <span class="ms-2">@Model.CurrentClientId</span>
+                </div>
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-calendar-check me-2 text-success"></i>
+                    <strong>Thời gian đăng ký:</strong>
+                    <span class="ms-2">@Model.RegisteredTime?.ToString("dd/MM/yyyy HH:mm:ss")</span>
+                </div>
+            </div>
+            <button type="button" class="btn btn-danger" id="unregisterBtn">
+                <i class="bi bi-x-circle me-2"></i>Hủy đăng ký
+            </button>
+        </div>
+    </div>
+}
 
 @section Scripts {
     <script>
@@ -103,37 +124,37 @@
         @if (!Model.IsRegistered)
         {
             <text>
-                    setTimeout(function() {
-                        $.ajax({
-                            url: '/AutoRegister?handler=AutoRegister',
-                            type: 'POST',
-                            headers: {
-                                "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
-                            },
-                            success: function(result) {
-                                $('#loadingSpinner').hide();
-                                if (result.success) {
-                                    $('#statusMessage').html('<span class="text-success"><i class="bi bi-check-circle me-2"></i>Đăng ký thành công!</span>');
-                                    setTimeout(function() {
-                                        location.reload();
-                                    }, 2000);
-                                } else {
-                                    $('#statusMessage').html('<span class="text-danger"><i class="bi bi-x-circle me-2"></i>' + result.error + '</span>');
+                        setTimeout(function() {
+                            $.ajax({
+                                url: '/AutoRegister?handler=AutoRegister',
+                                type: 'POST',
+                                headers: {
+                                    "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                                },
+                                success: function(result) {
+                                    $('#loadingSpinner').hide();
+                                    if (result.success) {
+                                        $('#statusMessage').html('<span class="text-success"><i class="bi bi-check-circle me-2"></i>Đăng ký thành công!</span>');
+                                        setTimeout(function() {
+                                            location.reload();
+                                        }, 2000);
+                                    } else {
+                                        $('#statusMessage').html('<span class="text-danger"><i class="bi bi-x-circle me-2"></i>' + result.error + '</span>');
+                                    }
+                                },
+                                error: function(xhr, status, error) {
+                                    $('#loadingSpinner').hide();
+                                    $('#statusMessage').html('<span class="text-danger"><i class="bi bi-x-circle me-2"></i>Lỗi kết nối: ' + error + '</span>');
                                 }
-                            },
-                            error: function(xhr, status, error) {
-                                $('#loadingSpinner').hide();
-                                $('#statusMessage').html('<span class="text-danger"><i class="bi bi-x-circle me-2"></i>Lỗi kết nối: ' + error + '</span>');
-                            }
-                        });
-                    }, 1000);
+                            });
+                        }, 1000);
             </text>
         }
         else
         {
             <text>
-                    $('#loadingSpinner').hide();
-                    $('#statusMessage').html('<span class="text-success"><i class="bi bi-check-circle me-2"></i>Đã đăng ký</span>');
+                        $('#loadingSpinner').hide();
+                        $('#statusMessage').html('<span class="text-success"><i class="bi bi-check-circle me-2"></i>Đã đăng ký</span>');
             </text>
         }
 

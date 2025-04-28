@@ -5,17 +5,17 @@
     ViewData["ActivePage"] = "Logs";
 }
 
-<div class="container">
-    <h1>Logs</h1>
+<div class="page-header">
+    <h1>Nhật ký hệ thống</h1>
+</div>
 
-    <div class="mb-3">
-        <a asp-page="/Index" class="btn btn-primary">Quay lại trang chính</a>
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">Lịch sử Logs</h5>
     </div>
-
-    <div class="card mb-4">
-        <div class="card-body">
-            <h5>Lịch sử Logs</h5>
-            <table class="table table-bordered" style="background-color: #000; color: #fff;">
+    <div class="card-body">
+        <div class="table-container">
+            <table class="table">
                 <thead>
                     <tr>
                         <th>Thời gian</th>
@@ -33,15 +33,24 @@
                             <td>
                                 @if (log.Status == "Success")
                                 {
-                                    <span class="badge bg-success">@log.Status</span>
+                                    <span class="status-badge running">
+                                        <i class="bi bi-check-circle"></i>
+                                        Success
+                                    </span>
                                 }
                                 else if (log.Status == "Error")
                                 {
-                                    <span class="badge bg-danger">@log.Status</span>
+                                    <span class="status-badge error">
+                                        <i class="bi bi-exclamation-circle"></i>
+                                        Error
+                                    </span>
                                 }
                                 else
                                 {
-                                    <span class="badge bg-info">@log.Status</span>
+                                    <span class="status-badge stopped">
+                                        <i class="bi bi-info-circle"></i>
+                                        @log.Status
+                                    </span>
                                 }
                             </td>
                             <td>@log.Message</td>
@@ -51,13 +60,15 @@
             </table>
         </div>
     </div>
+</div>
 
-    <div class="card mb-4">
-        <div class="card-header bg-info text-white">
-            <h5>Mã Lỗi SteamCMD</h5>
-        </div>
-        <div class="card-body">
-            <table class="table table-bordered table-hover">
+<div class="card mb-4">
+    <div class="card-header bg-info text-white">
+        <h5>Mã Lỗi SteamCMD</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table class="table">
                 <thead>
                     <tr>
                         <th>Mã lỗi</th>
@@ -87,11 +98,6 @@
                         <td>Kiểm tra lại thông tin đăng nhập, xác minh rằng tài khoản không bị khóa</td>
                     </tr>
                     <tr>
-                        <td>4</td>
-                        <td>Lỗi thiếu CS:GO Key (chỉ áp dụng cho CS:GO Dedicated Server)</td>
-                        <td>Cần nhập Game Server Login Token (GSLT) hợp lệ</td>
-                    </tr>
-                    <tr>
                         <td>5</td>
                         <td>Rate Limit Exceeded (Vượt quá giới hạn truy cập)</td>
                         <td>Quá nhiều yêu cầu gửi đến máy chủ Steam, đợi 10-15 phút trước khi thử lại</td>
@@ -110,51 +116,6 @@
                         <td>8</td>
                         <td>Lỗi kết nối mạng hoặc máy chủ Steam</td>
                         <td>Kiểm tra kết nối internet, máy chủ Steam có thể đang bảo trì</td>
-                    </tr>
-                    <tr>
-                        <td>9</td>
-                        <td>Lỗi tệp tin cài đặt bị hỏng</td>
-                        <td>Xóa nội dung thư mục cài đặt và thử cài đặt lại từ đầu</td>
-                    </tr>
-                    <tr>
-                        <td>10</td>
-                        <td>Lỗi xác minh tệp tin</td>
-                        <td>Chọn tùy chọn "Kiểm tra và sửa chữa file" trong cấu hình profile</td>
-                    </tr>
-                    <tr>
-                        <td>11</td>
-                        <td>Lỗi tạo symbolic link</td>
-                        <td>Đảm bảo ứng dụng được chạy với quyền quản trị, đóng tất cả game đang chạy</td>
-                    </tr>
-                    <tr>
-                        <td>15</td>
-                        <td>Lỗi giới hạn truy cập tài khoản</td>
-                        <td>Tài khoản đang truy cập từ nhiều thiết bị, đợi 30 phút và thử lại</td>
-                    </tr>
-                    <tr>
-                        <td>23</td>
-                        <td>Lỗi hệ thống file NTFS hoặc permissions</td>
-                        <td>Kiểm tra quyền user trên thư mục cài đặt, chạy "chkdsk" để sửa lỗi</td>
-                    </tr>
-                    <tr>
-                        <td>37</td>
-                        <td>Lỗi khóa tài khoản vì nhập sai mật khẩu nhiều lần</td>
-                        <td>Đợi 30-60 phút trước khi thử lại, hoặc reset mật khẩu tài khoản</td>
-                    </tr>
-                    <tr>
-                        <td>53</td>
-                        <td>Lỗi tài khoản Steam không có quyền truy cập đến game này</td>
-                        <td>Kiểm tra quyền sở hữu game trên tài khoản Steam đang sử dụng</td>
-                    </tr>
-                    <tr>
-                        <td>65</td>
-                        <td>Lỗi xác thực hai yếu tố Steam Guard</td>
-                        <td>Kiểm tra mã xác thực, sử dụng chức năng lưu thông tin đăng nhập</td>
-                    </tr>
-                    <tr>
-                        <td>-1</td>
-                        <td>Lỗi tiến trình SteamCMD bị hủy bất thường</td>
-                        <td>Kiểm tra xem có ứng dụng diệt virus đang chặn hoặc hệ thống bị quá tải</td>
                     </tr>
                 </tbody>
             </table>

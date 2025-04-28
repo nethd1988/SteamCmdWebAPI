@@ -2,84 +2,104 @@
 @model EditModel
 @{
     ViewData["Title"] = "Sửa cấu hình - SteamAUTO";
+    ViewData["ActivePage"] = "ProfileManager";
 }
 
-<div class="container">
+<div class="page-header">
     <h1>Sửa cấu hình</h1>
+</div>
 
-    @if (!string.IsNullOrEmpty(Model.StatusMessage))
-    {
-        <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
-            @Model.StatusMessage
-        </div>
-    }
+@if (!string.IsNullOrEmpty(Model.StatusMessage))
+{
+    <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")">
+        <i class="bi bi-@(Model.IsSuccess ? "check-circle" : "exclamation-triangle") me-2"></i>
+        @Model.StatusMessage
+    </div>
+}
 
-    <form method="post" asp-page-handler="SaveProfile" id="editProfileForm">
-        <input type="hidden" asp-for="Profile.Id" />
-        <input type="hidden" asp-for="Profile.Status" />
-        <input type="hidden" asp-for="Profile.Pid" />
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">Chỉnh sửa thông tin cấu hình</h5>
+    </div>
+    <div class="card-body">
+        <form method="post" asp-page-handler="SaveProfile" id="editProfileForm">
+            <input type="hidden" asp-for="Profile.Id" />
+            <input type="hidden" asp-for="Profile.Status" />
+            <input type="hidden" asp-for="Profile.Pid" />
 
-        <div class="card">
-            <div class="card-header">
-                <h5>Thông tin cấu hình</h5>
+            <div class="mb-3">
+                <label asp-for="Profile.Name" class="form-label">Tên cấu hình</label>
+                <input asp-for="Profile.Name" class="form-control" required />
+                <span asp-validation-for="Profile.Name" class="text-danger"></span>
             </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <label asp-for="Profile.Name" class="form-label">Tên cấu hình</label>
-                    <input asp-for="Profile.Name" class="form-control" required />
-                    <span asp-validation-for="Profile.Name" class="text-danger"></span>
-                </div>
 
-                <div class="mb-3">
-                    <label asp-for="Profile.AppID" class="form-label">App ID</label>
+            <div class="mb-3">
+                <label asp-for="Profile.AppID" class="form-label">App ID</label>
+                <div class="input-group">
                     <input asp-for="Profile.AppID" class="form-control" required />
-                    <small class="form-text text-muted">Nhập ID của ứng dụng Steam (ví dụ: 730 cho CS:GO)</small>
-                    <span asp-validation-for="Profile.AppID" class="text-danger"></span>
+                    <a href="https://steamdb.info/" target="_blank" class="btn btn-outline-secondary" title="Tìm App ID trên SteamDB">
+                        <i class="bi bi-search"></i> SteamDB
+                    </a>
                 </div>
-
-                <div class="mb-3">
-                    <label asp-for="Profile.InstallDirectory" class="form-label">Đường dẫn cài đặt</label>
-                    <input asp-for="Profile.InstallDirectory" class="form-control" />
-                    <small class="form-text text-muted">Đường dẫn đầy đủ đến thư mục cài đặt ứng dụng</small>
-                    <span asp-validation-for="Profile.InstallDirectory" class="text-danger"></span>
-                </div>
-
-                <div class="mb-3">
-                    <label for="NewUsername" class="form-label">Tên đăng nhập Steam</label>
-                    <input asp-for="NewUsername" class="form-control" id="NewUsername" data-val="false" />
-                    <small class="form-text text-muted">Để trống nếu không muốn thay đổi</small>
-                    <span asp-validation-for="NewUsername" class="text-danger"></span>
-                </div>
-
-                <div class="mb-3">
-                    <label for="NewPassword" class="form-label">Mật khẩu Steam</label>
-                    <input asp-for="NewPassword" class="form-control" type="password" id="NewPassword" data-val="false" />
-                    <small class="form-text text-muted">Để trống nếu không muốn thay đổi</small>
-                    <span asp-validation-for="NewPassword" class="text-danger"></span>
-                </div>
-
-                <div class="mb-3">
-                    <label asp-for="Profile.Arguments" class="form-label">Các tham số bổ sung</label>
-                    <textarea asp-for="Profile.Arguments" class="form-control" rows="3" data-val="false"></textarea>
-                    <small class="form-text text-muted">Các tham số bổ sung cho SteamCMD (tùy chọn)</small>
-                    <span asp-validation-for="Profile.Arguments" class="text-danger"></span>
-                </div>
-
-                <div class="mb-3 form-check">
-                    <input asp-for="Profile.ValidateFiles" class="form-check-input" />
-                    <label asp-for="Profile.ValidateFiles" class="form-check-label">Kiểm tra và sửa chữa file</label>
-                </div>
-
-                <div class="mb-3 form-check">
-                    <input asp-for="Profile.AutoRun" class="form-check-input" />
-                    <label asp-for="Profile.AutoRun" class="form-check-label">Tự động chạy khi khởi động</label>
-                </div>
-
-                <button type="submit" class="btn btn-primary">Lưu thay đổi</button>
-                <a asp-page="/Index" class="btn btn-secondary">Hủy</a>
+                <small class="form-text text-muted">ID của ứng dụng Steam (ví dụ: 730 cho CS:GO)</small>
+                <span asp-validation-for="Profile.AppID" class="text-danger"></span>
             </div>
-        </div>
-    </form>
+
+            <div class="mb-3">
+                <label asp-for="Profile.InstallDirectory" class="form-label">Đường dẫn cài đặt</label>
+                <input asp-for="Profile.InstallDirectory" class="form-control" required />
+                <small class="form-text text-muted">Đường dẫn đầy đủ đến thư mục cài đặt ứng dụng</small>
+                <span asp-validation-for="Profile.InstallDirectory" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label for="NewUsername" class="form-label">Tên đăng nhập Steam</label>
+                <input asp-for="NewUsername" class="form-control" id="NewUsername" data-val="false" />
+                <small class="form-text text-muted">Để trống nếu không muốn thay đổi</small>
+                <span asp-validation-for="NewUsername" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label for="NewPassword" class="form-label">Mật khẩu Steam</label>
+                <input asp-for="NewPassword" class="form-control" type="password" id="NewPassword" data-val="false" />
+                <small class="form-text text-muted">Để trống nếu không muốn thay đổi</small>
+                <span asp-validation-for="NewPassword" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="Profile.Arguments" class="form-label">Các tham số bổ sung</label>
+                <textarea asp-for="Profile.Arguments" class="form-control" rows="3" data-val="false"></textarea>
+                <small class="form-text text-muted">Các tham số bổ sung cho SteamCMD (tùy chọn)</small>
+                <span asp-validation-for="Profile.Arguments" class="text-danger"></span>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="Profile_ValidateFiles" asp-for="Profile.ValidateFiles">
+                        <label class="form-check-label" for="Profile_ValidateFiles">Kiểm tra và sửa chữa file</label>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="Profile_AutoRun" asp-for="Profile.AutoRun">
+                        <label class="form-check-label" for="Profile_AutoRun">Tự động chạy khi khởi động</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex">
+                <button type="submit" class="btn btn-primary me-2">
+                    <i class="bi bi-save me-1"></i>
+                    Lưu thay đổi
+                </button>
+                <a asp-page="/ProfileManager" class="btn btn-secondary">
+                    <i class="bi bi-arrow-left me-1"></i>
+                    Quay lại
+                </a>
+            </div>
+        </form>
+    </div>
 </div>
 
 @section Scripts {
