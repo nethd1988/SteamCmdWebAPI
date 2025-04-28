@@ -651,32 +651,20 @@ namespace SteamCmdWebAPI.Services
                         _logger.LogInformation("ProcessUpdateQueueAsync: Processing {ProfileName}...", profileName);
                         await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Đang xử lý cập nhật cho {profileName} (ID: {profileId})...");
 
-                        // Khi chạy từ hàng đợi thông thường, chỉ xử lý profile chính
-                        // Nếu là từ RunAllProfilesAsync, sẽ xử lý cả app chính và phụ thuộc
-                        bool success = false;
-
-                        if (_isRunningAllProfiles)
-                        {
-                            // Khi chạy tất cả, thực hiện cập nhật tất cả ID (chính và phụ thuộc)
-                            _logger.LogInformation("ProcessUpdateQueueAsync: Executing full update (main app + dependencies) for {ProfileName} as part of RunAllProfiles", profileName);
-                            success = await ExecuteProfileUpdateAsync(profileId, null);
-                        }
-                        else
-                        {
-                            // Khi chạy bình thường, chỉ cập nhật app ID chính
-                            _logger.LogInformation("ProcessUpdateQueueAsync: Executing update for main app only for {ProfileName}", profileName);
-                            success = await ExecuteProfileUpdateAsync(profileId, profile?.AppID);
-                        }
+                        // Quan trọng: Đây là sự khác biệt chính
+                        // Khi chạy từ RunAllProfilesAsync, _isRunningAllProfiles = true
+                        // nên sẽ chạy tất cả app (chính và phụ thuộc)
+                        bool success = await ExecuteProfileUpdateAsync(profileId, null);
 
                         if (success)
                         {
-                            _logger.LogWarning("Đã xử lý cập nhật thành công cho {ProfileName} (ID: {ProfileId})", profileName, profileId);
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật thành công cho {profile.Name} (ID: {profileId})");
+                            _logger.LogInformation("Đã xử lý cập nhật thành công cho {ProfileName} (ID: {ProfileId})", profileName, profileId);
+                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật thành công cho {profileName} (ID: {profileId})");
                         }
                         else
                         {
                             _logger.LogWarning("Xử lý cập nhật không thành công cho {ProfileName} (ID: {ProfileId})", profileName, profileId);
-                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật KHÔNG thành công cho {profile.Name} (ID: {profileId}). Kiểm tra log.");
+                            await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Cập nhật KHÔNG thành công cho {profileName} (ID: {profileId}). Kiểm tra log.");
 
                             if (_lastRunHadLoginError && !_isRunningAllProfiles)
                             {
@@ -720,8 +708,13 @@ namespace SteamCmdWebAPI.Services
             }
             finally
             {
-                _logger.LogInformation("ProcessUpdateQueueAsync: Setting _isProcessingQueue = false");
                 _isProcessingQueue = false;
+                // Chỉ đặt lại _isRunningAllProfiles = false khi đã xử lý xong hàng đợi
+                if (_isRunningAllProfiles)
+                {
+                    _logger.LogInformation("ProcessUpdateQueueAsync: Setting _isRunningAllProfiles = false");
+                    _isRunningAllProfiles = false;
+                }
             }
         }
 
@@ -738,10 +731,11 @@ namespace SteamCmdWebAPI.Services
             _logger.LogInformation("RunProfileAsync: Chuẩn bị chạy profile '{ProfileName}' (ID: {ProfileId}) - chỉ AppID chính",
                 profile.Name, id);
 
-            // LƯU Ý: Không đặt _isRunningAllProfiles = true ở đây
-            // Chỉ chạy từ nút "Chạy tất cả" mới đặt _isRunningAllProfiles = true
+            // Đảm bảo _isRunningAllProfiles = false khi chạy riêng profile
+            // Điều này sẽ đảm bảo chỉ app chính được chạy
+            _isRunningAllProfiles = false;
 
-            // Thêm profile vào hàng đợi để xử lý (hàng đợi sẽ thực thi với app chính vì _isRunningAllProfiles = false)
+            // Thêm profile vào hàng đợi để xử lý (ExecuteProfileUpdateAsync sẽ chạy app chính)
             return await QueueProfileForUpdate(id);
         }
 
@@ -832,7 +826,8 @@ namespace SteamCmdWebAPI.Services
                     _logger.LogInformation("ExecuteProfileUpdateAsync: Chỉ cập nhật App ID cụ thể: {AppId}", specificAppId);
                     await SafeSendLogAsync(profile.Name, "Info", $"Chỉ cập nhật App ID: {specificAppId}");
                 }
-                // Trường hợp 2: Chạy từ nút "Chạy tất cả" - cập nhật tất cả
+                // Trường hợp 2: Chạy từ nút "Chạy tất cả" (hoặc các trường hợp _isRunningAllProfiles = true) 
+                // thì cập nhật tất cả app (chính và phụ thuộc)
                 else if (_isRunningAllProfiles)
                 {
                     // Đọc tất cả appmanifest_*.acf từ thư mục steamapps
@@ -851,7 +846,7 @@ namespace SteamCmdWebAPI.Services
                             if (match.Success)
                             {
                                 string appId = match.Groups[1].Value;
-                                if (!appIdsToUpdate.Contains(appId)) // Tránh trùng lặp nếu có lý do nào đó
+                                if (!appIdsToUpdate.Contains(appId))
                                 {
                                     appIdsToUpdate.Add(appId);
                                     _logger.LogInformation("ExecuteProfileUpdateAsync: Thêm App ID {AppId} từ file manifest", appId);
@@ -867,13 +862,10 @@ namespace SteamCmdWebAPI.Services
                                 profile.AppID);
                         }
 
-                        // *** ĐOẠN LOG ĐƯỢC CHỈNH SỬA ***
                         var appIdsListForLog = appIdsToUpdate.Any() ? string.Join(", ", appIdsToUpdate) : "Không tìm thấy App ID nào ngoài ID chính";
-                        _logger.LogInformation("ExecuteProfileUpdateAsync: Tổng số App ID để cập nhật: {Count} (từ các file manifest và ID chính): {AppIds}",
+                        _logger.LogInformation("ExecuteProfileUpdateAsync: Tổng số App ID để cập nhật: {Count} (từ các ID chính Và ID phụ): {AppIds}",
                            appIdsToUpdate.Count, appIdsListForLog);
-                        await SafeSendLogAsync(profile.Name, "Info", $"Đã thu thập {appIdsToUpdate.Count} ứng dụng để cập nhật từ manifest và ID chính: [{appIdsListForLog}]");
-                        // *** KẾT THÚC ĐOẠN LOG ĐƯỢC CHỈNH SỬA ***
-
+                        await SafeSendLogAsync(profile.Name, "Info", $"Đã thu thập {appIdsToUpdate.Count} ứng dụng để cập nhật chính: [{appIdsListForLog}]");
                     }
                     else
                     {
@@ -904,17 +896,13 @@ namespace SteamCmdWebAPI.Services
                 }
             }
 
-            // In log để debug (dòng này vẫn giữ lại để debug trong file log)
+            // In log để debug
             _logger.LogInformation("ExecuteProfileUpdateAsync: Danh sách AppID cần cập nhật cho '{ProfileName}': {AppIds}",
                 profile.Name, string.Join(", ", appIdsToUpdate));
-
-            // ... Phần còn lại của hàm ExecuteProfileUpdateAsync giữ nguyên ...
-            // (Phần code chạy SteamCMD với danh sách appIdsToUpdate đã được điền)
 
             // Cập nhật trạng thái profile
             profile.Status = "Running";
             profile.StartTime = DateTime.Now;
-            profile.StopTime = DateTime.Now;
             profile.Pid = 0;
             await _profileService.UpdateProfile(profile);
 
@@ -1148,7 +1136,7 @@ namespace SteamCmdWebAPI.Services
 
             return overallSuccess;
         }
-        // ... Phần còn lại của class SteamCmdService giữ nguyên ...
+       
 
         private async Task<Dictionary<string, string>> GetAppNamesAsync(string steamappsDir, List<string> appIds)
         {
@@ -1666,9 +1654,7 @@ namespace SteamCmdWebAPI.Services
                 }
                 _logger.LogInformation("RunAllProfilesAsync: Finished profile queueing loop.");
 
-
                 await SafeSendLogAsync("System", "Info", "Đã thêm tất cả profile vào hàng đợi. Bộ xử lý hàng đợi sẽ chạy chúng tuần tự.");
-
             }
             catch (Exception ex)
             {
@@ -1677,8 +1663,8 @@ namespace SteamCmdWebAPI.Services
             }
             finally
             {
-                _logger.LogInformation("RunAllProfilesAsync: Resetting _isRunningAllProfiles = false.");
-                _isRunningAllProfiles = false;
+                // Không reset _isRunningAllProfiles ở đây
+                // _isRunningAllProfiles sẽ được giữ true cho đến khi tất cả profile đã được xử lý xong
             }
         }
 
@@ -1694,9 +1680,8 @@ namespace SteamCmdWebAPI.Services
             if (clearedCount > 0)
                 _logger.LogInformation("StopAllProfilesAsync: Đã xóa {Count} mục khỏi hàng đợi cập nhật.", clearedCount);
 
-            // Reset các cờ ngoại trừ _isRunningAllProfiles
+            // Reset các cờ, nhưng không reset _isRunningAllProfiles để không ảnh hưởng đến việc đang chạy
             _cancelAutoRun = false;
-            // _isRunningAllProfiles = false; // <--- ĐÃ BỎ DÒNG NÀY
             _lastRunHadLoginError = false;
 
             // Dừng tất cả tiến trình
