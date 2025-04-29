@@ -201,18 +201,28 @@ class SteamCmdConsole {
             if (!line.trim()) continue;
 
             // Xác định loại thông báo nếu không chỉ định
+            let currentType = type;
             if (type === 'normal') {
-                if (line.includes("Error") || line.includes("Lỗi") || line.includes("failed")) {
-                    type = 'error';
+                if (line.includes("Error") || line.includes("Lỗi") || line.includes("failed") ||
+                    line.includes("Invalid Password")) {
+                    currentType = 'error';
                 } else if (line.includes("Warning") || line.includes("Cảnh báo")) {
-                    type = 'warning';
+                    currentType = 'warning';
                 } else if (line.includes("Success") || line.includes("thành công") || line.includes("successfully")) {
-                    type = 'success';
+                    currentType = 'success';
                 }
             }
 
+            // Highlight lỗi đăng nhập
+            let displayText = line;
+            if (line.includes("ERROR (Invalid Password)") ||
+                line.includes("Lỗi đăng nhập") && line.includes("mật khẩu")) {
+                displayText = `⚠️ ${line} ⚠️`;
+                currentType = 'error';
+            }
+
             // Đẩy vào hàng đợi thay vì render ngay lập tức
-            this.pendingLines.push({ text: line, type });
+            this.pendingLines.push({ text: displayText, type: currentType });
         }
     }
 

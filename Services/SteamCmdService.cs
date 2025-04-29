@@ -1181,6 +1181,7 @@ namespace SteamCmdWebAPI.Services
                 profile.Status = "Error";
                 profile.StopTime = DateTime.Now;
                 await _profileService.UpdateProfile(profile);
+                await SafeSendLogAsync(profile.Name, "Error", "Lỗi đăng nhập Steam: Sai tên đăng nhập hoặc mật khẩu. Vui lòng kiểm tra lại thông tin trong cài đặt profile.");
 
                 // Reset update flags khi có lỗi
                 if (!string.IsNullOrEmpty(specificAppId))
@@ -1588,23 +1589,39 @@ namespace SteamCmdWebAPI.Services
                     string line = e.Data.Trim();
                     if (string.IsNullOrEmpty(line)) return;
 
+                    // Kiểm tra lỗi đăng nhập ngay từ đầu và hiển thị thông báo chi tiết
+                    if (invalidPasswordRegex.IsMatch(line))
+                    {
+                        string errorMsg = "LỖI ĐĂNG NHẬP: Sai tên đăng nhập hoặc mật khẩu Steam. Vui lòng kiểm tra lại thông tin trong cài đặt profile.";
+                        _lastRunHadLoginError = true;
+                        
+                        // Đảm bảo thông báo lỗi luôn được hiển thị trên console
+                        lock (outputBuffer)
+                        {
+                            outputBuffer.AppendLine(errorMsg);
+                        }
+                        
+                        _ = LogOperationAsync(profile.Name, "Error", errorMsg, "Error");
+                        return;
+                    }
+
                     // Kiểm tra ngay từ đầu nếu dòng log cần bỏ qua
                     if (ShouldSkipLog(line))
                     {
                         return; // Bỏ qua dòng này hoàn toàn
                     }
 
-                    if (invalidPasswordRegex.IsMatch(line))
-                    {
-                        _ = LogOperationAsync(profile.Name, "Error", "ERROR (Invalid Password)", "Error");
-                        _lastRunHadLoginError = true;
-                        return;
-                    }
-
                     if (notOnlineErrorRegex.IsMatch(line))
                     {
-                        _ = LogOperationAsync(profile.Name, "Error", "ERROR! Failed to request AppInfo update, not online or not logged in to Steam.", "Error");
+                        string errorMsg = "LỖI KẾT NỐI: Không thể kết nối tới Steam hoặc chưa đăng nhập. Vui lòng kiểm tra kết nối mạng.";
                         _lastRunHadLoginError = true;
+                        
+                        lock (outputBuffer)
+                        {
+                            outputBuffer.AppendLine(errorMsg);
+                        }
+                        
+                        _ = LogOperationAsync(profile.Name, "Error", errorMsg, "Error");
                         return;
                     }
 
@@ -1613,7 +1630,7 @@ namespace SteamCmdWebAPI.Services
                         _ = LogOperationAsync(profile.Name, "Success", "Đăng nhập Steam thành công.", "Success");
                     }
 
-                    // Thêm vào recentOutputMessages và xử lý thông báo nếu không phải những dòng cần bỏ qua
+                    // Thêm vào recentOutputMessages và xử lý thông báo
                     if (recentOutputMessages.TryAdd(line, 0))
                     {
                         lock (outputBuffer)
@@ -1627,17 +1644,15 @@ namespace SteamCmdWebAPI.Services
                             foreach (var key in keysToRemove) recentOutputMessages.TryRemove(key, out _);
                         }
 
-                        // Xử lý lỗi app (bắt tất cả lỗi "Error! App")
+                        // Xử lý lỗi app
                         var matchErrorApp = errorAppRegex.Match(line);
                         if (matchErrorApp.Success)
                         {
                             try
                             {
-                                // Capture only the App ID
                                 string failedAppId = matchErrorApp.Groups[1].Value;
                                 _logger.LogError($"Phát hiện lỗi cập nhật cho App ID {failedAppId} trong log của profile '{profile.Name}'.");
 
-                                // Add to set to ensure uniqueness
                                 if (appIdsToRetry.Add(failedAppId))
                                 {
                                     _ = Task.Run(async () =>
@@ -2127,7 +2142,7 @@ namespace SteamCmdWebAPI.Services
             try
             {
                 var logBatch = new List<(string status, string profileName, string message)>();
-                
+
                 while (logBatch.Count < LOG_BATCH_SIZE && _logBuffer.TryDequeue(out var logEntry))
                 {
                     // Skip if message is empty or matches any of the skip patterns
@@ -2138,6 +2153,17 @@ namespace SteamCmdWebAPI.Services
 
                     // Lọc thông tin nhạy cảm trước khi thêm vào batch
                     var sanitizedMessage = SanitizeLogMessage(logEntry.message);
+
+                    // Đảm bảo lỗi đăng nhập luôn được hiển thị ưu tiên
+                    if (sanitizedMessage.Contains("Lỗi đăng nhập") || sanitizedMessage.Contains("ERROR (Invalid Password)"))
+                    {
+                        logEntry.status = "Error";
+                        if (!sanitizedMessage.Contains("Vui lòng kiểm tra lại"))
+                        {
+                            sanitizedMessage = "Lỗi đăng nhập: Sai tên đăng nhập hoặc mật khẩu Steam. Vui lòng kiểm tra lại thông tin đăng nhập.";
+                        }
+                    }
+
                     logBatch.Add((logEntry.status, logEntry.profileName, sanitizedMessage));
                 }
 
