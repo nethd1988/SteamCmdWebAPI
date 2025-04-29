@@ -63,6 +63,32 @@ namespace SteamCmdWebAPI.Services
 
         private bool _disposed = false;
 
+        // Thêm các Regex patterns được compiled sẵn để tối ưu performance
+        private static readonly Regex[] CompiledSkipPatterns = new[]
+        {
+            new Regex(@"^Unloading Steam API\.\.\.OK$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^Redirecting stderr to '.*steamcmd\\logs\\stderr\.txt'$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^Logging directory: '.*steamcmd/logs'$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^\[\s*0%\] Checking for available updates\.\.\.$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^\[----\].*Verifying installation\.\.\.$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^Loading Steam API\.\.\.OK$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^Logging in user '.*'", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^Logging in using username/password\.$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^Waiting for client config\.\.\.OK$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^Waiting for user info\.\.\.OK$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^Steam Console Client \(c\) Valve Corporation - version \d+$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^-- type 'quit' to exit --$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+        };
+
+        // Regex patterns cho việc lọc thông tin nhạy cảm
+        private static readonly Regex[] SensitiveInfoPatterns = new[]
+        {
+            new Regex(@"Logging in user '(.+?)' \[U:1:\d+\]", RegexOptions.Compiled),
+            new Regex(@"Redirecting stderr to '(.+?)steamcmd\\logs\\stderr\.txt'", RegexOptions.Compiled),
+            new Regex(@"Logging directory: '(.+?)steamcmd/logs'", RegexOptions.Compiled),
+            new Regex(@"\+login\s+\S+\s+\S+", RegexOptions.Compiled)
+        };
+
         public class LogEntry
         {
             public DateTime Timestamp { get; set; }
@@ -205,33 +231,29 @@ namespace SteamCmdWebAPI.Services
 
         private bool ShouldSkipLog(string line)
         {
-            // Danh sách các pattern cần lọc bỏ
-            string[] patternsToSkip = new[]
-            {
-                "Unloading Steam API...OK",
-                "Redirecting stderr to",
-                "Logging directory:",
-                "[  0%] Checking for available updates...",
-                "[----] Verifying installation...",
-                "Loading Steam API...OK",
-                "Logging in using username/password",
-                "Waiting for client config...OK",
-                "Waiting for user info...OK",
-                "Steam Console Client (c) Valve Corporation",
-                "-- type 'quit' to exit --",
-                // Ẩn username trong log
-                @"Logging in user '.*' \[U:1:\d+\] to Steam Public"
-            };
+            if (string.IsNullOrEmpty(line)) return true;
+            return CompiledSkipPatterns.Any(pattern => pattern.IsMatch(line));
+        }
 
-            return patternsToSkip.Any(pattern => 
-                Regex.IsMatch(line, pattern, RegexOptions.IgnoreCase));
+        private string SanitizeLogMessage(string message)
+        {
+            if (string.IsNullOrEmpty(message)) return message;
+
+            string sanitizedMessage = message;
+            
+            // Thay thế thông tin nhạy cảm
+            sanitizedMessage = SensitiveInfoPatterns[0].Replace(sanitizedMessage, "Logging in user '***' [U:1:***]");
+            sanitizedMessage = SensitiveInfoPatterns[1].Replace(sanitizedMessage, "Redirecting stderr to '***'");
+            sanitizedMessage = SensitiveInfoPatterns[2].Replace(sanitizedMessage, "Logging directory: '***'");
+            sanitizedMessage = SensitiveInfoPatterns[3].Replace(sanitizedMessage, "+login [credentials]");
+
+            return sanitizedMessage;
         }
 
         private async Task SafeSendLogAsync(string profileName, string status, string message)
         {
             try
             {
-                // Thêm log vào buffer thay vì xử lý ngay lập tức
                 _logBuffer.Enqueue((status, profileName, message));
             }
             catch (Exception ex)
@@ -1380,7 +1402,7 @@ namespace SteamCmdWebAPI.Services
                 argumentsBuilder.Append(" +quit");
 
                 string arguments = argumentsBuilder.ToString();
-                string safeArguments = Regex.Replace(arguments, @"\+login\s+\S+\s+\S+", "+login [credentials]");
+                string safeArguments = SanitizeLogMessage(arguments);
                 _logger.LogInformation("Chạy SteamCMD cho '{ProfileName}' với tham số: {SafeArguments}", profile.Name, safeArguments);
 
                 steamCmdProcess = new Process
@@ -1937,7 +1959,34 @@ namespace SteamCmdWebAPI.Services
         {
             try
             {
-                // Thêm log vào buffer thay vì xử lý ngay lập tức
+                // Convert Warning to Error for simpler status display
+                if (status.Equals("Warning", StringComparison.OrdinalIgnoreCase))
+                {
+                    status = "Error";
+                }
+                
+                // Convert Info to appropriate status based on message content
+                if (status.Equals("Info", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (message.Contains("thành công", StringComparison.OrdinalIgnoreCase) ||
+                        message.Contains("hoàn tất", StringComparison.OrdinalIgnoreCase) ||
+                        message.Contains("đã xong", StringComparison.OrdinalIgnoreCase))
+                    {
+                        status = "Success";
+                    }
+                    else if (message.Contains("lỗi", StringComparison.OrdinalIgnoreCase) ||
+                             message.Contains("thất bại", StringComparison.OrdinalIgnoreCase) ||
+                             message.Contains("không thể", StringComparison.OrdinalIgnoreCase))
+                    {
+                        status = "Error";
+                    }
+                    else
+                    {
+                        // Skip non-critical Info logs
+                        return;
+                    }
+                }
+
                 _logBuffer.Enqueue((status, profileName, message));
             }
             catch (Exception ex)
@@ -1952,12 +2001,30 @@ namespace SteamCmdWebAPI.Services
             {
                 var logBatch = new List<(string status, string profileName, string message)>();
                 
-                // Lấy tối đa LOG_BATCH_SIZE logs từ buffer
                 while (logBatch.Count < LOG_BATCH_SIZE && _logBuffer.TryDequeue(out var logEntry))
                 {
+                    // Only keep Success and Error logs
+                    if (!logEntry.status.Equals("Success", StringComparison.OrdinalIgnoreCase) && 
+                        !logEntry.status.Equals("Error", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    // Skip autoregistrer and server registration logs
+                    if (logEntry.message.Contains("Đăng nhập Steam thành công", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.Contains("Đăng nhập Steam", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.Contains("Steamworks Common Redistributables", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.Contains("autoregistrer", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.Contains("server registration", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     if (!ShouldSkipLog(logEntry.message))
                     {
-                        logBatch.Add(logEntry);
+                        // Lọc thông tin nhạy cảm trước khi thêm vào batch
+                        var sanitizedMessage = SanitizeLogMessage(logEntry.message);
+                        logBatch.Add((logEntry.status, logEntry.profileName, sanitizedMessage));
                     }
                 }
 
@@ -1967,24 +2034,29 @@ namespace SteamCmdWebAPI.Services
                 foreach (var (status, profileName, message) in logBatch)
                 {
                     string displayProfileName = string.IsNullOrWhiteSpace(profileName) ? "System" : profileName;
-                    string colorClass = status.ToLower() switch
-                    {
-                        "success" => "text-success",
-                        "error" => "text-danger",
-                        "warning" => "text-warning",
-                        _ => "text-info"
-                    };
-
+                    
+                    // Match the original style
                     var logObject = new
                     {
                         timestamp = DateTime.Now,
                         profileName = displayProfileName,
                         status = status,
                         message = message,
-                        colorClass = colorClass
+                        statusClass = status.ToLower() switch
+                        {
+                            "success" => "bg-success-subtle text-success-emphasis rounded-1 px-2 py-1 small",
+                            "error" => "bg-danger-subtle text-danger-emphasis rounded-1 px-2 py-1 small",
+                            _ => "bg-info-subtle text-info-emphasis rounded-1 px-2 py-1 small"
+                        },
+                        statusIcon = status.ToLower() switch
+                        {
+                            "success" => "✓",
+                            "error" => "✕",
+                            _ => "•"
+                        },
+                        statusText = status
                     };
 
-                    // Gửi log qua SignalR
                     await _hubContext.Clients.All.SendAsync("ReceiveLog", logObject);
                 }
 
