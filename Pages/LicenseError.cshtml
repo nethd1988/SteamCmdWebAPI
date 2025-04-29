@@ -1,24 +1,210 @@
 @page
-@model SteamCmdWebAPI.Pages.LicenseErrorModel
+@model LicenseErrorModel
 @{
-    ViewData["Title"] = "Lỗi giấy phép";
+    Layout = null;
 }
 
-<div class="container text-center mt-5">
-    <div class="alert alert-danger" role="alert">
-        <h2><i class="bi bi-exclamation-triangle-fill me-2"></i> Lỗi giấy phép</h2>
-        <p class="lead">Ứng dụng không thể khởi động vì giấy phép không hợp lệ hoặc đã hết hạn.</p>
-    </div>
-    
-    <div class="card mt-4">
-        <div class="card-body">
-            <h5 class="card-title">Thông tin lỗi</h5>
-            <p>@Model.ErrorMessage</p>
-            
-            @if(Model.ContactEmail != null)
-            {
-                <p>Vui lòng liên hệ với chúng tôi để gia hạn giấy phép: <a href="mailto:@Model.ContactEmail">@Model.ContactEmail</a></p>
-            }
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lỗi Giấy Phép - SteamAUTO</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: #fff;
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .license-error-container {
+            background-color: rgba(40, 40, 40, 0.95);
+            border-radius: 12px;
+            padding: 2rem;
+            max-width: 600px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .error-icon {
+            color: #ff4444;
+            font-size: 48px;
+            margin-bottom: 1rem;
+        }
+
+        .error-title {
+            color: #ff4444;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .error-message {
+            color: #cccccc;
+            margin-bottom: 2rem;
+        }
+
+        .error-details {
+            background-color: rgba(255, 68, 68, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            text-align: left;
+        }
+
+        .error-details-title {
+            color: #ff4444;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .error-details ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            color: #cccccc;
+        }
+
+        .error-details li {
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .error-details li::before {
+            content: "•";
+            color: #ff4444;
+        }
+
+        .support-section {
+            background-color: rgba(40, 40, 40, 0.95);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .support-title {
+            color: #4CAF50;
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .support-info {
+            color: #cccccc;
+            text-align: left;
+            margin-left: 1rem;
+        }
+
+        .support-info p {
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-return {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 0.5rem 1.5rem;
+            border-radius: 4px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: background-color 0.2s;
+        }
+
+        .btn-return:hover {
+            background-color: #45a049;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="license-error-container">
+        <div class="error-icon">⚠️</div>
+        <h1 class="error-title">Lỗi Giấy Phép</h1>
+        <p class="error-message">
+            Rất tiếc, chúng tôi không thể tiếp tục cung cấp dịch vụ do vấn đề với giấy phép của bạn.
+        </p>
+
+        <div class="error-details">
+            <div class="error-details-title">
+                <i class="bi bi-exclamation-circle"></i>
+                Chi tiết lỗi:
+            </div>
+            <ul>
+                <li>Giấy phép không hợp lệ hoặc đã hết hạn</li>
+                <li>Không thể kết nối đến máy chủ xác thực giấy phép</li>
+                <li>Tất cả các tính năng đã bị khóa để bảo vệ hệ thống</li>
+            </ul>
         </div>
+
+        <div class="support-section">
+            <div class="support-title">
+                <i class="bi bi-headset"></i>
+                Hỗ trợ kỹ thuật:
+            </div>
+            <div class="support-info">
+                <p><i class="bi bi-envelope"></i> Email: support@example.com</p>
+                <p><i class="bi bi-telephone"></i> Hotline: 1900-xxxx</p>
+                <p><i class="bi bi-clock"></i> Thời gian làm việc: 8:00 - 17:00 (Thứ 2 - Thứ 6)</p>
+            </div>
+        </div>
+
+        <a href="/Dashboard" class="btn btn-return">
+            <i class="bi bi-arrow-left-circle"></i>
+            Quay lại trang chủ
+        </a>
     </div>
-</div>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Hàm kiểm tra giấy phép
+        async function checkLicense() {
+            try {
+                const response = await fetch('/api/License/Check', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.isValid) {
+                        window.location.href = '/Dashboard';
+                    }
+                }
+            } catch (error) {
+                console.error('Lỗi kiểm tra giấy phép:', error);
+            }
+        }
+
+        // Kiểm tra giấy phép mỗi 5 giây
+        setInterval(checkLicense, 5000);
+        
+        // Kiểm tra ngay khi trang tải xong
+        document.addEventListener('DOMContentLoaded', checkLicense);
+    </script>
+</body>
+</html>

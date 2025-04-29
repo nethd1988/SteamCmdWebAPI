@@ -232,7 +232,24 @@ namespace SteamCmdWebAPI.Services
         private bool ShouldSkipLog(string line)
         {
             if (string.IsNullOrEmpty(line)) return true;
-            return CompiledSkipPatterns.Any(pattern => pattern.IsMatch(line));
+
+            // Sử dụng Regex.Replace để kiểm tra và lọc
+            string testLine = line.Trim();
+            
+            // Kiểm tra các pattern cần bỏ qua
+            if (Regex.IsMatch(testLine, @"^(Un)?[Ll]oading Steam API\.\.\.OK$") ||
+                Regex.IsMatch(testLine, @"^(Redirecting stderr to |Logging directory: )'.*?'$") ||
+                Regex.IsMatch(testLine, @"^\[\s*0%\] Checking for available updates\.\.\.$") ||
+                Regex.IsMatch(testLine, @"^\[----\].*Verifying installation\.\.\.$") ||
+                Regex.IsMatch(testLine, @"^Waiting for (client config|user info)\.\.\.OK$") ||
+                Regex.IsMatch(testLine, @"^Steam Console Client \(c\) Valve Corporation - version \d+$") ||
+                Regex.IsMatch(testLine, @"^-- type 'quit' to exit --$") ||
+                Regex.IsMatch(testLine, @"^Logging in using username/password\.$"))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private string SanitizeLogMessage(string message)
@@ -240,14 +257,30 @@ namespace SteamCmdWebAPI.Services
             if (string.IsNullOrEmpty(message)) return message;
 
             string sanitizedMessage = message;
-            
-            // Thay thế thông tin nhạy cảm
-            sanitizedMessage = SensitiveInfoPatterns[0].Replace(sanitizedMessage, "Logging in user '***' [U:1:***]");
-            sanitizedMessage = SensitiveInfoPatterns[1].Replace(sanitizedMessage, "Redirecting stderr to '***'");
-            sanitizedMessage = SensitiveInfoPatterns[2].Replace(sanitizedMessage, "Logging directory: '***'");
-            sanitizedMessage = SensitiveInfoPatterns[3].Replace(sanitizedMessage, "+login [credentials]");
 
-            return sanitizedMessage;
+            // Lọc các log không cần thiết từ SteamCMD
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"^Unloading Steam API\.\.\.OK$", "", RegexOptions.IgnoreCase);
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"^Loading Steam API\.\.\.OK$", "", RegexOptions.IgnoreCase);
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"(Redirecting stderr to |Logging directory: )'(.*?)'", "", RegexOptions.IgnoreCase);
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"^\[\s*0%\] Checking for available updates\.\.\.$", "", RegexOptions.IgnoreCase);
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"^\[----\].*Verifying installation\.\.\.$", "", RegexOptions.IgnoreCase);
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"^Waiting for (client config|user info)\.\.\.OK$", "", RegexOptions.IgnoreCase);
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"^Steam Console Client \(c\) Valve Corporation - version \d+$", "", RegexOptions.IgnoreCase);
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"^-- type 'quit' to exit --$", "", RegexOptions.IgnoreCase);
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"^Logging in using username/password\.$", "", RegexOptions.IgnoreCase);
+            
+            // Lọc thông tin nhạy cảm
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"Logging in user '(.*?)' \[U:1:\d+\]", "Logging in user '***' [U:1:***]", RegexOptions.IgnoreCase);
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"\+login\s+\S+\s+\S+", "+login [credentials]", RegexOptions.IgnoreCase);
+
+            // Lọc các đường dẫn
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"'[A-Za-z]:\\.*?\\steamcmd\\.*?'", "'***'", RegexOptions.IgnoreCase);
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @".*?/steamcmd/.*?'", "'***'", RegexOptions.IgnoreCase);
+
+            // Loại bỏ các dòng trống sau khi thay thế
+            sanitizedMessage = Regex.Replace(sanitizedMessage, @"^\s*$\n|\r", "", RegexOptions.Multiline);
+
+            return sanitizedMessage.Trim();
         }
 
         private async Task SafeSendLogAsync(string profileName, string status, string message)
@@ -2003,6 +2036,12 @@ namespace SteamCmdWebAPI.Services
                 
                 while (logBatch.Count < LOG_BATCH_SIZE && _logBuffer.TryDequeue(out var logEntry))
                 {
+                    // Skip if message is empty or matches any of the skip patterns
+                    if (string.IsNullOrWhiteSpace(logEntry.message) || ShouldSkipLog(logEntry.message))
+                    {
+                        continue;
+                    }
+
                     // Only keep Success and Error logs
                     if (!logEntry.status.Equals("Success", StringComparison.OrdinalIgnoreCase) && 
                         !logEntry.status.Equals("Error", StringComparison.OrdinalIgnoreCase))
@@ -2015,17 +2054,25 @@ namespace SteamCmdWebAPI.Services
                         logEntry.message.Contains("Đăng nhập Steam", StringComparison.OrdinalIgnoreCase) ||
                         logEntry.message.Contains("Steamworks Common Redistributables", StringComparison.OrdinalIgnoreCase) ||
                         logEntry.message.Contains("autoregistrer", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.Contains("server registration", StringComparison.OrdinalIgnoreCase))
+                        logEntry.message.Contains("server registration", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.StartsWith("Loading Steam API", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.StartsWith("Unloading Steam API", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.StartsWith("Redirecting stderr", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.StartsWith("Logging directory", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.StartsWith("Checking for available updates", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.StartsWith("Verifying installation", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.StartsWith("Waiting for client config", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.StartsWith("Waiting for user info", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.StartsWith("Steam Console Client", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.StartsWith("-- type 'quit' to exit --", StringComparison.OrdinalIgnoreCase) ||
+                        logEntry.message.StartsWith("Logging in using username/password", StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }
 
-                    if (!ShouldSkipLog(logEntry.message))
-                    {
-                        // Lọc thông tin nhạy cảm trước khi thêm vào batch
-                        var sanitizedMessage = SanitizeLogMessage(logEntry.message);
-                        logBatch.Add((logEntry.status, logEntry.profileName, sanitizedMessage));
-                    }
+                    // Lọc thông tin nhạy cảm trước khi thêm vào batch
+                    var sanitizedMessage = SanitizeLogMessage(logEntry.message);
+                    logBatch.Add((logEntry.status, logEntry.profileName, sanitizedMessage));
                 }
 
                 if (logBatch.Count == 0) return;
