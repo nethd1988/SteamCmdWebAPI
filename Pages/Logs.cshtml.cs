@@ -28,15 +28,18 @@ namespace SteamCmdWebAPI.Pages
         {
             _logger.LogInformation("Đang tải danh sách logs...");
 
-            // Lấy logs từ LogService
-            Logs = _logService.GetLogs(page, PageSize);
+            // Lấy tổng số logs
+            TotalLogs = _logService.GetTotalLogsCount();
 
             // Tính toán phân trang
-            TotalLogs = Logs.Count;
             TotalPages = (int)Math.Ceiling(TotalLogs / (double)PageSize);
             CurrentPage = Math.Max(1, Math.Min(page, TotalPages));
 
-            _logger.LogInformation("Đã tải {0} logs cho trang {1}/{2}", Logs.Count, CurrentPage, TotalPages);
+            // Lấy logs cho trang hiện tại
+            Logs = _logService.GetLogs(CurrentPage, PageSize);
+
+            _logger.LogInformation("Đã tải {0} logs cho trang {1}/{2} (Tổng số: {3})", 
+                Logs.Count, CurrentPage, TotalPages, TotalLogs);
         }
     }
 }

@@ -63,21 +63,21 @@ namespace SteamCmdWebAPI.Services
 
         private bool _disposed = false;
 
+        private readonly string _logFilePath;
+        private static readonly object _logFileLock = new object();
+
         // Thêm các Regex patterns được compiled sẵn để tối ưu performance
-        private static readonly Regex[] CompiledSkipPatterns = new[]
+        private static readonly Regex[] SkipPatterns = new[]
         {
-            new Regex(@"^Unloading Steam API\.\.\.OK$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-            new Regex(@"^Redirecting stderr to '.*steamcmd\\logs\\stderr\.txt'$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-            new Regex(@"^Logging directory: '.*steamcmd/logs'$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-            new Regex(@"^\[\s*0%\] Checking for available updates\.\.\.$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-            new Regex(@"^\[----\].*Verifying installation\.\.\.$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-            new Regex(@"^Loading Steam API\.\.\.OK$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-            new Regex(@"^Logging in user '.*'", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-            new Regex(@"^Logging in using username/password\.$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-            new Regex(@"^Waiting for client config\.\.\.OK$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-            new Regex(@"^Waiting for user info\.\.\.OK$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-            new Regex(@"^Steam Console Client \(c\) Valve Corporation - version \d+$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
-            new Regex(@"^-- type 'quit' to exit --$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
+            new Regex(@"^(Un)?[Ll]oading Steam API\.\.\.OK$", RegexOptions.Compiled),
+            new Regex(@"^(Redirecting stderr to |Logging directory: )'.*?'$", RegexOptions.Compiled),
+            new Regex(@"^\[\s*0%\] Checking for available updates\.\.\.$", RegexOptions.Compiled),
+            new Regex(@"^\[----\].*Verifying installation\.\.\.$", RegexOptions.Compiled),
+            new Regex(@"^Waiting for (client config|user info)\.\.\.OK$", RegexOptions.Compiled),
+            new Regex(@"^Steam Console Client \(c\) Valve Corporation - version \d+$", RegexOptions.Compiled),
+            new Regex(@"^-- type 'quit' to exit --$", RegexOptions.Compiled),
+            new Regex(@"^Logging in using username/password\.$", RegexOptions.Compiled),
+            new Regex(@"^Logging in user '.*?' \[U:\d+:\d+\] to Steam Public\.\.\..*$", RegexOptions.Compiled)
         };
 
         // Regex patterns cho việc lọc thông tin nhạy cảm
@@ -132,6 +132,17 @@ namespace SteamCmdWebAPI.Services
             _logService = logService;
             _licenseService = licenseService;
 
+            // Khởi tạo đường dẫn file log
+            string logDirectory = Path.Combine(Directory.GetCurrentDirectory(), "Logs");
+            if (!Directory.Exists(logDirectory))
+            {
+                Directory.CreateDirectory(logDirectory);
+            }
+            _logFilePath = Path.Combine(logDirectory, "steamcmd_logs.txt");
+
+            // Đọc log cũ khi khởi động
+            LoadExistingLogs();
+
             _scheduleTimer = new System.Timers.Timer(60000);
             _scheduleTimer.Elapsed += async (s, e) => await CheckScheduleAsync();
             _scheduleTimer.AutoReset = true;
@@ -151,7 +162,66 @@ namespace SteamCmdWebAPI.Services
             _logProcessTimer.Start();
         }
 
-        #region Log and Notification Methods
+        private void LoadExistingLogs()
+        {
+            try
+            {
+                if (File.Exists(_logFilePath))
+                {
+                    lock (_logs)
+                    {
+                        var fileLines = File.ReadAllLines(_logFilePath);
+                        foreach (var line in fileLines)
+                        {
+                            try
+                            {
+                                var parts = line.Split('|');
+                                if (parts.Length >= 4)
+                                {
+                                    var timestamp = DateTime.Parse(parts[0]);
+                                    var profileName = parts[1];
+                                    var status = parts[2];
+                                    var message = parts[3];
+
+                                    _logs.Add(new LogEntry(timestamp, profileName, status, message));
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Lỗi khi đọc dòng log: {Line}", line);
+                            }
+                        }
+
+                        // Giới hạn số lượng log
+                        if (_logs.Count > MaxLogEntries)
+                        {
+                            _logs.RemoveRange(0, _logs.Count - MaxLogEntries);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đọc file log");
+            }
+        }
+
+        private void SaveLogToFile(LogEntry entry)
+        {
+            try
+            {
+                string logLine = $"{entry.Timestamp:yyyy-MM-dd HH:mm:ss}|{entry.ProfileName}|{entry.Status}|{entry.Message}";
+                lock (_logFileLock)
+                {
+                    File.AppendAllText(_logFilePath, logLine + Environment.NewLine);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi ghi log vào file");
+            }
+        }
+
         private void AddLog(LogEntry entry)
         {
             // Chỉ lưu các log quan trọng
@@ -166,12 +236,42 @@ namespace SteamCmdWebAPI.Services
                     }
                 }
 
+                // Lưu log vào file
+                SaveLogToFile(entry);
+
                 // Thêm log vào LogService với màu xanh lá cây cho log thành công
                 string level = entry.Status.Equals("Success", StringComparison.OrdinalIgnoreCase) ? "SUCCESS" : "INFO";
                 _logService.AddLog(level, entry.Message, entry.ProfileName, entry.Status);
             }
         }
 
+        public void ClearLogs()
+        {
+            try
+            {
+                lock (_logs)
+                {
+                    _logs.Clear();
+                }
+
+                // Xóa file log
+                lock (_logFileLock)
+                {
+                    if (File.Exists(_logFilePath))
+                    {
+                        File.Delete(_logFilePath);
+                    }
+                }
+
+                _logger.LogInformation("Đã xóa toàn bộ log");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xóa log");
+            }
+        }
+
+        #region Log and Notification Methods
         private bool IsImportantLog(LogEntry entry)
         {
             // Lưu lại các thông báo cụ thể về đăng nhập và cập nhật game
@@ -233,23 +333,8 @@ namespace SteamCmdWebAPI.Services
         {
             if (string.IsNullOrEmpty(line)) return true;
 
-            // Sử dụng Regex.Replace để kiểm tra và lọc
             string testLine = line.Trim();
-            
-            // Kiểm tra các pattern cần bỏ qua
-            if (Regex.IsMatch(testLine, @"^(Un)?[Ll]oading Steam API\.\.\.OK$") ||
-                Regex.IsMatch(testLine, @"^(Redirecting stderr to |Logging directory: )'.*?'$") ||
-                Regex.IsMatch(testLine, @"^\[\s*0%\] Checking for available updates\.\.\.$") ||
-                Regex.IsMatch(testLine, @"^\[----\].*Verifying installation\.\.\.$") ||
-                Regex.IsMatch(testLine, @"^Waiting for (client config|user info)\.\.\.OK$") ||
-                Regex.IsMatch(testLine, @"^Steam Console Client \(c\) Valve Corporation - version \d+$") ||
-                Regex.IsMatch(testLine, @"^-- type 'quit' to exit --$") ||
-                Regex.IsMatch(testLine, @"^Logging in using username/password\.$"))
-            {
-                return true;
-            }
-
-            return false;
+            return SkipPatterns.Any(regex => regex.IsMatch(testLine));
         }
 
         private string SanitizeLogMessage(string message)
@@ -1267,9 +1352,17 @@ namespace SteamCmdWebAPI.Services
                 }
                 else
                 {
-                    _logger.LogError("ExecuteProfileUpdateAsync: Cập nhật ứng dụng '{GameName}' (AppID: {AppId}) thất bại",
-                        gameName, specificAppId);
-                    await SafeSendLogAsync(profile.Name, "Error", $"Cập nhật '{gameName}' (AppID: {specificAppId}) thất bại.");
+                    string errorMessage;
+                    if (initialRunResult.ExitCode == 5)
+                    {
+                        errorMessage = $"Cập nhật '{gameName}' (AppID: {specificAppId}) thất bại. Lỗi: Sai tên đăng nhập hoặc mật khẩu Steam. Vui lòng kiểm tra lại thông tin đăng nhập trong cài đặt profile.";
+                    }
+                    else
+                    {
+                        errorMessage = $"Cập nhật '{gameName}' (AppID: {specificAppId}) thất bại. Lý do: Exit Code: {initialRunResult.ExitCode}";
+                    }
+                    _logger.LogError("ExecuteProfileUpdateAsync: {Message}", errorMessage);
+                    await SafeSendLogAsync(profile.Name, "Error", errorMessage);
                 }
 
                 // Reset cờ cập nhật cho app cụ thể
@@ -1298,7 +1391,16 @@ namespace SteamCmdWebAPI.Services
                                  .Select(appId => $"'{appNamesForLog.GetValueOrDefault(appId, appId)}' ({appId})")
                                  .ToList();
 
-                string errorMsg = $"Cập nhật {profile.Name} không thành công.";
+                string errorMsg;
+                if (initialRunResult.ExitCode == 5)
+                {
+                    errorMsg = $"Cập nhật {profile.Name} thất bại. Lỗi: Sai tên đăng nhập hoặc mật khẩu Steam. Vui lòng kiểm tra lại thông tin đăng nhập trong cài đặt profile.";
+                }
+                else
+                {
+                    errorMsg = $"Cập nhật {profile.Name} thất bại. Lý do: Exit Code: {initialRunResult.ExitCode}";
+                }
+
                 if (namesToLog.Any())
                 {
                     errorMsg += $" Các game sau có thể vẫn bị lỗi: {string.Join(", ", namesToLog)}.";
@@ -1486,16 +1588,22 @@ namespace SteamCmdWebAPI.Services
                     string line = e.Data.Trim();
                     if (string.IsNullOrEmpty(line)) return;
 
+                    // Kiểm tra ngay từ đầu nếu dòng log cần bỏ qua
+                    if (ShouldSkipLog(line))
+                    {
+                        return; // Bỏ qua dòng này hoàn toàn
+                    }
+
                     if (invalidPasswordRegex.IsMatch(line))
                     {
-                        _ = LogOperationAsync(profile.Name, "Error", "Lỗi đăng nhập: Sai tài khoản hoặc mật khẩu.", "Error");
+                        _ = LogOperationAsync(profile.Name, "Error", "ERROR (Invalid Password)", "Error");
                         _lastRunHadLoginError = true;
                         return;
                     }
 
                     if (notOnlineErrorRegex.IsMatch(line))
                     {
-                        _ = LogOperationAsync(profile.Name, "Error", "Lỗi kết nối Steam hoặc không đăng nhập được.", "Error");
+                        _ = LogOperationAsync(profile.Name, "Error", "ERROR! Failed to request AppInfo update, not online or not logged in to Steam.", "Error");
                         _lastRunHadLoginError = true;
                         return;
                     }
@@ -1505,21 +1613,7 @@ namespace SteamCmdWebAPI.Services
                         _ = LogOperationAsync(profile.Name, "Success", "Đăng nhập Steam thành công.", "Success");
                     }
 
-                    Regex[] linesToRemoveRegex = {
-                        new Regex(@"^Redirecting stderr to '.*steamcmd\\logs\\stderr\.txt'$", RegexOptions.Compiled),
-                        new Regex(@"^Logging directory: '.*steamcmd/logs'$", RegexOptions.Compiled),
-                        new Regex(@"^\[\s*0%\] Checking for available updates\.\.\.$", RegexOptions.Compiled),
-                        new Regex(@"^\[----\].*Verifying installation\.\.\.$", RegexOptions.Compiled),
-                        new Regex(@"^Loading Steam API\.\.\.OK$", RegexOptions.Compiled),
-                        new Regex(@"^Logging in user '.*'", RegexOptions.Compiled),
-                        new Regex(@"^Logging in using username/password\.$", RegexOptions.Compiled),
-                        new Regex(@"^Waiting for client config\.\.\.OK$", RegexOptions.Compiled),
-                        new Regex(@"^Waiting for user info\.\.\.OK$", RegexOptions.Compiled),
-                        new Regex(@"^Unloading Steam API\.\.\.OK$", RegexOptions.Compiled),
-                        new Regex(@"^Steam Console Client \(c\) Valve Corporation - version \d+$", RegexOptions.Compiled),
-                        new Regex(@"^-- type 'quit' to exit --$", RegexOptions.Compiled),
-                    };
-
+                    // Thêm vào recentOutputMessages và xử lý thông báo nếu không phải những dòng cần bỏ qua
                     if (recentOutputMessages.TryAdd(line, 0))
                     {
                         lock (outputBuffer)
@@ -2042,34 +2136,6 @@ namespace SteamCmdWebAPI.Services
                         continue;
                     }
 
-                    // Only keep Success and Error logs
-                    if (!logEntry.status.Equals("Success", StringComparison.OrdinalIgnoreCase) && 
-                        !logEntry.status.Equals("Error", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    // Skip autoregistrer and server registration logs
-                    if (logEntry.message.Contains("Đăng nhập Steam thành công", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.Contains("Đăng nhập Steam", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.Contains("Steamworks Common Redistributables", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.Contains("autoregistrer", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.Contains("server registration", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.StartsWith("Loading Steam API", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.StartsWith("Unloading Steam API", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.StartsWith("Redirecting stderr", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.StartsWith("Logging directory", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.StartsWith("Checking for available updates", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.StartsWith("Verifying installation", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.StartsWith("Waiting for client config", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.StartsWith("Waiting for user info", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.StartsWith("Steam Console Client", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.StartsWith("-- type 'quit' to exit --", StringComparison.OrdinalIgnoreCase) ||
-                        logEntry.message.StartsWith("Logging in using username/password", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
                     // Lọc thông tin nhạy cảm trước khi thêm vào batch
                     var sanitizedMessage = SanitizeLogMessage(logEntry.message);
                     logBatch.Add((logEntry.status, logEntry.profileName, sanitizedMessage));
@@ -2104,21 +2170,33 @@ namespace SteamCmdWebAPI.Services
                         statusText = status
                     };
 
+                    // Gửi log tới SignalR hub để hiển thị real-time
                     await _hubContext.Clients.All.SendAsync("ReceiveLog", logObject);
+
+                    // Ghi log vào LogService để lưu lịch sử
+                    string logLevel = status.ToUpper() switch
+                    {
+                        "SUCCESS" => "SUCCESS",
+                        "ERROR" => "ERROR",
+                        _ => "INFO"
+                    };
+
+                    // Thêm timestamp vào message để dễ theo dõi
+                    string timestampedMessage = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
+
+                    // Ghi vào LogService với đầy đủ thông tin
+                    _logService.AddLog(logLevel, timestampedMessage, displayProfileName, status);
+
+                    // Ghi log vào file
+                    var logEntry = new LogEntry(DateTime.Now, displayProfileName, status, message);
+                    SaveLogToFile(logEntry);
                 }
 
-                // Ghi logs vào console và LogService trong một batch
+                // Ghi logs vào console trong một batch
                 var logMessages = logBatch.Select(l => 
                     $"[{l.status}] [{(string.IsNullOrWhiteSpace(l.profileName) ? "System" : l.profileName)}] {l.message}");
                 
                 _logger.LogInformation(string.Join(Environment.NewLine, logMessages));
-
-                // Ghi vào LogService
-                foreach (var (status, profileName, message) in logBatch)
-                {
-                    string displayProfileName = string.IsNullOrWhiteSpace(profileName) ? "System" : profileName;
-                    _logService.AddLog(status.ToUpper(), message, displayProfileName, status);
-                }
             }
             catch (Exception ex)
             {

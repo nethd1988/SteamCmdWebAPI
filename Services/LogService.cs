@@ -51,12 +51,31 @@ namespace SteamCmdWebAPI.Services
             // Xóa các file log cũ
             CleanupOldLogs();
 
+            // Tải logs từ các file khi khởi động
+            LoadLogsFromFiles();
+
             // Bắt đầu xử lý queue
             Task.Run(ProcessLogQueue);
         }
 
+        private bool ShouldSkipLog(LogEntry entry)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Message))
+                return true;
+
+            // Skip all INFO logs
+            if (entry.Level.Equals("INFO", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // Keep all other logs (Success, Error, Warning)
+            return false;
+        }
+
         public void AddLog(string level, string message, string profileName = "", string status = "")
         {
+            // Chuẩn hóa level
+            level = level.ToUpper();
+
             var entry = new LogEntry
             {
                 Level = level,
@@ -66,14 +85,18 @@ namespace SteamCmdWebAPI.Services
                 ColorClass = GetColorClassForStatus(status)
             };
 
-            _logQueue.Enqueue(entry);
-
-            lock (_lockObject)
+            // Chỉ thêm log nếu không nên bỏ qua
+            if (!ShouldSkipLog(entry))
             {
-                _logs.Add(entry);
-                if (_logs.Count > MaxLogEntries)
+                _logQueue.Enqueue(entry);
+
+                lock (_lockObject)
                 {
-                    _logs.RemoveRange(0, _logs.Count - MaxLogEntries);
+                    _logs.Add(entry);
+                    if (_logs.Count > MaxLogEntries)
+                    {
+                        _logs.RemoveRange(0, _logs.Count - MaxLogEntries);
+                    }
                 }
             }
         }
@@ -247,24 +270,44 @@ namespace SteamCmdWebAPI.Services
                         .OrderByDescending(f => f.CreationTime)
                         .ToList();
 
+                    _logger.LogInformation($"Tìm thấy {logFiles.Count} file log để tải.");
+
                     foreach (var file in logFiles)
                     {
-                        if (File.Exists(file.FullName))
+                        try
                         {
-                            var lines = File.ReadAllLines(file.FullName);
-                            foreach (var line in lines)
+                            if (File.Exists(file.FullName))
                             {
-                                if (TryParseLogLine(line, out LogEntry logEntry))
+                                var lines = File.ReadAllLines(file.FullName);
+                                _logger.LogInformation($"Đang tải {lines.Length} dòng từ file {file.Name}");
+
+                                foreach (var line in lines.Reverse()) // Đọc từ dưới lên để lấy log mới nhất trước
                                 {
-                                    _logs.Add(logEntry);
-                                    if (_logs.Count >= MaxLogEntries)
-                                        break;
+                                    if (TryParseLogLine(line, out LogEntry logEntry) && !ShouldSkipLog(logEntry))
+                                    {
+                                        _logs.Add(logEntry);
+                                        if (_logs.Count >= MaxLogEntries)
+                                        {
+                                            _logger.LogInformation($"Đã đạt giới hạn {MaxLogEntries} log entries.");
+                                            break;
+                                        }
+                                    }
                                 }
+
+                                if (_logs.Count >= MaxLogEntries)
+                                    break;
                             }
-                            if (_logs.Count >= MaxLogEntries)
-                                break;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, $"Lỗi khi đọc file log {file.Name}");
                         }
                     }
+
+                    // Sắp xếp lại theo thời gian giảm dần
+                    _logs.Sort((a, b) => b.Timestamp.CompareTo(a.Timestamp));
+                    
+                    _logger.LogInformation($"Đã tải tổng cộng {_logs.Count} log entries.");
                 }
             }
             catch (Exception ex)
