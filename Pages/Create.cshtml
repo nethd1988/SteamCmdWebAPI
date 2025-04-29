@@ -93,18 +93,18 @@
             </div>
         </div>
 
-        <!-- Phần chọn profile từ server -->
+        <!-- Phần chọn profile từ server - Đã cập nhật theo mẫu thứ 2 -->
         <div class="card mt-4">
-            <div class="card-header bg-gradient-primary text-white py-3">
+            <div class="card-header bg-primary text-white">
                 <h5 class="mb-0">
-                    <i class="bi bi-cloud-download me-2"></i>
+                    <i class="bi bi-server me-2"></i>
                     Chọn profile từ Server
                 </h5>
             </div>
             <div class="card-body p-4">
                 <div class="mb-4">
-                    <label for="serverProfile" class="form-label fw-bold mb-2">Profiles có sẵn trên server:</label>
-                    <select id="serverProfile" class="form-select form-select-lg">
+                    <label for="serverProfile" class="form-label mb-2">Profiles có sẵn trên server:</label>
+                    <select id="serverProfile" class="form-select">
                         <option value="">-- Chọn profile từ server --</option>
                         @foreach (var profileName in Model.ServerProfiles)
                         {
@@ -114,11 +114,11 @@
                 </div>
 
                 <div class="d-flex gap-3">
-                    <button id="getProfileBtn" class="btn btn-info btn-lg flex-grow-1">
-                        <i class="bi bi-download me-2"></i>Tải thông tin
+                    <button id="importProfileBtn" class="btn btn-primary flex-grow-1">
+                        <i class="bi bi-download me-2"></i>Nhập profile từ server
                     </button>
-                    <button id="importProfileBtn" class="btn btn-success btn-lg flex-grow-1">
-                        <i class="bi bi-cloud-download me-2"></i>Nhập profile từ server
+                    <button id="getProfileBtn" class="btn btn-success flex-grow-1">
+                        <i class="bi bi-info-circle me-2"></i>Tải thông tin
                     </button>
                 </div>
             </div>
@@ -245,334 +245,369 @@
 </div>
 
 <style>
-    /* CSS cho modal chọn game */
-    .game-select-modal {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 1050;
-        overflow: hidden;
-        outline: 0;
-        background-color: rgba(0, 0, 0, 0.7);
-        backdrop-filter: blur(5px);
+/* Định nghĩa keyframes cho các animation */
+@@keyframes fadeIn {
+    from {
+        opacity: 0;
     }
-
-    .game-select-modal.show {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        animation: fadeIn 0.3s ease;
-    }
-
-    .game-select-modal .modal-dialog {
-        width: 100%;
-        max-width: 800px;
-        margin: 0 auto;
-        pointer-events: auto;
-        transform: translateY(0);
-        transition: transform 0.3s ease;
-        animation: slideDown 0.3s ease;
-    }
-
-    .game-select-modal .modal-content {
-        border: none;
-        border-radius: 16px;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-        background-color: #fff;
-        overflow: hidden;
-    }
-
-    .game-select-modal .modal-header {
-        background: linear-gradient(135deg, #4f46e5, #3b82f6);
-        color: white;
-        border: none;
-        padding: 24px;
-        position: relative;
-    }
-
-    .game-select-modal .modal-title {
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        font-size: 20px;
-    }
-
-    .game-select-modal .modal-title i {
-        font-size: 24px;
-    }
-
-    .game-select-modal .btn-close {
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 50%;
+    to {
         opacity: 1;
-        width: 32px;
-        height: 32px;
-        padding: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.3s;
     }
+}
 
-    .game-select-modal .btn-close:hover {
-        background: rgba(255, 255, 255, 0.3);
-        transform: rotate(90deg);
+@@keyframes slideDown {
+    from {
+        transform: translateY(-30px);
+        opacity: 0;
     }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
 
-    .game-select-modal .modal-body {
-        padding: 24px;
+@@keyframes spin {
+    to {
+        transform: rotate(360deg);
     }
+}
+    
+/* CSS cho modal chọn game */
+.game-select-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1050;
+    overflow: hidden;
+    outline: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(5px);
+}
 
-    /* Thanh tìm kiếm */
-    .game-select-modal .search-container {
-        position: relative;
-        margin-bottom: 24px;
-    }
+.game-select-modal.show {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease;
+}
 
-    .game-select-modal .search-input {
-        width: 100%;
-        padding: 16px 20px 16px 50px;
-        border: 2px solid #e2e8f0;
-        border-radius: 12px;
-        font-size: 16px;
-        background-color: #f8fafc;
-        transition: all 0.3s;
-    }
+.game-select-modal .modal-dialog {
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    pointer-events: auto;
+    transform: translateY(0);
+    transition: transform 0.3s ease;
+    animation: slideDown 0.3s ease;
+}
 
-    .game-select-modal .search-input:focus {
-        outline: none;
-        border-color: #4f46e5;
-        box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
-        background-color: #fff;
-    }
+.game-select-modal .modal-content {
+    border: none;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    background-color: #fff;
+    overflow: hidden;
+}
 
-    .game-select-modal .search-icon {
-        position: absolute;
-        top: 50%;
-        left: 18px;
-        transform: translateY(-50%);
-        color: #64748b;
-        font-size: 20px;
-    }
+.game-select-modal .modal-header {
+    background: linear-gradient(135deg, #4f46e5, #3b82f6);
+    color: white;
+    border: none;
+    padding: 24px;
+    position: relative;
+}
 
-    /* Thông báo */
-    .game-select-modal .alert {
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 24px;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        border: none;
-    }
+.game-select-modal .modal-title {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 20px;
+}
 
-    .game-select-modal .alert-info {
-        background-color: #EEF2FF;
-        color: #4f46e5;
-    }
+.game-select-modal .modal-title i {
+    font-size: 24px;
+}
 
-    .game-select-modal .alert-success {
-        background-color: #ECFDF5;
-        color: #059669;
-    }
+.game-select-modal .btn-close {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    opacity: 1;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s;
+}
 
-    .game-select-modal .alert i {
-        font-size: 22px;
-    }
+.game-select-modal .btn-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: rotate(90deg);
+}
 
-    /* Danh sách game */
-    .game-select-modal .games-list {
-        max-height: 450px;
-        overflow-y: auto;
-        border-radius: 12px;
-        padding: 8px;
-        margin: 0 -8px;
-    }
+.game-select-modal .modal-body {
+    padding: 24px;
+}
 
-    .game-select-modal .game-item {
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 12px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        transition: all 0.3s;
-        background-color: #fff;
-    }
+/* Thanh tìm kiếm */
+.game-select-modal .search-container {
+    position: relative;
+    margin-bottom: 24px;
+}
 
-    .game-select-modal .game-item:hover {
-        border-color: #4f46e5;
-        box-shadow: 0 8px 16px rgba(79, 70, 229, 0.1);
-        transform: translateY(-2px);
-        background-color: #f8fafc;
-    }
+.game-select-modal .search-input {
+    width: 100%;
+    padding: 16px 20px 16px 50px;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 16px;
+    background-color: #f8fafc;
+    transition: all 0.3s;
+}
 
-    .game-select-modal .game-info {
-        flex: 1;
-    }
+.game-select-modal .search-input:focus {
+    outline: none;
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+    background-color: #fff;
+}
 
-    .game-select-modal .game-title {
-        font-weight: 600;
-        font-size: 18px;
-        color: #1e293b;
-        margin-bottom: 6px;
-    }
+.game-select-modal .search-icon {
+    position: absolute;
+    top: 50%;
+    left: 18px;
+    transform: translateY(-50%);
+    color: #64748b;
+    font-size: 20px;
+}
 
-    .game-select-modal .game-details {
-        color: #64748b;
-        font-size: 14px;
-        max-width: 450px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
+/* Thông báo */
+.game-select-modal .alert {
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: none;
+}
 
-    .game-select-modal .game-details span {
-        display: block;
-        margin-bottom: 4px;
-    }
+.game-select-modal .alert-info {
+    background-color: #EEF2FF;
+    color: #4f46e5;
+}
 
-    .game-select-modal .btn-select {
-        background: linear-gradient(135deg, #4f46e5, #3b82f6);
-        color: white;
-        padding: 10px 20px;
-        border-radius: 10px;
-        font-weight: 500;
-        border: none;
-        transition: all 0.3s;
-        min-width: 120px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-    }
+.game-select-modal .alert-success {
+    background-color: #ECFDF5;
+    color: #059669;
+}
 
-    .game-select-modal .btn-select:hover {
-        box-shadow: 0 8px 16px rgba(79, 70, 229, 0.2);
-        transform: translateY(-2px);
-    }
+.game-select-modal .alert i {
+    font-size: 22px;
+}
 
-    .game-select-modal .btn-select i {
-        font-size: 18px;
-    }
+/* Danh sách game */
+.game-select-modal .games-list {
+    max-height: 450px;
+    overflow-y: auto;
+    border-radius: 12px;
+    padding: 8px;
+    margin: 0 -8px;
+}
 
-    /* Thanh cuộn tùy chỉnh */
-    .game-select-modal .games-list::-webkit-scrollbar {
-        width: 10px;
-    }
+.game-select-modal .game-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.3s;
+    background-color: #fff;
+}
 
-    .game-select-modal .games-list::-webkit-scrollbar-track {
-        background: #f1f5f9;
-        border-radius: 10px;
-    }
+.game-select-modal .game-item:hover {
+    border-color: #4f46e5;
+    box-shadow: 0 8px 16px rgba(79, 70, 229, 0.1);
+    transform: translateY(-2px);
+    background-color: #f8fafc;
+}
 
-    .game-select-modal .games-list::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 10px;
-        border: 2px solid #f1f5f9;
-    }
+.game-select-modal .game-info {
+    flex: 1;
+}
 
-    .game-select-modal .games-list::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-    }
+.game-select-modal .game-title {
+    font-weight: 600;
+    font-size: 18px;
+    color: #1e293b;
+    margin-bottom: 6px;
+}
 
-    .game-select-modal .modal-footer {
-        border-top: 1px solid #e2e8f0;
-        padding: 20px 24px;
-        display: flex;
-        justify-content: flex-end;
-    }
+.game-select-modal .game-details {
+    color: #64748b;
+    font-size: 14px;
+    max-width: 450px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 
-    .game-select-modal .modal-footer .btn-secondary {
-        padding: 12px 24px;
-        font-weight: 500;
-        border-radius: 10px;
-        border: none;
-        background: #f1f5f9;
-        color: #334155;
-        transition: all 0.3s;
-    }
+.game-select-modal .game-details span {
+    display: block;
+    margin-bottom: 4px;
+}
 
-    .game-select-modal .modal-footer .btn-secondary:hover {
-        background: #e2e8f0;
-        transform: translateY(-2px);
-    }
+.game-select-modal .btn-select {
+    background: linear-gradient(135deg, #4f46e5, #3b82f6);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-weight: 500;
+    border: none;
+    transition: all 0.3s;
+    min-width: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
 
-    /* Badge số lượng game */
-    .game-select-modal .game-count {
-        font-size: 14px;
-        background: rgba(255, 255, 255, 0.2);
-        padding: 6px 14px;
-        border-radius: 20px;
-        margin-left: 12px;
-        font-weight: 500;
-    }
+.game-select-modal .btn-select:hover {
+    box-shadow: 0 8px 16px rgba(79, 70, 229, 0.2);
+    transform: translateY(-2px);
+}
 
-    /* Đánh dấu từ khóa tìm kiếm */
-    .game-select-modal .highlight {
-        background-color: rgba(79, 70, 229, 0.1);
-        padding: 0 4px;
-        border-radius: 4px;
-        font-weight: 500;
-        color: #4f46e5;
-    }
+.game-select-modal .btn-select i {
+    font-size: 18px;
+}
 
-    /* Phần đang tải dữ liệu */
-    .game-select-modal .loading {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 60px 0;
-    }
+/* Thanh cuộn tùy chỉnh */
+.game-select-modal .games-list::-webkit-scrollbar {
+    width: 10px;
+}
 
-    .game-select-modal .loading .spinner {
-        width: 50px;
-        height: 50px;
-        border: 4px solid rgba(79, 70, 229, 0.1);
-        border-radius: 50%;
-        border-top-color: #4f46e5;
-        animation: spin 1s linear infinite;
-        margin-bottom: 24px;
-    }
+.game-select-modal .games-list::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 10px;
+}
 
-    .game-select-modal .loading-text {
-        font-size: 16px;
-        color: #64748b;
-        text-align: center;
-        font-weight: 500;
-    }
+.game-select-modal .games-list::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+    border: 2px solid #f1f5f9;
+}
 
-    @@keyframes spin {
-        to {
-            transform: rotate(360deg);
-        }
-    }
+.game-select-modal .games-list::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
 
-    @@keyframes fadeIn {
-        from {
-            opacity: 0;
-        }
-        to {
-            opacity: 1;
-        }
-    }
+.game-select-modal .modal-footer {
+    border-top: 1px solid #e2e8f0;
+    padding: 20px 24px;
+    display: flex;
+    justify-content: flex-end;
+}
 
-    @@keyframes slideDown {
-        from {
-            transform: translateY(-30px);
-            opacity: 0;
-        }
-        to {
-            transform: translateY(0);
-            opacity: 1;
-        }
-    }
+.game-select-modal .modal-footer .btn-secondary {
+    padding: 12px 24px;
+    font-weight: 500;
+    border-radius: 10px;
+    border: none;
+    background: #f1f5f9;
+    color: #334155;
+    transition: all 0.3s;
+}
+
+.game-select-modal .modal-footer .btn-secondary:hover {
+    background: #e2e8f0;
+    transform: translateY(-2px);
+}
+
+/* Badge số lượng game */
+.game-select-modal .game-count {
+    font-size: 14px;
+    background: rgba(255, 255, 255, 0.2);
+    padding: 6px 14px;
+    border-radius: 20px;
+    margin-left: 12px;
+    font-weight: 500;
+}
+
+/* Đánh dấu từ khóa tìm kiếm */
+.game-select-modal .highlight {
+    background-color: rgba(79, 70, 229, 0.1);
+    padding: 0 4px;
+    border-radius: 4px;
+    font-weight: 500;
+    color: #4f46e5;
+}
+
+/* Phần đang tải dữ liệu */
+.game-select-modal .loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 0;
+}
+
+.game-select-modal .loading .spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid rgba(79, 70, 229, 0.1);
+    border-radius: 50%;
+    border-top-color: #4f46e5;
+    animation: spin 1s linear infinite;
+    margin-bottom: 24px;
+}
+
+.game-select-modal .loading-text {
+    font-size: 16px;
+    color: #64748b;
+    text-align: center;
+    font-weight: 500;
+}
+
+/* CSS cho phần chọn profile từ server */
+.form-select {
+    display: block;
+    width: 100%;
+    padding: 0.375rem 2.25rem 0.375rem 0.75rem;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.5;
+    color: #212529;
+    background-color: #fff;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 16px 12px;
+    border: 1px solid #ced4da;
+    border-radius: 0.375rem;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    appearance: none;
+}
+
+.form-select:focus {
+    border-color: #86b7fe;
+    outline: 0;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.gap-3 {
+    gap: 1rem !important;
+}
+
+.flex-grow-1 {
+    flex-grow: 1 !important;
+}
 </style>
 
 @section Scripts {
@@ -772,7 +807,6 @@
                 });
             });
 
-
             // Xử lý lấy thông tin profile từ server
             $(document).on('click', "#getProfileBtn", function() {
                 var selectedProfile = $("#serverProfile").val();
@@ -805,7 +839,7 @@
                         alert("Lỗi khi tải thông tin profile: " + error);
                     },
                     complete: function() {
-                        $("#getProfileBtn").prop("disabled", false).html('<i class="bi bi-download me-1"></i> Tải thông tin');
+                        $("#getProfileBtn").prop("disabled", false).html('<i class="bi bi-info-circle me-2"></i> Tải thông tin');
                     }
                 });
             });
@@ -844,7 +878,7 @@
                         alert("Lỗi khi nhập profile: " + error);
                     },
                     complete: function() {
-                        $("#importProfileBtn").prop("disabled", false).html('<i class="bi bi-check2-circle me-1"></i> Nhập profile từ server');
+                        $("#importProfileBtn").prop("disabled", false).html('<i class="bi bi-download me-2"></i> Nhập profile từ server');
                     }
                 });
             });
