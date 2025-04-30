@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System;
 using System.Text;
 using System.Threading;
+using SteamCmdWebAPI.Models;
 
 namespace SteamCmdWebAPI.Hubs
 {
@@ -36,6 +37,11 @@ namespace SteamCmdWebAPI.Hubs
         }
 
         // Phương thức khi client kết nối
+        public async Task SendQueueUpdate(object queueData)
+        {
+            await Clients.All.SendAsync("ReceiveQueueUpdate", queueData);
+        }
+
         public override async Task OnConnectedAsync()
         {
             await Clients.Caller.SendAsync("ReceiveLog", "Đã kết nối với máy chủ SteamAUTO thành công!");

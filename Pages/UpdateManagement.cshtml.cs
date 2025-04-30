@@ -39,6 +39,7 @@ namespace SteamCmdWebAPI.Pages
         private readonly ProfileService _profileService;
         private readonly SteamCmdService _steamCmdService;
         private readonly UpdateCheckService _updateCheckService;
+        private readonly QueueService _queueService;
         // Thêm DependencyManagerService [cite: 6]
         private readonly DependencyManagerService _dependencyManagerService;
 
@@ -61,20 +62,21 @@ namespace SteamCmdWebAPI.Pages
         public bool AutoUpdateProfiles { get; set; }
 
         public UpdateManagementModel(
-            ILogger<UpdateManagementModel> logger,
-            SteamApiService steamApiService,
-            ProfileService profileService,
-            SteamCmdService steamCmdService,
-            UpdateCheckService updateCheckService,
-            // Inject DependencyManagerService [cite: 9]
-            DependencyManagerService dependencyManagerService)
+    ILogger<UpdateManagementModel> logger,
+    SteamApiService steamApiService,
+    ProfileService profileService,
+    SteamCmdService steamCmdService,
+    UpdateCheckService updateCheckService,
+    DependencyManagerService dependencyManagerService,
+    QueueService queueService) // Thêm QueueService
         {
-            _logger = logger; // [cite: 7]
-            _steamApiService = steamApiService; // [cite: 7]
-            _profileService = profileService; // [cite: 8]
-            _steamCmdService = steamCmdService; // [cite: 8]
-            _updateCheckService = updateCheckService; // [cite: 9]
-            _dependencyManagerService = dependencyManagerService; // [cite: 9]
+            _logger = logger;
+            _steamApiService = steamApiService;
+            _profileService = profileService;
+            _steamCmdService = steamCmdService;
+            _updateCheckService = updateCheckService;
+            _dependencyManagerService = dependencyManagerService;
+            _queueService = queueService; // Thêm _queueService
         }
 
         public async Task OnGetAsync()
@@ -421,52 +423,46 @@ namespace SteamCmdWebAPI.Pages
             }
         }
 
-        // Cập nhật phương thức để xử lý app chính và phụ thuộc [cite: 43]
-        public async Task<IActionResult> OnPostUpdateAppAsync(string appId, int profileId, bool isMainApp) // Thêm profileId và isMainApp
+        // Sửa phương thức OnPostUpdateAppAsync để sử dụng QueueService
+        public async Task<IActionResult> OnPostUpdateAppAsync(string appId, int profileId, bool isMainApp)
         {
             try
             {
                 if (string.IsNullOrEmpty(appId))
                 {
-                    return new JsonResult(new { success = false, message = "Không có App ID được chỉ định." }); // [cite: 43]
+                    return new JsonResult(new { success = false, message = "Không có App ID được chỉ định." });
                 }
 
-                bool success; // [cite: 44]
-
-                if (isMainApp) // [cite: 44]
+                var profile = await _profileService.GetProfileById(profileId);
+                if (profile == null)
                 {
-                    // Nếu là app chính, cập nhật toàn bộ profile [cite: 45]
-                    _logger.LogInformation("Yêu cầu cập nhật profile chính: ProfileId={ProfileId}, AppId={AppId}", profileId, appId);
-                    success = await _steamCmdService.QueueProfileForUpdate(profileId); // [cite: 45]
+                    return new JsonResult(new { success = false, message = "Không tìm thấy profile." });
+                }
 
-                    return new JsonResult(new
-                    {
-                        success = success, // [cite: 46]
-                        message = success // [cite: 46]
-                            ? $"Đã thêm profile (ID: {profileId}) với App ID {appId} vào hàng đợi cập nhật." // [cite: 46]
-                            : $"Không thể thêm profile (ID: {profileId}) vào hàng đợi." // [cite: 46]
-                    }); // [cite: 47]
+                // Sử dụng QueueService để thêm vào hàng đợi
+                bool success = await _queueService.AddToQueue(profileId, appId, isMainApp);
+
+                if (success)
+                {
+                    string message = isMainApp
+                        ? $"Đã thêm profile '{profile.Name}' với App ID {appId} vào hàng đợi cập nhật."
+                        : $"Đã thêm App ID {appId} (phụ thuộc) của profile '{profile.Name}' vào hàng đợi cập nhật.";
+
+                    return new JsonResult(new { success = true, message = message });
                 }
                 else
                 {
-                    // Nếu là app phụ thuộc, chỉ cập nhật app đó [cite: 48]
-                    _logger.LogInformation("Yêu cầu cập nhật app phụ thuộc: ProfileId={ProfileId}, AppId={AppId}", profileId, appId);
-                    success = await _steamCmdService.RunSpecificAppAsync(profileId, appId); // [cite: 48]
+                    string message = isMainApp
+                        ? $"Không thể thêm profile '{profile.Name}' vào hàng đợi."
+                        : $"Không thể thêm App ID {appId} (phụ thuộc) vào hàng đợi.";
 
-                    return new JsonResult(new
-                    {
-                        success = success, // [cite: 49]
-                        message = success // [cite: 49]
-                            ? $"Đã thêm App ID {appId} (phụ thuộc) của profile ID {profileId} vào hàng đợi cập nhật." // [cite: 49]
-                            : $"Không thể cập nhật App ID {appId} (phụ thuộc)." // [cite: 49]
-                    }); // [cite: 50]
+                    return new JsonResult(new { success = false, message = message });
                 }
             }
             catch (Exception ex)
             {
-                // Cập nhật logging để bao gồm cả profileId [cite: 51]
-                _logger.LogError(ex, "Lỗi khi cập nhật App ID {AppId} của profile {ProfileId}", appId, profileId); // [cite: 51]
-                return new JsonResult(new { success = false, message = ex.Message }); // [cite: 52]
+                _logger.LogError(ex, "Lỗi khi cập nhật App ID {AppId} của profile {ProfileId}", appId, profileId);
+                return new JsonResult(new { success = false, message = ex.Message });
             }
         }
     }

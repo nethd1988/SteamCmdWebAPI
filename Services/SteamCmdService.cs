@@ -31,6 +31,7 @@ namespace SteamCmdWebAPI.Services
         private readonly LogService _logService;
         private readonly LicenseService _licenseService;
 
+
         private const int MaxLogEntries = 5000;
         private const int RetryDelayMs = 5000;
         private const int ProcessExitTimeoutMs = 20000;
@@ -120,6 +121,7 @@ namespace SteamCmdWebAPI.Services
             DependencyManagerService dependencyManagerService,
             LogService logService,
             LicenseService licenseService)
+            
         {
             _logger = logger;
             _hubContext = hubContext;
@@ -812,7 +814,7 @@ namespace SteamCmdWebAPI.Services
                     return false;
                 }
 
-                // Kiểm tra xem đã có trong hàng đợi chưa
+                // Chuyển lại sang dùng _updateQueue thay vì _queueService
                 bool alreadyInQueue = false;
                 foreach (var id in _updateQueue)
                 {

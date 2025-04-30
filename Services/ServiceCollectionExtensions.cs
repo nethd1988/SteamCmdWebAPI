@@ -16,10 +16,14 @@ namespace SteamCmdWebAPI.Services
             services.AddSingleton<ServerSettingsService>();
             services.AddSingleton<LogFileReader>();
             services.AddSingleton<SteamApiService>();
+            services.AddSingleton<LogService>();
+            services.AddSingleton<DependencyManagerService>();
+
+            // Đảm bảo QueueService được đăng ký TRƯỚC SteamCmdService
+            services.AddSingleton<QueueService>();
             services.AddSingleton<SteamCmdService>();
             services.AddSingleton<TcpClientService>();
             services.AddSingleton<UserService>();
-            services.AddSingleton<DependencyManagerService>();
 
             // Cấu hình AutoRun và UpdateCheck
             services.AddSingleton<AutoRunConfiguration>();

@@ -48,6 +48,12 @@
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a href="/QueueManager" class="nav-link @(ViewData["ActivePage"] as string == "QueueManager" ? "active" : "")">
+                        <span class="nav-icon material-symbols-rounded">queue</span>
+                        <span class="nav-label">Quản lý hàng đợi</span>
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a href="/Create" class="nav-link @(ViewData["ActivePage"] as string == "Create" ? "active" : "")">
                         <span class="nav-icon material-symbols-rounded">add_circle</span>
                         <span class="nav-label">Thêm profile</span>
