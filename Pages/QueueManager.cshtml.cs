@@ -16,9 +16,9 @@ namespace SteamCmdWebAPI.Pages
         private readonly QueueService _queueService;
         private readonly ProfileService _profileService;
 
-        public List<QueueItem> CurrentQueue { get; private set; } = new List<QueueItem>();
-        public List<QueueItem> QueueHistory { get; private set; } = new List<QueueItem>();
-        public bool IsProcessing { get; private set; }
+        public List<QueueItem> CurrentQueue { get; set; } = new List<QueueItem>();
+        public List<QueueItem> QueueHistory { get; set; } = new List<QueueItem>();
+        public bool IsProcessing { get; set; }
 
         public QueueManagerModel(
             ILogger<QueueManagerModel> logger,
@@ -35,6 +35,20 @@ namespace SteamCmdWebAPI.Pages
             CurrentQueue = _queueService.GetQueue();
             QueueHistory = _queueService.GetQueueHistory();
             IsProcessing = CurrentQueue.Any(q => q.Status == "Đang xử lý");
+        }
+
+        public IActionResult OnGetGetCurrentQueue()
+        {
+            try
+            {
+                var currentQueue = _queueService.GetQueue();
+                return new JsonResult(new { success = true, data = currentQueue });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy danh sách hàng đợi hiện tại");
+                return new JsonResult(new { success = false, message = "Lỗi khi lấy danh sách hàng đợi" });
+            }
         }
 
         public async Task<IActionResult> OnPostStartProcessingAsync()

@@ -255,6 +255,19 @@
                     console.error("Lỗi kết nối SignalR: " + err);
                 });
 
+            // Tự động làm mới hàng đợi hiện tại mỗi 5 giây
+            setInterval(function() {
+                $.ajax({
+                    url: "/QueueManager?handler=GetCurrentQueue",
+                    method: "GET",
+                    success: function(response) {
+                        if (response.success) {
+                            updateCurrentQueueTable(response.data);
+                        }
+                    }
+                });
+            }, 5000);
+
             // Tìm kiếm trong bảng hàng đợi
             $("#queueSearch").on("keyup", function() {
                 var value = $(this).val().toLowerCase();
