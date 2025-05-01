@@ -8,7 +8,6 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Services;
 using SteamCmdWebAPI.Models;
-using Newtonsoft.Json;
 
 namespace SteamCmdWebAPI.Pages
 {
@@ -16,16 +15,10 @@ namespace SteamCmdWebAPI.Pages
     {
         public AppUpdateInfo ApiInfo { get; set; }
         public bool NeedsUpdate { get; set; }
-        public bool HasChangedSinceLastCheck { get; set; }
         public long SizeOnDisk { get; set; }
-        public string LastUpdateStatus { get; set; }
         public string FormattedSize => SizeOnDisk > 0 ? $"{(SizeOnDisk / 1024.0 / 1024.0 / 1024.0):F2} GB" : "Không xác định";
-        public long PreviousApiChangeNumber => ApiInfo?.LastCheckedChangeNumber ?? 0;
-        public long CurrentApiChangeNumber => ApiInfo?.ChangeNumber ?? 0;
-        public DateTime? PreviousUpdateDateTime => ApiInfo?.LastCheckedUpdateDateTime;
-        public DateTime? CurrentUpdateDateTime => ApiInfo?.LastUpdateDateTime;
 
-        // Thêm các thuộc tính mới [cite: 2, 3, 4, 5]
+        // Thuộc tính để hiển thị dễ đọc
         public int ProfileId { get; set; }
         public string ProfileName { get; set; }
         public bool IsMainApp { get; set; } = true;
@@ -39,10 +32,7 @@ namespace SteamCmdWebAPI.Pages
         private readonly ProfileService _profileService;
         private readonly SteamCmdService _steamCmdService;
         private readonly UpdateCheckService _updateCheckService;
-        private readonly QueueService _queueService;
-        // Thêm DependencyManagerService [cite: 6]
         private readonly DependencyManagerService _dependencyManagerService;
-
 
         [TempData]
         public string StatusMessage { get; set; }
@@ -62,13 +52,12 @@ namespace SteamCmdWebAPI.Pages
         public bool AutoUpdateProfiles { get; set; }
 
         public UpdateManagementModel(
-    ILogger<UpdateManagementModel> logger,
-    SteamApiService steamApiService,
-    ProfileService profileService,
-    SteamCmdService steamCmdService,
-    UpdateCheckService updateCheckService,
-    DependencyManagerService dependencyManagerService,
-    QueueService queueService) // Thêm QueueService
+            ILogger<UpdateManagementModel> logger,
+            SteamApiService steamApiService,
+            ProfileService profileService,
+            SteamCmdService steamCmdService,
+            UpdateCheckService updateCheckService,
+            DependencyManagerService dependencyManagerService)
         {
             _logger = logger;
             _steamApiService = steamApiService;
@@ -76,69 +65,64 @@ namespace SteamCmdWebAPI.Pages
             _steamCmdService = steamCmdService;
             _updateCheckService = updateCheckService;
             _dependencyManagerService = dependencyManagerService;
-            _queueService = queueService; // Thêm _queueService
         }
 
         public async Task OnGetAsync()
         {
             try
             {
-                var currentSettings = _updateCheckService.GetCurrentSettings(); // [cite: 10]
-                UpdateCheckEnabled = currentSettings.Enabled; // [cite: 11]
-                UpdateCheckIntervalMinutes = currentSettings.IntervalMinutes; // [cite: 12]
-                AutoUpdateProfiles = currentSettings.AutoUpdateProfiles; // [cite: 13]
+                var currentSettings = _updateCheckService.GetCurrentSettings();
+                UpdateCheckEnabled = currentSettings.Enabled;
+                UpdateCheckIntervalMinutes = currentSettings.IntervalMinutes;
+                AutoUpdateProfiles = currentSettings.AutoUpdateProfiles;
 
-                if (UpdateCheckIntervalMinutes < 10) UpdateCheckIntervalMinutes = 10; // [cite: 14]
-                if (UpdateCheckIntervalMinutes > 1440) UpdateCheckIntervalMinutes = 1440; // [cite: 15]
+                if (UpdateCheckIntervalMinutes < 10) UpdateCheckIntervalMinutes = 10;
+                if (UpdateCheckIntervalMinutes > 1440) UpdateCheckIntervalMinutes = 1440;
 
-                var profiles = await _profileService.GetAllProfiles(); // [cite: 16]
-                // Lấy tất cả phụ thuộc [cite: 17]
-                var allDependencies = await _dependencyManagerService.GetAllDependenciesAsync(); // [cite: 17]
+                var profiles = await _profileService.GetAllProfiles();
+                var allDependencies = await _dependencyManagerService.GetAllDependenciesAsync();
 
                 foreach (var profile in profiles)
                 {
                     if (string.IsNullOrEmpty(profile.AppID) || string.IsNullOrEmpty(profile.InstallDirectory))
                     {
-                        _logger.LogWarning("Bỏ qua profile {0} do thiếu AppID hoặc Thư mục cài đặt.", profile.Name); // [cite: 18]
-                        continue; // [cite: 19]
+                        _logger.LogWarning("Bỏ qua profile {0} do thiếu AppID hoặc Thư mục cài đặt.", profile.Name);
+                        continue;
                     }
 
                     // Xử lý app chính
-                    var apiInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID); // [cite: 20]
+                    var apiInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID);
                     if (apiInfo == null)
                     {
                         UpdateInfos.Add(new AppUpdateViewModel
                         {
-                            ApiInfo = new AppUpdateInfo // [cite: 21]
+                            ApiInfo = new AppUpdateInfo
                             {
-                                AppID = profile.AppID, // [cite: 21]
-                                Name = profile.Name, // [cite: 21]
-                                LastUpdate = "Không thể lấy thông tin API" // [cite: 22]
+                                AppID = profile.AppID,
+                                Name = profile.Name,
+                                LastUpdate = "Không thể lấy thông tin API"
                             },
-                            NeedsUpdate = false, // [cite: 22]
-                            LastUpdateStatus = "Không xác định", // [cite: 23]
-                            ProfileId = profile.Id, // [cite: 23]
-                            ProfileName = profile.Name, // [cite: 23]
-                            IsMainApp = true // [cite: 23]
+                            NeedsUpdate = false,
+                            ProfileId = profile.Id,
+                            ProfileName = profile.Name,
+                            IsMainApp = true
                         });
-                        continue; // [cite: 24]
+                        continue;
                     }
 
                     var viewModel = new AppUpdateViewModel
                     {
-                        ApiInfo = apiInfo, // [cite: 25]
-                        NeedsUpdate = false, // [cite: 26]
-                        HasChangedSinceLastCheck = false, // [cite: 26]
-                        SizeOnDisk = apiInfo.SizeOnDisk, // [cite: 26]
-                        LastUpdateStatus = "Đã cập nhật", // [cite: 27]
-                        ProfileId = profile.Id, // [cite: 27]
-                        ProfileName = profile.Name, // [cite: 27]
-                        IsMainApp = true // [cite: 27]
+                        ApiInfo = apiInfo,
+                        NeedsUpdate = false,
+                        SizeOnDisk = apiInfo.SizeOnDisk,
+                        ProfileId = profile.Id,
+                        ProfileName = profile.Name,
+                        IsMainApp = true
                     };
 
                     try
                     {
-                        // Logic đọc manifest và cập nhật SizeOnDisk vẫn giữ nguyên
+                        // Logic đọc manifest và cập nhật SizeOnDisk
                         if (viewModel.SizeOnDisk == 0)
                         {
                             string steamappsDir = Path.Combine(profile.InstallDirectory, "steamapps");
@@ -156,49 +140,41 @@ namespace SteamCmdWebAPI.Pages
                         _logger.LogError(ex, "Lỗi khi đọc manifest cho profile {0} (AppID: {1})", profile.Name, profile.AppID);
                     }
 
-                    // Logic kiểm tra NeedsUpdate và HasChangedSinceLastCheck vẫn giữ nguyên
+                    // Đơn giản hóa việc xác định cần cập nhật hay không
                     if (apiInfo.LastCheckedChangeNumber > 0 && apiInfo.ChangeNumber != apiInfo.LastCheckedChangeNumber)
                     {
-                        viewModel.HasChangedSinceLastCheck = true;
-                        viewModel.LastUpdateStatus = "ChangeNumber thay đổi từ lần kiểm tra trước";
                         viewModel.NeedsUpdate = true;
                     }
                     else if (apiInfo.LastCheckedUpdateDateTime.HasValue &&
                             apiInfo.LastUpdateDateTime.HasValue &&
                             apiInfo.LastUpdateDateTime.Value != apiInfo.LastCheckedUpdateDateTime.Value)
                     {
-                        viewModel.HasChangedSinceLastCheck = true;
-                        viewModel.LastUpdateStatus = "Thời gian cập nhật thay đổi từ lần kiểm tra trước";
                         viewModel.NeedsUpdate = true;
                     }
 
+                    UpdateInfos.Add(viewModel);
 
-                    UpdateInfos.Add(viewModel); // [cite: 29]
-
-                    // Xử lý các ứng dụng phụ thuộc [cite: 30]
-                    var dependency = allDependencies.FirstOrDefault(d => d.ProfileId == profile.Id); // [cite: 30]
-                    if (dependency != null && dependency.DependentApps.Any()) // [cite: 30]
+                    // Xử lý các ứng dụng phụ thuộc
+                    var dependency = allDependencies.FirstOrDefault(d => d.ProfileId == profile.Id);
+                    if (dependency != null && dependency.DependentApps.Any())
                     {
-                        foreach (var app in dependency.DependentApps) // [cite: 31]
+                        foreach (var app in dependency.DependentApps)
                         {
-                            var dependentAppInfo = await _steamApiService.GetAppUpdateInfo(app.AppId); // [cite: 31]
-                            if (dependentAppInfo == null) continue; // [cite: 31]
+                            var dependentAppInfo = await _steamApiService.GetAppUpdateInfo(app.AppId);
+                            if (dependentAppInfo == null) continue;
 
-                            var dependentViewModel = new AppUpdateViewModel // [cite: 32]
+                            var dependentViewModel = new AppUpdateViewModel
                             {
-                                ApiInfo = dependentAppInfo, // [cite: 33]
-                                // Lấy trạng thái NeedsUpdate từ thông tin dependency [cite: 33]
-                                NeedsUpdate = app.NeedsUpdate, // [cite: 33]
-                                HasChangedSinceLastCheck = app.NeedsUpdate, // [cite: 33]
-                                SizeOnDisk = dependentAppInfo.SizeOnDisk, // [cite: 34]
-                                LastUpdateStatus = app.NeedsUpdate ? "Cần cập nhật (Phụ thuộc)" : "Đã cập nhật (Phụ thuộc)", // [cite: 34, 35]
-                                ProfileId = profile.Id, // [cite: 36]
-                                ProfileName = profile.Name, // [cite: 36]
-                                IsMainApp = false, // [cite: 36]
-                                ParentAppId = profile.AppID // [cite: 36]
+                                ApiInfo = dependentAppInfo,
+                                NeedsUpdate = app.NeedsUpdate,
+                                SizeOnDisk = dependentAppInfo.SizeOnDisk,
+                                ProfileId = profile.Id,
+                                ProfileName = profile.Name,
+                                IsMainApp = false,
+                                ParentAppId = profile.AppID
                             };
 
-                            // Cập nhật SizeOnDisk cho app phụ thuộc từ manifest (tương tự app chính)
+                            // Cập nhật SizeOnDisk cho app phụ thuộc từ manifest
                             try
                             {
                                 if (dependentViewModel.SizeOnDisk == 0)
@@ -218,28 +194,27 @@ namespace SteamCmdWebAPI.Pages
                                 _logger.LogError(ex, "Lỗi khi đọc manifest cho app phụ thuộc {0} (Profile: {1})", app.AppId, profile.Name);
                             }
 
-                            UpdateInfos.Add(dependentViewModel); // [cite: 38]
+                            UpdateInfos.Add(dependentViewModel);
                         }
                     }
                 }
 
-                // Sắp xếp: App chính lên đầu, sau đó theo thời gian cập nhật [cite: 39]
+                // Sắp xếp: App chính lên đầu, sau đó theo tên app
                 UpdateInfos = UpdateInfos
-                    .OrderByDescending(vm => vm.IsMainApp) // [cite: 39]
-                    .ThenByDescending(vm => vm.CurrentUpdateDateTime) // [cite: 39]
-                    .ToList(); // [cite: 39]
+                    .OrderByDescending(vm => vm.IsMainApp)
+                    .ThenBy(vm => vm.ApiInfo.Name)
+                    .ToList();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi tải thông tin cập nhật hoặc cài đặt"); // [cite: 40]
-                StatusMessage = $"Lỗi khi tải thông tin: {ex.Message}"; // [cite: 41]
-                IsSuccess = false; // [cite: 42]
+                _logger.LogError(ex, "Lỗi khi tải thông tin cập nhật hoặc cài đặt");
+                StatusMessage = $"Lỗi khi tải thông tin: {ex.Message}";
+                IsSuccess = false;
             }
         }
 
         public async Task<IActionResult> OnPostSaveUpdateCheckSettingsAsync()
         {
-            // Logic này giữ nguyên, không thay đổi theo hướng dẫn
             try
             {
                 if (UpdateCheckIntervalMinutes < 10 || UpdateCheckIntervalMinutes > 1440)
@@ -314,17 +289,9 @@ namespace SteamCmdWebAPI.Pages
                         profileNeedsUpdate = true;
                         appsNeedingUpdateCount++;
 
-                        string updateReason = $"ChangeNumber API thay đổi: {previousChangeNumber} -> {latestAppInfo.ChangeNumber}";
-                        _logger.LogInformation("Phát hiện thay đổi ChangeNumber cho app chính {0} (AppID: {1}): {2} -> {3}",
-                            profile.Name, profile.AppID, previousChangeNumber, latestAppInfo.ChangeNumber);
-
                         // Chỉ cập nhật app chính nếu có cập nhật
                         if (mainAppNeedsUpdate)
                         {
-                            _logger.LogInformation("Thêm app chính {0} (AppID: {1}) vào hàng đợi cập nhật...",
-                                profile.Name, profile.AppID);
-
-                            // Chỉ cập nhật app chính
                             await _steamCmdService.RunSpecificAppAsync(profile.Id, profile.AppID);
                         }
                     }
@@ -361,19 +328,12 @@ namespace SteamCmdWebAPI.Pages
                                 profileNeedsUpdate = true;
                                 appsNeedingUpdateCount++;
 
-                                string updateReason = $"ChangeNumber API thay đổi: {depPreviousChangeNumber} -> {depLatestInfo.ChangeNumber}";
-                                _logger.LogInformation("Phát hiện thay đổi ChangeNumber cho app phụ thuộc (AppID: {0}): {1}",
-                                    appId, updateReason);
-
                                 // Đánh dấu app cần cập nhật
                                 await _dependencyManagerService.MarkAppForUpdateAsync(appId);
 
                                 // Chỉ cập nhật app phụ thuộc cụ thể nếu có cập nhật
                                 if (depNeedsUpdate)
                                 {
-                                    _logger.LogInformation("Thêm app phụ thuộc (AppID: {0}) vào hàng đợi cập nhật...", appId);
-
-                                    // Chạy riêng cho từng app phụ thuộc
                                     await _steamCmdService.RunSpecificAppAsync(profile.Id, appId);
                                 }
                             }
@@ -396,7 +356,7 @@ namespace SteamCmdWebAPI.Pages
                 {
                     success = true,
                     message = $"Đã kiểm tra {checkedCount} profile. Phát hiện {profilesNeedingUpdateCount} profile có {appsNeedingUpdateCount} app cần cập nhật. " +
-                              "Các app cần cập nhật đã được thêm vào hàng đợi."
+                            "Các app cần cập nhật đã được thêm vào hàng đợi."
                 });
             }
             catch (Exception ex)
@@ -408,7 +368,6 @@ namespace SteamCmdWebAPI.Pages
 
         public async Task<IActionResult> OnPostClearCacheAsync()
         {
-            // Logic này giữ nguyên, không thay đổi theo hướng dẫn
             try
             {
                 await _steamApiService.ClearCacheAsync();
@@ -423,7 +382,6 @@ namespace SteamCmdWebAPI.Pages
             }
         }
 
-        // Sửa phương thức OnPostUpdateAppAsync để sử dụng QueueService
         public async Task<IActionResult> OnPostUpdateAppAsync(string appId, int profileId, bool isMainApp)
         {
             try
@@ -439,8 +397,8 @@ namespace SteamCmdWebAPI.Pages
                     return new JsonResult(new { success = false, message = "Không tìm thấy profile." });
                 }
 
-                // Sử dụng QueueService để thêm vào hàng đợi
-                bool success = await _queueService.AddToQueue(profileId, appId, isMainApp);
+                // Sử dụng SteamCmdService trực tiếp 
+                bool success = await _steamCmdService.RunSpecificAppAsync(profileId, appId);
 
                 if (success)
                 {

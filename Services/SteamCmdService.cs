@@ -680,6 +680,8 @@ namespace SteamCmdWebAPI.Services
         #endregion
 
         #region Folder Setup
+        // File: Services/SteamCmdService.cs
+        // Thay thế phương thức PrepareFolderStructure
         private async Task<bool> PrepareFolderStructure(string gameInstallDir)
         {
             if (string.IsNullOrWhiteSpace(gameInstallDir))
@@ -765,6 +767,7 @@ namespace SteamCmdWebAPI.Services
                 {
                     Directory.CreateDirectory(Path.GetDirectoryName(localSteamappsLinkDir));
 
+                    // Chỉ dùng symbolic link, không dùng force_install_dir
                     CmdHelper.RunCommand($"mklink /D \"{localSteamappsLinkDir}\" \"{steamappsTargetDir}\"", 15000);
                     await Task.Delay(2000);
 

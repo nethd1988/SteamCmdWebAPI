@@ -1,3 +1,4 @@
+
 @page
 @model SteamCmdWebAPI.Pages.UpdateManagementModel
 @{
@@ -86,9 +87,6 @@
                         <th>Tên game</th>
                         <th>Profile</th>
                         <th>Loại</th>
-                        <th>Cập nhật trước</th>
-                        <th>Cập nhật hiện tại</th>
-                        <th>ChangeNumber</th>
                         <th>Dung lượng</th>
                         <th>Trạng thái</th>
                         <th>Thao tác</th>
@@ -113,16 +111,6 @@
                                         <span class="badge bg-info">Phụ</span>
                                     }
                                 </td>
-                                <td>@(vm.ApiInfo.LastCheckedUpdateDateTime.HasValue ? vm.ApiInfo.LastCheckedUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : "Chưa có")</td>
-                                <td>@(vm.ApiInfo.LastUpdateDateTime.HasValue ? vm.ApiInfo.LastUpdateDateTime.Value.ToLocalTime().ToString("dd/MM/yyyy HH:mm") : vm.ApiInfo.LastUpdate)</td>
-                                <td>
-                                    @if (vm.ApiInfo.LastCheckedChangeNumber > 0)
-                                    {
-                                        <span class="text-muted">@vm.ApiInfo.LastCheckedChangeNumber</span>
-                                        <span class="ms-1 me-1">→</span>
-                                    }
-                                    <span>@vm.ApiInfo.ChangeNumber</span>
-                                </td>
                                 <td>@vm.FormattedSize</td>
                                 <td>
                                     @if (vm.NeedsUpdate)
@@ -130,13 +118,6 @@
                                         <span class="status-badge running">
                                             <i class="bi bi-cloud-arrow-down"></i>
                                             Cần cập nhật
-                                        </span>
-                                    }
-                                    else if (vm.ApiInfo.LastCheckedChangeNumber > 0 && vm.ApiInfo.ChangeNumber != vm.ApiInfo.LastCheckedChangeNumber)
-                                    {
-                                        <span class="status-badge running">
-                                            <i class="bi bi-cloud-arrow-down"></i>
-                                            Thay đổi
                                         </span>
                                     }
                                     else
@@ -158,7 +139,7 @@
                     else
                     {
                         <tr>
-                            <td colspan="10" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
+                            <td colspan="7" class="text-center">Không có thông tin cập nhật nào. Hãy kiểm tra cập nhật lần đầu tiên.</td>
                         </tr>
                     }
                 </tbody>
@@ -290,3 +271,4 @@
         });
     </script>
 }
+```
