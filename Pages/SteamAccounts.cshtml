@@ -1,0 +1,257 @@
+@page
+@model SteamCmdWebAPI.Pages.SteamAccountsModel
+@{
+    ViewData["Title"] = "Quản lý tài khoản Steam";
+    ViewData["ActivePage"] = "SteamAccounts";
+}
+
+<h1>Quản lý tài khoản Steam</h1>
+
+@if (!string.IsNullOrEmpty(Model.StatusMessage))
+{
+    <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")">
+        <i class="bi bi-@(Model.IsSuccess ? "check-circle" : "exclamation-triangle") me-2"></i>
+        @Model.StatusMessage
+    </div>
+}
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">Tài khoản Steam</h5>
+    </div>
+    <div class="card-body">
+        <button class="btn btn-success mb-3" id="btnAddAccount">
+            <i class="bi bi-plus-circle me-1"></i> Thêm tài khoản
+        </button>
+
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>TÊN PROFILE</th>
+                        <th>TÊN TÀI KHOẢN</th>
+                        <th>APP IDS</th>
+                        <th>THAO TÁC</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (Model.Accounts != null && Model.Accounts.Any())
+                    {
+                        foreach (var account in Model.Accounts)
+                        {
+                            <tr>
+                                <td>@account.Id</td>
+                                <td>@account.ProfileName</td>
+                                <td>@account.Username</td>
+                                <td class="text-truncate" style="max-width: 200px;">@account.AppIds</td>
+                                <td>
+                                    <div class="btn-group">
+                                        <button class="btn-icon edit" onclick="editAccount(@account.Id)" title="Sửa">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn-icon delete" onclick="deleteAccount(@account.Id, '@account.ProfileName')" title="Xóa">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr>
+                            <td colspan="5" class="text-center">Chưa có tài khoản nào</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Form thêm tài khoản -->
+<div id="formAddAccount" style="display: none;">
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0">Thêm tài khoản Steam</h5>
+        </div>
+        <div class="card-body">
+            <form method="post" id="addAccountForm">
+                @Html.AntiForgeryToken()
+                <div class="mb-3">
+                    <label for="profileName" class="form-label">Tên Profile</label>
+                    <input type="text" class="form-control" id="profileName" name="Account.ProfileName" required>
+                </div>
+                <div class="mb-3">
+                    <label for="username" class="form-label">Tên tài khoản</label>
+                    <input type="text" class="form-control" id="username" name="Account.Username" required>
+                </div>
+                <div class="mb-3">
+                    <label for="password" class="form-label">Mật khẩu</label>
+                    <input type="password" class="form-control" id="password" name="Account.Password" required>
+                </div>
+                <div class="mb-3">
+                    <label for="appIds" class="form-label">App IDs (cách nhau bởi dấu phẩy)</label>
+                    <textarea class="form-control" id="appIds" name="Account.AppIds" rows="3"></textarea>
+                    <small class="form-text text-muted">Ví dụ: 570,730,440</small>
+                </div>
+                <div class="d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-secondary" id="btnCancelAdd">Đóng</button>
+                    <button type="button" class="btn btn-primary" id="btnSaveAccount">Lưu</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Form sửa tài khoản -->
+<div id="formEditAccount" style="display: none;">
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <h5 class="mb-0">Sửa tài khoản Steam</h5>
+        </div>
+        <div class="card-body">
+            <form method="post" id="editAccountForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="editId" name="Account.Id">
+                <div class="mb-3">
+                    <label for="editProfileName" class="form-label">Tên Profile</label>
+                    <input type="text" class="form-control" id="editProfileName" name="Account.ProfileName" required>
+                </div>
+                <div class="mb-3">
+                    <label for="editUsername" class="form-label">Tên tài khoản</label>
+                    <input type="text" class="form-control" id="editUsername" name="Account.Username" required>
+                </div>
+                <div class="mb-3">
+                    <label for="editPassword" class="form-label">Mật khẩu</label>
+                    <input type="password" class="form-control" id="editPassword" name="Account.Password" placeholder="Để trống nếu không thay đổi">
+                </div>
+                <div class="mb-3">
+                    <label for="editAppIds" class="form-label">App IDs (cách nhau bởi dấu phẩy)</label>
+                    <textarea class="form-control" id="editAppIds" name="Account.AppIds" rows="3"></textarea>
+                    <small class="form-text text-muted">Ví dụ: 570,730,440</small>
+                </div>
+                <div class="d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-secondary" id="btnCancelEdit">Đóng</button>
+                    <button type="button" class="btn btn-primary" id="btnUpdateAccount">Cập nhật</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            // Hiện/ẩn form thêm mới
+            $("#btnAddAccount").click(function() {
+                $("#formAddAccount").slideDown();
+                $("#formEditAccount").slideUp();
+                $("#addAccountForm")[0].reset();
+            });
+
+            $("#btnCancelAdd").click(function() {
+                $("#formAddAccount").slideUp();
+            });
+
+            // Ẩn form sửa
+            $("#btnCancelEdit").click(function() {
+                $("#formEditAccount").slideUp();
+            });
+
+            // Lưu tài khoản mới
+            $('#btnSaveAccount').click(function() {
+                const formData = $('#addAccountForm').serialize();
+                
+                $.ajax({
+                    url: "/SteamAccounts?handler=AddAccount",
+                    method: "POST",
+                    data: formData,
+                    success: function(response) {
+                        if (response.success) {
+                            window.location.reload();
+                        } else {
+                            alert("Lỗi: " + response.message);
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        alert("Lỗi khi lưu tài khoản: " + error);
+                    }
+                });
+            });
+
+            // Cập nhật tài khoản
+            $('#btnUpdateAccount').click(function() {
+                const formData = $('#editAccountForm').serialize();
+                
+                $.ajax({
+                    url: "/SteamAccounts?handler=UpdateAccount",
+                    method: "POST",
+                    data: formData,
+                    success: function(response) {
+                        if (response.success) {
+                            window.location.reload();
+                        } else {
+                            alert("Lỗi: " + response.message);
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        alert("Lỗi khi cập nhật tài khoản: " + error);
+                    }
+                });
+            });
+        });
+
+        // Hiển thị form sửa tài khoản
+        function editAccount(id) {
+            // Ẩn form thêm mới nếu đang hiển thị
+            $("#formAddAccount").slideUp();
+            
+            $.ajax({
+                url: "/SteamAccounts?handler=GetAccount&id=" + id,
+                method: "GET",
+                success: function(response) {
+                    if (response.success) {
+                        const account = response.account;
+                        $('#editId').val(account.id);
+                        $('#editProfileName').val(account.profileName);
+                        $('#editUsername').val(account.username);
+                        $('#editPassword').val(''); // Không hiển thị mật khẩu
+                        $('#editAppIds').val(account.appIds);
+                        
+                        $('#formEditAccount').slideDown();
+                    } else {
+                        alert("Lỗi: " + response.message);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    alert("Lỗi khi lấy thông tin tài khoản: " + error);
+                }
+            });
+        }
+
+        // Xóa tài khoản
+        function deleteAccount(id, name) {
+            if (confirm("Bạn có chắc chắn muốn xóa tài khoản \"" + name + "\"?")) {
+                const token = $('input[name="__RequestVerificationToken"]').val();
+                
+                $.ajax({
+                    url: "/SteamAccounts?handler=DeleteAccount",
+                    method: "POST",
+                    data: { id: id, __RequestVerificationToken: token },
+                    success: function(response) {
+                        if (response.success) {
+                            window.location.reload();
+                        } else {
+                            alert("Lỗi: " + response.message);
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        alert("Lỗi khi xóa tài khoản: " + error);
+                    }
+                });
+            }
+        }
+    </script>
+}
