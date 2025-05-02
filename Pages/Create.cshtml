@@ -660,120 +660,74 @@
 
             // Xử lý nút quét danh sách game
             $('#scanGamesBtn').on('click', function() {
-                // Hiển thị loading
-                Swal.fire({
-                    title: 'Đang quét danh sách game...',
-                    html: 'Vui lòng đợi trong giây lát',
-                    allowOutsideClick: false,
-                    didOpen: () => {
-                        Swal.showLoading();
-                    }
-                });
-                
-                // Gọi API để quét game
+                var btn = $(this);
+                btn.prop('disabled', true);
+                btn.html('<i class="bi bi-hourglass"></i> Đang quét...');
+
                 $.ajax({
                     url: '?handler=ScanGames',
                     type: 'GET',
                     success: function(data) {
-                        Swal.close();
-                        
                         if (data.success && data.games && data.games.length > 0) {
-                            // Hiển thị modal xác nhận nhập tất cả games vào trang quản lý cập nhật
-                            Swal.fire({
-                                title: 'Tìm thấy ' + data.games.length + ' game',
-                                html: 
-                                    '<p>Bạn có muốn:</p>' +
-                                    '<div class="d-flex flex-column gap-2 mt-3 text-start">' +
-                                    '<button id="importAllGamesBtn" class="btn btn-primary py-2">' +
-                                    '<i class="bi bi-download me-2"></i>Nhập tất cả game vào trang quản lý cập nhật' +
-                                    '</button>' +
-                                    '<button id="selectGameBtn" class="btn btn-outline-secondary py-2">' +
-                                    '<i class="bi bi-list-check me-2"></i>Chọn một game để tạo profile' +
-                                    '</button>' +
-                                    '</div>',
-                                showConfirmButton: false,
-                                showCancelButton: true,
-                                cancelButtonText: 'Đóng',
-                                didOpen: () => {
-                                    // Xử lý khi nhấn nút nhập tất cả games
-                                    $('#importAllGamesBtn').on('click', function() {
-                                        Swal.fire({
-                                            title: 'Đang nhập games...',
-                                            html: 'Vui lòng đợi trong giây lát',
-                                            allowOutsideClick: false,
-                                            didOpen: () => {
-                                                Swal.showLoading();
-                                            }
-                                        });
+                            // Hiển thị danh sách game
+                            var gamesList = $("#gamesList");
+                            gamesList.empty();
+
+                            data.games.forEach(function(game) {
+                                var listItem = $(`
+                                    <div class="game-item">
+                                        <div class="game-info">
+                                            <div class="game-title">${game.gameName}</div>
+                                            <div class="game-details">
+                                                <span class="app-id">App ID: ${game.appId}</span>
+                                                <span class="install-dir">Đường dẫn: ${game.installDir}</span>
+                                            </div>
+                                        </div>
+                                        <button class="btn-select">
+                                            <i class="bi bi-check2-circle"></i>Chọn
+                                        </button>
+                                    </div>
+                                `);
+
+                                // Lưu data để sử dụng khi tìm kiếm
+                                listItem.data('name', game.gameName);
+                                listItem.data('appid', game.appId);
+                                listItem.data('dir', game.installDir);
+
+                                listItem.on('click', function(e) {
+                                    // Nếu click vào nút, thực hiện lựa chọn
+                                    if ($(e.target).hasClass('btn-select') || $(e.target).closest('.btn-select').length > 0) {
+                                        // Điền thông tin vào form
+                                        $("#Profile_Name").val(game.gameName);
+                                        $("#Profile_AppID").val(game.appId);
+                                        $("#Profile_InstallDirectory").val(game.installDir);
                                         
-                                        const gamesToImport = data.games.map(game => ({
-                                            AppId: game.appId,
-                                            Name: game.gameName, 
-                                            InstallPath: game.installDir
-                                        }));
-                                        
-                                        // Gửi request để nhập tất cả games
-                                        $.ajax({
-                                            url: '?handler=ImportAllGames',
-                                            type: 'POST',
-                                            data: JSON.stringify(gamesToImport),
-                                            contentType: 'application/json',
-                                            headers: {
-                                                'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
-                                            },
-                                            success: function(response) {
-                                                if (response.success) {
-                                                    Swal.fire({
-                                                        icon: 'success',
-                                                        title: 'Thành công!',
-                                                        html: 'Đã nhập ' + response.importedCount + ' game vào trang quản lý cập nhật',
-                                                        confirmButtonText: 'Đi đến trang quản lý',
-                                                        showCancelButton: true,
-                                                        cancelButtonText: 'Ở lại trang này'
-                                                    }).then((result) => {
-                                                        if (result.isConfirmed) {
-                                                            window.location.href = '/UpdateManagement';
-                                                        }
-                                                    });
-                                                } else {
-                                                    Swal.fire({
-                                                        icon: 'error',
-                                                        title: 'Lỗi!',
-                                                        text: response.message
-                                                    });
-                                                }
-                                            },
-                                            error: function() {
-                                                Swal.fire({
-                                                    icon: 'error',
-                                                    title: 'Lỗi!',
-                                                    text: 'Không thể nhập games. Vui lòng thử lại sau.'
-                                                });
-                                            }
-                                        });
-                                    });
-                                    
-                                    // Xử lý khi nhấn nút chọn một game
-                                    $('#selectGameBtn').on('click', function() {
-                                        Swal.close();
-                                        showGamesListModal(data.games);
-                                    });
-                                }
+                                        // Tự động check vào ô sử dụng tài khoản từ SteamAccounts
+                                        $("#UseSteamAccounts").prop('checked', true).trigger('change');
+
+                                        // Đóng modal
+                                        hideModal('gamesModal');
+                                    }
+                                });
+
+                                gamesList.append(listItem);
                             });
+
+                            // Cập nhật số lượng game
+                            $("#gameCount").text(data.games.length + ' game');
+
+                            // Hiển thị modal danh sách game
+                            showModal('gamesModal');
                         } else {
-                            Swal.fire({
-                                icon: 'info',
-                                title: 'Không tìm thấy game nào',
-                                text: data.message || 'Không tìm thấy game nào được cài đặt trên máy tính.'
-                            });
+                            alert(data.message || 'Không tìm thấy game nào');
                         }
                     },
                     error: function() {
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Lỗi!',
-                            text: 'Không thể quét danh sách game. Vui lòng thử lại sau.'
-                        });
+                        alert('Không thể quét danh sách game. Vui lòng thử lại sau.');
+                    },
+                    complete: function() {
+                        btn.prop('disabled', false);
+                        btn.html('<i class="bi bi-search"></i> Quét danh sách game');
                     }
                 });
             });
@@ -886,11 +840,7 @@
             $(document).on('click', "#getProfileBtn", function() {
                 var selectedProfile = $("#serverProfile").val();
                 if (!selectedProfile) {
-                    Swal.fire({
-                        icon: 'warning',
-                        title: 'Chưa chọn profile',
-                        text: 'Vui lòng chọn một profile từ server'
-                    });
+                    alert('Vui lòng chọn một profile từ server');
                     return;
                 }
 
@@ -911,25 +861,13 @@
                             $("#Profile_ValidateFiles").prop("checked", profile.validateFiles);
                             $("#Profile_AutoRun").prop("checked", profile.autoRun);
                             
-                            Swal.fire({
-                                icon: 'success',
-                                title: 'Thành công',
-                                text: 'Đã tải thông tin profile ' + profile.name
-                            });
+                            alert('Đã tải thông tin profile ' + profile.name);
                         } else {
-                            Swal.fire({
-                                icon: 'error',
-                                title: 'Lỗi',
-                                text: "Không thể tải thông tin profile: " + (response.error || "Lỗi không xác định")
-                            });
+                            alert("Không thể tải thông tin profile: " + (response.error || "Lỗi không xác định"));
                         }
                     },
                     error: function(xhr, status, error) {
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Lỗi',
-                            text: "Lỗi khi tải thông tin profile: " + error
-                        });
+                        alert("Lỗi khi tải thông tin profile: " + error);
                     },
                     complete: function() {
                         $("#getProfileBtn").prop("disabled", false).html('<i class="bi bi-info-circle me-2"></i> Tải thông tin');
@@ -941,64 +879,37 @@
             $(document).on('click', "#importProfileBtn", function() {
                 var selectedProfile = $("#serverProfile").val();
                 if (!selectedProfile) {
-                    Swal.fire({
-                        icon: 'warning',
-                        title: 'Chưa chọn profile',
-                        text: 'Vui lòng chọn một profile từ server'
-                    });
+                    alert('Vui lòng chọn một profile từ server');
                     return;
                 }
 
-                Swal.fire({
-                    title: 'Xác nhận',
-                    text: "Bạn có chắc muốn nhập profile '" + selectedProfile + "' từ server?",
-                    icon: 'question',
-                    showCancelButton: true,
-                    confirmButtonText: 'Đồng ý',
-                    cancelButtonText: 'Hủy'
-                }).then((result) => {
-                    if (result.isConfirmed) {
-                        $(this).prop("disabled", true).html('<i class="bi bi-hourglass me-2"></i> Đang nhập...');
+                if (confirm("Bạn có chắc muốn nhập profile '" + selectedProfile + "' từ server?")) {
+                    $(this).prop("disabled", true).html('<i class="bi bi-hourglass me-2"></i> Đang nhập...');
 
-                        $.ajax({
-                            url: "?handler=ImportFromServer",
-                            type: "POST",
-                            cache: false,
-                            data: { profileName: selectedProfile },
-                            headers: {
-                                "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
-                            },
-                            success: function(response) {
-                                if (response && response.success) {
-                                    Swal.fire({
-                                        icon: 'success',
-                                        title: 'Thành công',
-                                        text: response.message,
-                                        confirmButtonText: 'Đi đến trang quản lý'
-                                    }).then(() => {
-                                        window.location.href = response.redirectUrl || "./Dashboard";
-                                    });
-                                } else {
-                                    Swal.fire({
-                                        icon: 'error',
-                                        title: 'Lỗi',
-                                        text: "Không thể nhập profile: " + (response.error || "Lỗi không xác định")
-                                    });
-                                }
-                            },
-                            error: function(xhr, status, error) {
-                                Swal.fire({
-                                    icon: 'error',
-                                    title: 'Lỗi',
-                                    text: "Lỗi khi nhập profile: " + error
-                                });
-                            },
-                            complete: function() {
-                                $("#importProfileBtn").prop("disabled", false).html('<i class="bi bi-download me-2"></i> Nhập profile từ server');
+                    $.ajax({
+                        url: "?handler=ImportFromServer",
+                        type: "POST",
+                        cache: false,
+                        data: { profileName: selectedProfile },
+                        headers: {
+                            "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                        },
+                        success: function(response) {
+                            if (response && response.success) {
+                                alert(response.message);
+                                window.location.href = response.redirectUrl || "./Dashboard";
+                            } else {
+                                alert("Không thể nhập profile: " + (response.error || "Lỗi không xác định"));
                             }
-                        });
-                    }
-                });
+                        },
+                        error: function(xhr, status, error) {
+                            alert("Lỗi khi nhập profile: " + error);
+                        },
+                        complete: function() {
+                            $("#importProfileBtn").prop("disabled", false).html('<i class="bi bi-download me-2"></i> Nhập profile từ server');
+                        }
+                    });
+                }
             });
         });
     </script>
