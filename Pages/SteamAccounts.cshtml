@@ -31,8 +31,7 @@
                         <th>ID</th>
                         <th>TÊN PROFILE</th>
                         <th>TÊN TÀI KHOẢN</th>
-                        <th>APP IDS</th>
-                        <th>TÊN GAME</th>
+                        <th>APP IDS / TÊN GAME</th>
                         <th>THAO TÁC</th>
                     </tr>
                 </thead>
@@ -45,8 +44,10 @@
                                 <td>@account.Id</td>
                                 <td>@account.ProfileName</td>
                                 <td>@account.Username</td>
-                                <td class="text-truncate" style="max-width: 150px;">@account.AppIds</td>
-                                <td class="text-truncate" style="max-width: 200px;">@account.GameNames</td>
+                                <td>
+                                    <div>@account.GameNames</div>
+                                    <small class="text-muted">@account.AppIds</small>
+                                </td>
                                 <td>
                                     <div class="btn-group">
                                         <button class="btn-icon edit" onclick="editAccount(@account.Id)" title="Sửa">

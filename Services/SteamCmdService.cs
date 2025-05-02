@@ -747,29 +747,29 @@ namespace SteamCmdWebAPI.Services
             }
 
             // Tạo thư mục cha nếu chưa tồn tại
-            Directory.CreateDirectory(Path.GetDirectoryName(localSteamappsLinkDir));
+                    Directory.CreateDirectory(Path.GetDirectoryName(localSteamappsLinkDir));
 
             // Chỉ dùng symbolic link
             try
             {
-                CmdHelper.RunCommand($"mklink /D \"{localSteamappsLinkDir}\" \"{steamappsTargetDir}\"", 15000);
-                await Task.Delay(2000);
+                    CmdHelper.RunCommand($"mklink /D \"{localSteamappsLinkDir}\" \"{steamappsTargetDir}\"", 15000);
+                    await Task.Delay(2000);
 
-                if (Directory.Exists(localSteamappsLinkDir))
-                {
-                    return true;
+                    if (Directory.Exists(localSteamappsLinkDir))
+                    {
+                        return true;
+                    }
+                    else
+                    {
+                        _logger.LogError($"Không thể tạo liên kết tượng trưng đến {localSteamappsLinkDir}. Thư mục không tồn tại sau lệnh mklink.");
+                        await SafeSendLogAsync("System", "Error", $"Không thể tạo liên kết tượng trưng đến {localSteamappsLinkDir}.");
+                        return false;
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogError($"Không thể tạo liên kết tượng trưng đến {localSteamappsLinkDir}. Thư mục không tồn tại sau lệnh mklink.");
-                    await SafeSendLogAsync("System", "Error", $"Không thể tạo liên kết tượng trưng đến {localSteamappsLinkDir}.");
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi khi tạo liên kết tượng trưng");
-                await SafeSendLogAsync("System", "Error", $"Lỗi khi tạo liên kết tượng trưng: {ex.Message}");
+                    _logger.LogError(ex, "Lỗi khi tạo liên kết tượng trưng");
+                    await SafeSendLogAsync("System", "Error", $"Lỗi khi tạo liên kết tượng trưng: {ex.Message}");
                 return false;
             }
         }
@@ -1494,8 +1494,8 @@ namespace SteamCmdWebAPI.Services
                     await InstallSteamCmd();
                     if (!File.Exists(steamCmdPath))
                     {
-                    runResult.ExitCode = -99;
-                    return runResult;
+                        runResult.ExitCode = -99;
+                        return runResult;
                     }
                 }
 
@@ -1547,15 +1547,24 @@ namespace SteamCmdWebAPI.Services
                             // Đối với Windows, cách tốt nhất là đặt mật khẩu trong dấu ngoặc kép
                             // và thoát các ký tự đặc biệt bằng dấu ^
                             string originalPassword = accountPassword;
-                            accountPassword = "\"" + accountPassword
+                            
+                            // Kiểm tra nếu đã có dấu ngoặc kép rồi thì bỏ đi trước khi xử lý
+                            if (accountPassword.StartsWith("\"") && accountPassword.EndsWith("\"") && accountPassword.Length >= 2)
+                            {
+                                accountPassword = accountPassword.Substring(1, accountPassword.Length - 2);
+                            }
+                            
+                            accountPassword = accountPassword
                                 .Replace("^", "^^")  // ^ phải được thoát đầu tiên
                                 .Replace("&", "^&")
                                 .Replace("|", "^|")
                                 .Replace("<", "^<")
                                 .Replace(">", "^>")
                                 .Replace("(", "^(")
-                                .Replace(")", "^)")
-                                + "\"";
+                                .Replace(")", "^)");
+                                
+                            // Thêm dấu ngoặc kép
+                            accountPassword = $"\"{accountPassword}\"";
                             
                             _logger.LogDebug("Đã thoát ký tự đặc biệt trong mật khẩu để tránh lỗi command line");
                         }
@@ -1587,15 +1596,24 @@ namespace SteamCmdWebAPI.Services
                                 {
                                     // Đối với Windows, cách tốt nhất là đặt mật khẩu trong dấu ngoặc kép
                                     // và thoát các ký tự đặc biệt bằng dấu ^
-                                    password = "\"" + password
+                                    
+                                    // Kiểm tra nếu đã có dấu ngoặc kép rồi thì bỏ đi trước khi xử lý
+                                    if (password.StartsWith("\"") && password.EndsWith("\"") && password.Length >= 2)
+                                    {
+                                        password = password.Substring(1, password.Length - 2);
+                                    }
+                                    
+                                    password = password
                                         .Replace("^", "^^")  // ^ phải được thoát đầu tiên
                                         .Replace("&", "^&")
                                         .Replace("|", "^|")
                                         .Replace("<", "^<")
                                         .Replace(">", "^>")
                                         .Replace("(", "^(")
-                                        .Replace(")", "^)")
-                                        + "\"";
+                                        .Replace(")", "^)");
+                                    
+                                    // Thêm dấu ngoặc kép
+                                    password = $"\"{password}\"";
                                     
                                     _logger.LogDebug("Đã thoát ký tự đặc biệt trong mật khẩu từ profile để tránh lỗi command line");
                                 }
@@ -1857,8 +1875,16 @@ namespace SteamCmdWebAPI.Services
                     else if (line.Contains("ERROR", StringComparison.OrdinalIgnoreCase) || 
                              line.Contains("FAILED", StringComparison.OrdinalIgnoreCase))
                     {
+                        // Xử lý lỗi Rate Limit Exceeded (đăng nhập quá nhiều lần)
+                        if (line.Contains("Rate Limit Exceeded", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasError = true;
+                            string errorMessage = "Lỗi: Đã đăng nhập Steam quá nhiều lần (Rate Limit Exceeded). Vui lòng đợi 5 phút rồi thử lại.";
+                            await SafeSendLogAsync(profile.Name, "Error", errorMessage);
+                            _logger.LogError("Steam Rate Limit Exceeded cho profile '{ProfileName}'. Cần đợi 5 phút.", profile.Name);
+                        }
                         // Bỏ qua một số thông báo lỗi thông thường không ảnh hưởng
-                        if (!line.Contains("Failed to load cell") && 
+                        else if (!line.Contains("Failed to load cell") && 
                             !line.Contains("Failed to init SDL") && 
                             !line.Contains("Failed to initialize GL"))
                         {
@@ -1866,9 +1892,13 @@ namespace SteamCmdWebAPI.Services
                             await SafeSendLogAsync(profile.Name, "Error", $"Lỗi: {line}");
                         }
                     }
-                    else if (line.Contains("Logging in user") || line.Contains("Logged in OK"))
+                    else if (line.Contains("Logging in user") || line.Contains("Logged in OK") || (line.Contains("OK") && line.Contains("Logging in")))
                     {
                         loginSuccessful = true;
+                        
+                        // Thêm thông báo đăng nhập thành công vào log
+                        await SafeSendLogAsync(profile.Name, "Success", "Đã đăng nhập thành công vào Steam");
+                        _logger.LogInformation("Đăng nhập Steam thành công cho profile '{ProfileName}'", profile.Name);
                     }
                     else if (line.Contains("Loading Steam API") || line.Contains("Steam Console Client"))
                     {

@@ -587,5 +587,110 @@ namespace SteamCmdWebAPI.Pages
                 return new JsonResult(new { success = false, message = "Lỗi khi thay đổi profile: " + ex.Message });
             }
         }
+
+        // Thêm handler xóa profile
+        public async Task<IActionResult> OnPostDeleteProfileAsync(int profileId)
+        {
+            _logger.LogInformation("OnPostDeleteProfileAsync được gọi với profileId: {ProfileId}", profileId);
+            
+            if (profileId <= 0)
+            {
+                _logger.LogWarning("ProfileId không hợp lệ: {ProfileId}", profileId);
+                StatusMessage = "ID profile không hợp lệ";
+                IsSuccess = false;
+                await OnGetAsync();
+                return Page();
+            }
+
+            try
+            {
+                _logger.LogInformation("Đang tìm profile với ID: {ProfileId}", profileId);
+                var profile = await _profileService.GetProfileById(profileId);
+                
+                if (profile == null)
+                {
+                    _logger.LogWarning("Không tìm thấy profile với ID: {ProfileId}", profileId);
+                    StatusMessage = "Không tìm thấy profile";
+                    IsSuccess = false;
+                    await OnGetAsync();
+                    return Page();
+                }
+
+                _logger.LogInformation("Đã tìm thấy profile: {ProfileName} (ID: {ProfileId}). Thực hiện xóa...", profile.Name, profileId);
+                string profileName = profile.Name;
+                
+                // Tiến hành xóa profile
+                var result = await _profileService.DeleteProfile(profileId);
+                _logger.LogInformation("Kết quả xóa profile: {Result}", result);
+
+                _logger.LogInformation("Đã xóa profile {ProfileName} (ID: {ProfileId})", profileName, profileId);
+                
+                TempData["StatusMessage"] = $"Đã xóa profile {profileName} thành công";
+                TempData["IsSuccess"] = true;
+                
+                _logger.LogInformation("Đã set TempData, thực hiện redirect...");
+                return RedirectToPage();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xóa profile {ProfileId}: {ErrorMessage}", profileId, ex.Message);
+                
+                StatusMessage = $"Lỗi khi xóa profile: {ex.Message}";
+                IsSuccess = false;
+                await OnGetAsync();
+                return Page();
+            }
+        }
+
+        // Handler xóa profile thông qua GET
+        public async Task<IActionResult> OnGetDeleteProfileAsync(int id)
+        {
+            _logger.LogInformation("OnGetDeleteProfileAsync được gọi với id: {Id}", id);
+            
+            if (id <= 0)
+            {
+                _logger.LogWarning("ID không hợp lệ: {Id}", id);
+                TempData["StatusMessage"] = "ID profile không hợp lệ";
+                TempData["IsSuccess"] = false;
+                return RedirectToPage();
+            }
+
+            try
+            {
+                _logger.LogInformation("Đang tìm profile với ID: {Id}", id);
+                var profile = await _profileService.GetProfileById(id);
+                
+                if (profile == null)
+                {
+                    _logger.LogWarning("Không tìm thấy profile với ID: {Id}", id);
+                    TempData["StatusMessage"] = "Không tìm thấy profile";
+                    TempData["IsSuccess"] = false;
+                    return RedirectToPage();
+                }
+
+                _logger.LogInformation("Đã tìm thấy profile: {ProfileName} (ID: {Id}). Thực hiện xóa...", profile.Name, id);
+                string profileName = profile.Name;
+                
+                // Tiến hành xóa profile
+                var result = await _profileService.DeleteProfile(id);
+                _logger.LogInformation("Kết quả xóa profile: {Result}", result);
+
+                _logger.LogInformation("Đã xóa profile {ProfileName} (ID: {Id})", profileName, id);
+                
+                TempData["StatusMessage"] = $"Đã xóa profile {profileName} thành công";
+                TempData["IsSuccess"] = true;
+                
+                _logger.LogInformation("Đã set TempData, thực hiện redirect...");
+                return RedirectToPage();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xóa profile {Id}: {ErrorMessage}", id, ex.Message);
+                
+                TempData["StatusMessage"] = $"Lỗi khi xóa profile: {ex.Message}";
+                TempData["IsSuccess"] = false;
+                return RedirectToPage();
+            }
+        }
     }
 }

@@ -21,6 +21,12 @@
     @Html.AntiForgeryToken()
 </form>
 
+<!-- Thêm form xóa profile -->
+<form method="post" id="deleteProfileForm" asp-page-handler="DeleteProfile">
+    @Html.AntiForgeryToken()
+    <input type="hidden" id="deleteProfileId" name="profileId" value="" />
+</form>
+
 <div class="card mb-4">
     <div class="card-header bg-primary text-white">
         <h5 class="mb-0">Thao tác thủ công</h5>
@@ -82,8 +88,8 @@
             <table class="table">
                 <thead>
                     <tr>
-                        <th>App ID</th>
-                        <th>Tên game</th>
+                        <th style="display:none;">App ID</th>
+                        <th>Tên game/App ID</th>
                         <th>Profile</th>
                         <th>Loại</th>
                         <th>Dung lượng</th>
@@ -97,8 +103,11 @@
                         foreach (var vm in Model.UpdateInfos)
                         {
                             <tr class="@(vm.IsMainApp ? "" : "dependent-app-row")">
-                                <td>@vm.ApiInfo.AppID</td>
-                                <td>@vm.ApiInfo.Name</td>
+                                <td style="display:none;">@vm.ApiInfo.AppID</td>
+                                <td>
+                                    @vm.ApiInfo.Name<br />
+                                    <small class="text-muted">@vm.ApiInfo.AppID</small>
+                                </td>
                                 <td>@vm.ProfileName</td>
                                 <td>
                                     @if (vm.IsMainApp)
@@ -132,6 +141,14 @@
                                         <button class="btn-icon update-btn" data-appid="@vm.ApiInfo.AppID" data-profileid="@vm.ProfileId" data-ismain="@vm.IsMainApp.ToString().ToLower()" title="Cập nhật">
                                             <i class="bi bi-arrow-repeat"></i>
                                         </button>
+                                        @if (vm.IsMainApp)
+                                        {
+                                            <a href="?handler=DeleteProfile&id=@vm.ProfileId" class="btn-icon ms-2 btn-danger" 
+                                               onclick="return confirm('Bạn có chắc chắn muốn xóa profile @vm.ProfileName?');"
+                                               title="Xóa profile">
+                                                <i class="bi bi-trash"></i>
+                                            </a>
+                                        }
                                     </div>
                                 </td>
                             </tr>
@@ -174,11 +191,66 @@
         top: 0;
         z-index: 100;
     }
+    
+    .btn-danger {
+        color: white !important;
+        background-color: #dc3545 !important;
+        border-color: #dc3545 !important;
+    }
+    
+    .btn-danger:hover {
+        background-color: #c82333 !important;
+        border-color: #bd2130 !important;
+    }
+    
+    .ms-2 {
+        margin-left: 0.5rem !important;
+    }
 </style>
 
 @section Scripts {
     <script>
+        // Function để xác nhận xóa profile
+        function confirmDelete(profileId, profileName, button) {
+            Swal.fire({
+                title: 'Xác nhận xóa',
+                html: `Bạn có chắc chắn muốn xóa profile <strong>${profileName}</strong>?<br>Thao tác này không thể hoàn tác!`,
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Xóa',
+                cancelButtonText: 'Hủy',
+                confirmButtonColor: '#d33',
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    // Hiện loading
+                    Swal.fire({
+                        title: 'Đang xóa...',
+                        html: 'Vui lòng đợi trong giây lát',
+                        allowOutsideClick: false,
+                        didOpen: () => {
+                            Swal.showLoading();
+                            
+                            // Submit form
+                            $(button).closest('form').submit();
+                        }
+                    });
+                }
+            });
+        }
+        
         $(document).ready(function() {
+            // Kiểm tra xem có thông báo thành công hay không
+            @if (!string.IsNullOrEmpty(Model.StatusMessage))
+            {
+                <text>
+                Swal.fire({
+                    icon: '@(Model.IsSuccess ? "success" : "error")',
+                    title: '@(Model.IsSuccess ? "Thành công" : "Lỗi")',
+                    text: "@Html.Raw(Model.StatusMessage.Replace("\n", " ").Replace("\"", "\\\""))"
+                });
+                </text>
+            }
+            
             // Lấy token CSRF
             var token = $('input[name="__RequestVerificationToken"]').val();
             
@@ -194,14 +266,27 @@
                     },
                     success: function(response) {
                         if (response.success) {
-                            alert(response.message);
-                            location.reload();
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Kiểm tra thành công',
+                                text: response.message
+                            }).then(() => {
+                                location.reload();
+                            });
                         } else {
-                            alert("Lỗi: " + (response.message || "Không thể kiểm tra cập nhật"));
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Lỗi',
+                                text: "Lỗi: " + (response.message || "Không thể kiểm tra cập nhật")
+                            });
                         }
                     },
                     error: function(xhr, status, error) {
-                        alert("Lỗi khi kiểm tra cập nhật: " + error);
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Lỗi',
+                            text: "Lỗi khi kiểm tra cập nhật: " + error
+                        });
                     },
                     complete: function() {
                         $("#checkUpdatesBtn").prop("disabled", false).html("<i class='bi bi-cloud-download me-1'></i> Kiểm tra cập nhật ngay");
@@ -211,31 +296,53 @@
 
             // Xóa cache cập nhật
             $("#clearCacheBtn").click(function() {
-                if (confirm("Bạn có chắc muốn xóa cache cập nhật không? Thao tác này sẽ buộc hệ thống kiểm tra lại thông tin từ Steam API ở lần kiểm tra tiếp theo.")) {
-                    $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split me-1'></i> Đang xóa...");
+                Swal.fire({
+                    title: 'Xác nhận',
+                    text: "Bạn có chắc muốn xóa cache cập nhật không? Thao tác này sẽ buộc hệ thống kiểm tra lại thông tin từ Steam API ở lần kiểm tra tiếp theo.",
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: 'Đồng ý',
+                    cancelButtonText: 'Hủy'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split me-1'></i> Đang xóa...");
 
-                    $.ajax({
-                        url: "/UpdateManagement?handler=ClearCache",
-                        method: "POST",
-                        headers: {
-                            "RequestVerificationToken": token
-                        },
-                        success: function(response) {
-                            if (response.success) {
-                                alert(response.message);
-                                location.reload();
-                            } else {
-                                alert("Lỗi: " + (response.message || "Không thể xóa cache cập nhật"));
+                        $.ajax({
+                            url: "/UpdateManagement?handler=ClearCache",
+                            method: "POST",
+                            headers: {
+                                "RequestVerificationToken": token
+                            },
+                            success: function(response) {
+                                if (response.success) {
+                                    Swal.fire({
+                                        icon: 'success',
+                                        title: 'Thành công',
+                                        text: response.message
+                                    }).then(() => {
+                                        location.reload();
+                                    });
+                                } else {
+                                    Swal.fire({
+                                        icon: 'error',
+                                        title: 'Lỗi',
+                                        text: "Lỗi: " + (response.message || "Không thể xóa cache cập nhật")
+                                    });
+                                }
+                            },
+                            error: function(xhr, status, error) {
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Lỗi',
+                                    text: "Lỗi khi xóa cache cập nhật: " + error
+                                });
+                            },
+                            complete: function() {
+                                $("#clearCacheBtn").prop("disabled", false).html("<i class='bi bi-trash me-1'></i> Xóa cache cập nhật");
                             }
-                        },
-                        error: function(xhr, status, error) {
-                            alert("Lỗi khi xóa cache cập nhật: " + error);
-                        },
-                        complete: function() {
-                            $("#clearCacheBtn").prop("disabled", false).html("<i class='bi bi-trash me-1'></i> Xóa cache cập nhật");
-                        }
-                    });
-                }
+                        });
+                    }
+                });
             });
 
             // Xử lý nút cập nhật (update-btn)

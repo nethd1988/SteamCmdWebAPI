@@ -15,6 +15,7 @@ namespace SteamCmdWebAPI.Pages
         private readonly ILogger<SteamAccountsModel> _logger;
         private readonly SteamAccountService _accountService;
         private readonly SteamApiService _steamApiService;
+        private readonly EncryptionService _encryptionService;
 
         public List<SteamAccount> Accounts { get; set; } = new List<SteamAccount>();
 
@@ -30,11 +31,13 @@ namespace SteamCmdWebAPI.Pages
         public SteamAccountsModel(
             ILogger<SteamAccountsModel> logger, 
             SteamAccountService accountService,
-            SteamApiService steamApiService)
+            SteamApiService steamApiService,
+            EncryptionService encryptionService)
         {
             _logger = logger;
             _accountService = accountService;
             _steamApiService = steamApiService;
+            _encryptionService = encryptionService;
         }
 
         public async Task OnGetAsync()
@@ -42,6 +45,27 @@ namespace SteamCmdWebAPI.Pages
             try
             {
                 Accounts = await _accountService.GetAllAccountsAsync();
+                
+                // Giải mã tên tài khoản (Username) nếu cần
+                foreach (var account in Accounts)
+                {
+                    if (!string.IsNullOrEmpty(account.Username) && account.Username.Length > 20)
+                    {
+                        try
+                        {
+                            string decryptedUsername = _encryptionService.Decrypt(account.Username);
+                            if (!string.IsNullOrEmpty(decryptedUsername))
+                            {
+                                account.Username = decryptedUsername;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi giải mã username cho tài khoản ID {Id}", account.Id);
+                            // Giữ nguyên username gốc nếu giải mã thất bại
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {

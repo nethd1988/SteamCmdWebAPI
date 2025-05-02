@@ -104,20 +104,27 @@ namespace SteamCmdWebAPI.Services
                     {
                         _logger.LogInformation("Tìm thấy tài khoản {Username} cho AppID {AppId}", account.Username, appId);
 
-                        // Giải mã mật khẩu trước khi trả về
-                        if (!string.IsNullOrEmpty(account.Password))
+                        // Giải mã tên tài khoản nếu cần thiết
+                        try
                         {
-                            try
+                            // Kiểm tra xem tên tài khoản có cần giải mã không
+                            if (!string.IsNullOrEmpty(account.Username) && account.Username.Length > 20)
                             {
-                                // Giải mã mật khẩu ngay tại đây
-                                account.Password = _encryptionService.Decrypt(account.Password);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "Lỗi khi giải mã mật khẩu cho tài khoản {Username}", account.Username);
+                                // Tên tài khoản có vẻ đã mã hóa, cố gắng giải mã
+                                string decryptedUsername = _encryptionService.Decrypt(account.Username);
+                                if (!string.IsNullOrEmpty(decryptedUsername))
+                                {
+                                    account.Username = decryptedUsername;
+                                }
                             }
                         }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi giải mã tên tài khoản cho tài khoản ID {Id}", account.Id);
+                            // Giữ nguyên username gốc nếu giải mã thất bại
+                        }
 
+                        // Không giải mã mật khẩu - giữ nguyên mật khẩu đã mã hóa để sử dụng
                         return account;
                     }
                 }
