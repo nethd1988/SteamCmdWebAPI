@@ -841,11 +841,13 @@
                 var selectedProfile = $(this).val();
                 if (!selectedProfile) {
                     $('#accountSection').show();
+                    // Reset ServerProfileJson để tránh lỗi
+                    $("#ServerProfileJson").val("");
                     return;
                 }
                 // Gọi AJAX lấy profile từ server
                 $.ajax({
-                    url: "?handler=ProfileFromServer",
+                    url: "?handler=ProfileDetails",
                     type: "GET",
                     cache: false,
                     data: { profileName: selectedProfile },
@@ -854,10 +856,14 @@
                             handleServerProfileSelected(response.profile);
                         } else {
                             alert("Không thể tải thông tin profile: " + (response.error || "Lỗi không xác định"));
+                            // Reset ServerProfileJson để tránh lỗi
+                            $("#ServerProfileJson").val("");
                         }
                     },
                     error: function(xhr, status, error) {
                         alert("Lỗi khi tải thông tin profile: " + error);
+                        // Reset ServerProfileJson để tránh lỗi
+                        $("#ServerProfileJson").val("");
                     }
                 });
             });
@@ -909,6 +915,30 @@
                         complete: function() {
                             btn.prop('disabled', false);
                             btn.html('<i class="bi bi-download me-1"></i> Nhập tất cả game');
+                        }
+                    });
+                }
+            });
+
+            // Xử lý khi nhập AppID để tự động lấy tên game
+            $('#Profile_AppID').on('blur', function() {
+                var appId = $(this).val().trim();
+                if (!appId) return;
+                
+                // Nếu tên profile chưa được nhập hoặc trùng với AppID cũ, cập nhật lại
+                var currentName = $('#Profile_Name').val().trim();
+                if (!currentName || currentName === appId) {
+                    // Gọi API từ server để lấy tên game
+                    $.ajax({
+                        url: '/api/SteamApps/name/' + appId,
+                        type: 'GET',
+                        success: function(response) {
+                            if (response && response.name) {
+                                $('#Profile_Name').val(response.name);
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            console.error('Không thể lấy tên game: ' + error);
                         }
                     });
                 }

@@ -93,7 +93,7 @@ namespace SteamCmdWebAPI.Pages
             return Page();
         }
 
-        // Handler để lấy profile từ server
+        // Xử lý API get thông tin từ server
         public async Task<IActionResult> OnGetProfileFromServerAsync(string profileName)
         {
             if (string.IsNullOrEmpty(profileName))
@@ -126,10 +126,19 @@ namespace SteamCmdWebAPI.Pages
                 return StatusCode(500, new { success = false, error = ex.Message });
             }
         }
+        
+        // Handler lấy thông tin từ server - sửa tên phù hợp với client
+        public async Task<IActionResult> OnGetProfileDetailsAsync(string profileName)
+        {
+            return await OnGetProfileFromServerAsync(profileName);
+        }
 
         public async Task<IActionResult> OnPostSaveProfileAsync()
         {
             _logger.LogInformation("OnPostSaveProfileAsync called");
+            // Loại bỏ validation cho ServerProfileJson
+            ModelState.Remove("ServerProfileJson");
+            
             // Nếu có profile từ server, loại bỏ validation cho Username/Password
             if (!string.IsNullOrEmpty(ServerProfileJson))
             {
