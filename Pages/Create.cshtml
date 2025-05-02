@@ -242,6 +242,9 @@
 
             <!-- Footer -->
             <div class="modal-footer">
+                <button type="button" class="btn-primary" id="importAllGamesBtn">
+                    <i class="bi bi-download me-1"></i> Nhập tất cả game
+                </button>
                 <button type="button" class="btn-secondary close-modal">
                     <i class="bi bi-x-circle me-1"></i> Đóng
                 </button>
@@ -634,6 +637,9 @@
 @section Scripts {
     <script>
         $(document).ready(function () {
+            // Biến lưu danh sách game đã quét
+            var scannedGames = [];
+            
             // Xử lý checkbox sử dụng tài khoản từ SteamAccounts
             $('#UseSteamAccounts').on('change', function() {
                 if($(this).is(':checked')) {
@@ -669,6 +675,9 @@
                     type: 'GET',
                     success: function(data) {
                         if (data.success && data.games && data.games.length > 0) {
+                            // Lưu danh sách game đã quét vào biến global
+                            scannedGames = data.games;
+                            
                             // Hiển thị danh sách game
                             var gamesList = $("#gamesList");
                             gamesList.empty();
@@ -907,6 +916,58 @@
                         },
                         complete: function() {
                             $("#importProfileBtn").prop("disabled", false).html('<i class="bi bi-download me-2"></i> Nhập profile từ server');
+                        }
+                    });
+                }
+            });
+
+            // Xử lý khi nhấn nút Nhập tất cả game
+            $(document).on('click', '#importAllGamesBtn', function() {
+                if (scannedGames.length === 0) {
+                    alert('Không có game nào để nhập');
+                    return;
+                }
+                
+                if (confirm('Bạn có muốn nhập tất cả ' + scannedGames.length + ' game vào hệ thống không?')) {
+                    // Chuyển đổi định dạng dữ liệu cho API
+                    const gamesToImport = scannedGames.map(game => ({
+                        AppId: game.appId,
+                        Name: game.gameName,
+                        InstallPath: game.installDir
+                    }));
+                    
+                    // Hiển thị trạng thái đang xử lý
+                    var btn = $(this);
+                    btn.prop('disabled', true);
+                    btn.html('<i class="bi bi-hourglass"></i> Đang nhập...');
+                    
+                    // Gửi dữ liệu lên server
+                    $.ajax({
+                        url: '?handler=ImportAllGames',
+                        type: 'POST',
+                        data: JSON.stringify(gamesToImport),
+                        contentType: 'application/json',
+                        headers: {
+                            'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                hideModal('gamesModal');
+                                alert('Đã nhập ' + response.importedCount + ' game thành công');
+                                
+                                if (confirm('Bạn có muốn đi đến trang quản lý cập nhật không?')) {
+                                    window.location.href = '/UpdateManagement';
+                                }
+                            } else {
+                                alert('Lỗi: ' + (response.message || 'Không thể nhập game'));
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            alert('Lỗi khi gửi yêu cầu: ' + error);
+                        },
+                        complete: function() {
+                            btn.prop('disabled', false);
+                            btn.html('<i class="bi bi-download me-1"></i> Nhập tất cả game');
                         }
                     });
                 }
