@@ -1508,60 +1508,73 @@ namespace SteamCmdWebAPI.Services
                 }
 
                 // Chuẩn bị thông tin đăng nhập
-                if (!string.IsNullOrEmpty(profile.SteamUsername) && !string.IsNullOrEmpty(profile.SteamPassword))
-                {
-                    try
+                try {
+                    // Tìm tài khoản phù hợp cho AppID đầu tiên
+                    string appIdForAccount = appIdsToUpdate.FirstOrDefault() ?? profile.AppID;
+
+                    _logger.LogInformation("RunSteamCmdProcessAsync: Tìm tài khoản cho AppID {AppId}", appIdForAccount);
+                    await SafeSendLogAsync(profile.Name, "Info", $"Đang tìm tài khoản Steam cho AppID {appIdForAccount}...");
+
+                    // Thông tin tài khoản từ SteamAccounts (đã giải mã trong GetSteamAccountForAppId)
+                    var (accountUsername, accountPassword) = await _profileService.GetSteamAccountForAppId(appIdForAccount);
+
+                    if (!string.IsNullOrEmpty(accountUsername) && !string.IsNullOrEmpty(accountPassword))
                     {
-                        string username = _encryptionService.Decrypt(profile.SteamUsername);
-                        string password = _encryptionService.Decrypt(profile.SteamPassword);
-                        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+                        // Sử dụng tài khoản từ SteamAccounts
+                        loginCommand = $"+login {accountUsername} {accountPassword}";
+                        _logger.LogInformation("RunSteamCmdProcessAsync: Sử dụng tài khoản {Username} từ SteamAccounts cho AppID {AppId}",
+                            accountUsername, appIdForAccount);
+                        await SafeSendLogAsync(profile.Name, "Info", $"Sử dụng tài khoản {accountUsername} từ SteamAccounts");
+
+                        // Log thêm để kiểm tra
+                        _logger.LogDebug("RunSteamCmdProcessAsync: Login command: {LoginCommand}",
+                            $"+login {accountUsername} ***PASSWORD***");
+                    }
+                    else if (!string.IsNullOrEmpty(profile.SteamUsername) && !string.IsNullOrEmpty(profile.SteamPassword))
+                    {
+                        // Sử dụng tài khoản từ profile (backup)
+                        try
                         {
-                            // Nếu không có thông tin đăng nhập trong profile, tìm tài khoản phù hợp
-                            var appIdToCheck = appIdsToUpdate.Count > 0 ? appIdsToUpdate[0] : profile.AppID;
-                            var (foundUsername, foundPassword) = await _profileService.GetSteamAccountForAppId(appIdToCheck);
+                            string username = _encryptionService.Decrypt(profile.SteamUsername);
+                            string password = _encryptionService.Decrypt(profile.SteamPassword);
                             
-                            if (!string.IsNullOrEmpty(foundUsername) && !string.IsNullOrEmpty(foundPassword))
+                            if (!string.IsNullOrWhiteSpace(username) && !string.IsNullOrWhiteSpace(password))
                             {
-                                username = foundUsername;
-                                password = foundPassword;
-                                await SafeSendLogAsync(profile.Name, "Info", $"Đã tìm thấy tài khoản Steam phù hợp cho ứng dụng {appIdToCheck}");
+                                loginCommand = $"+login {username} {password}";
+                                _logger.LogWarning("RunSteamCmdProcessAsync: Không tìm thấy tài khoản trong SteamAccounts, sử dụng tài khoản từ profile");
+                                await SafeSendLogAsync(profile.Name, "Warning", "Không tìm thấy tài khoản trong SteamAccounts, sử dụng tài khoản từ profile");
                             }
                             else
                             {
-                                await LogOperationAsync(profile.Name, "Error", "Lỗi: Tên người dùng hoặc mật khẩu trống sau khi giải mã, và không tìm thấy tài khoản phù hợp.", "Error");
-                                _lastRunHadLoginError = true;
-                                runResult.ExitCode = -98;
-                                return runResult;
+                                throw new Exception("Tên đăng nhập hoặc mật khẩu trong profile trống sau khi giải mã");
                             }
                         }
-                        loginCommand = $"+login {username} {password}";
-                    }
-                    catch (Exception ex)
-                    {
-                        await LogOperationAsync(profile.Name, "Error", $"Lỗi giải mã thông tin đăng nhập: {ex.Message}. Không thể tiếp tục.", "Error");
-                        _lastRunHadLoginError = true;
-                        runResult.ExitCode = -97;
-                        return runResult;
-                    }
-                }
-                else
-                {
-                    // Nếu profile không có thông tin đăng nhập, tìm tài khoản phù hợp
-                    var appIdToCheck = appIdsToUpdate.Count > 0 ? appIdsToUpdate[0] : profile.AppID;
-                    var (foundUsername, foundPassword) = await _profileService.GetSteamAccountForAppId(appIdToCheck);
-                    
-                    if (!string.IsNullOrEmpty(foundUsername) && !string.IsNullOrEmpty(foundPassword))
-                    {
-                        loginCommand = $"+login {foundUsername} {foundPassword}";
-                        await SafeSendLogAsync(profile.Name, "Info", $"Đã tìm thấy tài khoản Steam phù hợp cho ứng dụng {appIdToCheck}");
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "RunSteamCmdProcessAsync: Lỗi khi giải mã thông tin đăng nhập từ profile");
+                            await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi giải mã thông tin đăng nhập: {ex.Message}");
+                            _lastRunHadLoginError = true;
+                            runResult.ExitCode = -97;
+                            return runResult;
+                        }
                     }
                     else
                     {
-                        await LogOperationAsync(profile.Name, "Error", "Lỗi: Thông tin đăng nhập Steam không được cung cấp và không tìm thấy tài khoản phù hợp. Profile này yêu cầu tài khoản.", "Error");
+                        // Không có tài khoản nào khả dụng
+                        _logger.LogError("RunSteamCmdProcessAsync: Không tìm thấy tài khoản cho AppID {AppId} trong SteamAccounts hoặc profile", appIdForAccount);
+                        await SafeSendLogAsync(profile.Name, "Error", $"Không tìm thấy tài khoản Steam cho AppID {appIdForAccount} trong SteamAccounts hoặc profile");
                         _lastRunHadLoginError = true;
                         runResult.ExitCode = -96;
                         return runResult;
                     }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "RunSteamCmdProcessAsync: Lỗi khi tìm và chuẩn bị thông tin đăng nhập");
+                    await SafeSendLogAsync(profile.Name, "Error", $"Lỗi khi chuẩn bị đăng nhập: {ex.Message}");
+                    _lastRunHadLoginError = true;
+                    runResult.ExitCode = -95;
+                    return runResult;
                 }
 
                 // Xây dựng command line
@@ -2119,6 +2132,32 @@ namespace SteamCmdWebAPI.Services
                 return false;
             }
 
+            // Kiểm tra debug trước
+            await DebugCheckSteamAccountsForAppId(appId);
+
+            // Kiểm tra xem có tài khoản phù hợp cho AppID này không
+            var (foundUsername, foundPassword) = await _profileService.GetSteamAccountForAppId(appId);
+            if (string.IsNullOrEmpty(foundUsername) || string.IsNullOrEmpty(foundPassword))
+            {
+                string errorMessage = $"Không tìm thấy tài khoản Steam phù hợp cho App ID {appId} trong SteamAccounts.";
+                
+                // Kiểm tra nếu profile có tài khoản
+                if (!string.IsNullOrEmpty(profile.SteamUsername) && !string.IsNullOrEmpty(profile.SteamPassword))
+                {
+                    errorMessage += " Sẽ sử dụng tài khoản từ profile.";
+                    await SafeSendLogAsync(profile.Name, "Warning", errorMessage);
+                }
+                else
+                {
+                    await SafeSendLogAsync(profile.Name, "Error", errorMessage + " Không thể tiếp tục vì profile không có tài khoản.");
+                    return false;
+                }
+            }
+            else
+            {
+                await SafeSendLogAsync(profile.Name, "Info", $"Tìm thấy tài khoản {foundUsername} phù hợp cho AppID {appId}");
+            }
+
             // Kiểm tra xem đã có trong hàng đợi chưa
             if (await IsAlreadyInQueueAsync(profileId, appId))
             {
@@ -2164,6 +2203,48 @@ namespace SteamCmdWebAPI.Services
             await _profileService.UpdateProfile(profile);
             
             return true;
+        }
+
+        // Thêm phương thức debug để kiểm tra sự tồn tại của tài khoản Steam cho AppID
+        private async Task<bool> DebugCheckSteamAccountsForAppId(string appId)
+        {
+            try
+            {
+                using (var scope = _serviceProvider.CreateScope())
+                {
+                    var steamAccountService = scope.ServiceProvider.GetRequiredService<SteamAccountService>();
+                    var accounts = await steamAccountService.GetAllAccountsAsync();
+
+                    _logger.LogInformation("DEBUG: Đang kiểm tra {Count} tài khoản Steam cho AppID {AppId}", accounts.Count, appId);
+
+                    foreach (var account in accounts)
+                    {
+                        var appIds = !string.IsNullOrEmpty(account.AppIds) ? 
+                            account.AppIds.Split(',').Select(id => id.Trim()).ToList() : 
+                            new List<string>();
+
+                        _logger.LogInformation("DEBUG: Tài khoản {Username} có {Count} AppIDs: {AppIds}", 
+                            account.Username, appIds.Count, string.Join(", ", appIds));
+
+                        if (appIds.Contains(appId))
+                        {
+                            _logger.LogInformation("DEBUG: Tìm thấy AppID {AppId} trong tài khoản {Username}", 
+                                appId, account.Username);
+                            await SafeSendLogAsync("DEBUG", "Info", $"Tìm thấy AppID {appId} trong tài khoản {account.Username}");
+                            return true;
+                        }
+                    }
+
+                    _logger.LogWarning("DEBUG: Không tìm thấy AppID {AppId} trong bất kỳ tài khoản nào", appId);
+                    await SafeSendLogAsync("DEBUG", "Warning", $"Không tìm thấy AppID {appId} trong bất kỳ tài khoản nào");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "DEBUG: Lỗi khi kiểm tra tài khoản Steam cho AppID {AppId}", appId);
+                return false;
+            }
         }
 
         // Thêm phương thức kiểm tra xem đã có trong hàng đợi chưa

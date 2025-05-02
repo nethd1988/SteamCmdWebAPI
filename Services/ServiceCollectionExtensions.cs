@@ -15,6 +15,11 @@ namespace SteamCmdWebAPI.Services
             services.AddSingleton<LicenseService>();
             services.AddSingleton<EncryptionService>();
             services.AddSingleton<SettingsService>();
+            
+            // Đăng ký SteamAccountService trước ProfileService
+            services.AddSingleton<SteamAccountService>();
+            
+            // Đăng ký ProfileService với serviceProvider
             services.AddSingleton<ProfileService>(sp => new ProfileService(
                 sp.GetRequiredService<ILogger<ProfileService>>(),
                 sp.GetRequiredService<SettingsService>(),
@@ -22,6 +27,7 @@ namespace SteamCmdWebAPI.Services
                 sp.GetRequiredService<LicenseService>(),
                 sp // Truyền IServiceProvider
             ));
+            
             services.AddSingleton<ServerSettingsService>();
             services.AddSingleton<LogFileReader>();
             services.AddSingleton<SteamApiService>();
@@ -48,7 +54,9 @@ namespace SteamCmdWebAPI.Services
 
             services.AddSingleton<TcpClientService>();
             services.AddSingleton<UserService>();
-            services.AddSingleton<SteamAccountService>();
+            
+            // Xóa đăng ký ở đây vì đã đăng ký ở trên
+            // services.AddSingleton<SteamAccountService>();
 
             // Cấu hình AutoRun và UpdateCheck
             services.AddSingleton<AutoRunConfiguration>();

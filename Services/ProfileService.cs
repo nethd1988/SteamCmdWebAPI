@@ -326,22 +326,25 @@ namespace SteamCmdWebAPI.Services
                     return (null, null);
                 }
 
-                // Kiểm tra nếu _serviceProvider không khả dụng
-                if (_serviceProvider == null)
+                // Lấy dịch vụ tài khoản
+                SteamAccountService steamAccountService = null;
+                try
                 {
-                    _logger.LogError("GetSteamAccountForAppId: IServiceProvider không khả dụng");
+                    steamAccountService = _serviceProvider.GetRequiredService<SteamAccountService>();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "GetSteamAccountForAppId: Lỗi khi lấy SteamAccountService");
                     return (null, null);
                 }
 
-                // Lấy dịch vụ SteamAccountService để tìm tài khoản phù hợp
-                var steamAccountService = _serviceProvider.GetService<SteamAccountService>();
-                
                 if (steamAccountService == null)
                 {
-                    _logger.LogError("GetSteamAccountForAppId: Không thể lấy SteamAccountService từ DI container");
+                    _logger.LogError("GetSteamAccountForAppId: SteamAccountService không khả dụng");
                     return (null, null);
                 }
-                
+
+                // Lấy tài khoản phù hợp
                 var account = await steamAccountService.GetAccountByAppIdAsync(appId);
 
                 if (account == null)
@@ -350,10 +353,24 @@ namespace SteamCmdWebAPI.Services
                     return (null, null);
                 }
 
-                _logger.LogInformation("GetSteamAccountForAppId: Đã tìm thấy tài khoản {Username} cho AppID {AppId}", 
+                // QUAN TRỌNG: Đảm bảo thông tin tài khoản đã được giải mã
+                string decryptedPassword = null;
+                try
+                {
+                    // Password có thể đã được mã hóa, cần giải mã
+                    decryptedPassword = _encryptionService.Decrypt(account.Password);
+                    _logger.LogInformation("GetSteamAccountForAppId: Đã giải mã mật khẩu thành công cho tài khoản {Username}", account.Username);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "GetSteamAccountForAppId: Lỗi khi giải mã mật khẩu, sử dụng giá trị nguyên bản");
+                    decryptedPassword = account.Password; // Sử dụng giá trị nguyên bản nếu giải mã thất bại
+                }
+
+                _logger.LogInformation("GetSteamAccountForAppId: Đã tìm thấy và giải mã tài khoản {Username} cho AppID {AppId}",
                     account.Username, appId);
-                
-                return (account.Username, account.Password);
+
+                return (account.Username, decryptedPassword);
             }
             catch (Exception ex)
             {
