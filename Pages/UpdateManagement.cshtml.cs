@@ -321,8 +321,20 @@ namespace SteamCmdWebAPI.Pages
                                 // Nếu profile chưa có thông tin đăng nhập, cập nhật
                                 if (string.IsNullOrEmpty(profile.SteamUsername) || string.IsNullOrEmpty(profile.SteamPassword))
                                 {
-                                    profile.SteamUsername = _encryptionService.Encrypt(foundUsername);
-                                    profile.SteamPassword = _encryptionService.Encrypt(foundPassword);
+                                    // Kiểm tra xem username và password có cần mã hóa không
+                                    bool usernameNeedsEncryption = !string.IsNullOrEmpty(foundUsername) && foundUsername.Length < 20;
+                                    bool passwordNeedsEncryption = !string.IsNullOrEmpty(foundPassword) && foundPassword.Length < 20;
+                                    
+                                    _logger.LogDebug("UpdateManagement: Username cần mã hóa: {0}, Password cần mã hóa: {1}",
+                                        usernameNeedsEncryption, passwordNeedsEncryption);
+                                    
+                                    // Chỉ mã hóa khi cần thiết (password có thể đã được mã hóa)
+                                    profile.SteamUsername = usernameNeedsEncryption ? 
+                                        _encryptionService.Encrypt(foundUsername) : foundUsername;
+                                        
+                                    profile.SteamPassword = passwordNeedsEncryption ? 
+                                        _encryptionService.Encrypt(foundPassword) : foundPassword;
+                                        
                                     await _profileService.UpdateProfile(profile);
                                     _logger.LogInformation("Đã cập nhật thông tin đăng nhập cho profile {ProfileName} từ tài khoản Steam {Username}",
                                         profile.Name, foundUsername);

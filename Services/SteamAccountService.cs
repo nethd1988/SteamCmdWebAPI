@@ -89,35 +89,39 @@ namespace SteamCmdWebAPI.Services
 
                 var accounts = await GetAllAccountsAsync();
 
-                _logger.LogInformation("GetAccountByAppIdAsync: Đang kiểm tra {Count} tài khoản cho AppID {AppId}", accounts.Count, appId);
-
-                // Tìm tài khoản có chứa AppID được chỉ định
                 foreach (var account in accounts)
                 {
                     if (string.IsNullOrEmpty(account.AppIds))
                         continue;
 
-                    // Tách AppIds và làm sạch
                     var appIdsList = account.AppIds
                         .Split(',')
                         .Select(id => id.Trim())
                         .Where(id => !string.IsNullOrEmpty(id))
                         .ToList();
 
-                    _logger.LogDebug("GetAccountByAppIdAsync: Tài khoản {Username} có các AppID: {AppIds}",
-                        account.Username, string.Join(", ", appIdsList));
-
                     if (appIdsList.Contains(appId))
                     {
-                        _logger.LogInformation("GetAccountByAppIdAsync: Tìm thấy tài khoản {Username} cho AppID {AppId}",
-                            account.Username, appId);
+                        _logger.LogInformation("Tìm thấy tài khoản {Username} cho AppID {AppId}", account.Username, appId);
 
-                        // Mật khẩu đã mã hóa không cần giải mã ở đây vì sẽ được xử lý trong ProfileService
+                        // Giải mã mật khẩu trước khi trả về
+                        if (!string.IsNullOrEmpty(account.Password))
+                        {
+                            try
+                            {
+                                // Giải mã mật khẩu ngay tại đây
+                                account.Password = _encryptionService.Decrypt(account.Password);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Lỗi khi giải mã mật khẩu cho tài khoản {Username}", account.Username);
+                            }
+                        }
+
                         return account;
                     }
                 }
 
-                _logger.LogWarning("GetAccountByAppIdAsync: Không tìm thấy tài khoản nào cho AppID {AppId}", appId);
                 return null;
             }
             catch (Exception ex)
@@ -131,55 +135,83 @@ namespace SteamCmdWebAPI.Services
         {
             lock (_fileLock)
             {
-                // Mã hóa mật khẩu trước khi lưu
-                var accountsToSave = accounts.Select(a => new SteamAccount 
+                var accountsToSave = new List<SteamAccount>();
+
+                foreach (var account in accounts)
                 {
-                    Id = a.Id,
-                    ProfileName = a.ProfileName,
-                    Username = a.Username,
-                    Password = _encryptionService.Encrypt(a.Password),
-                    AppIds = a.AppIds,
-                    GameNames = a.GameNames,
-                    CreatedAt = a.CreatedAt,
-                    UpdatedAt = a.UpdatedAt
-                }).ToList();
-                
+                    string passwordToSave = account.Password;
+
+                    // Kiểm tra xem mật khẩu có cần mã hóa không
+                    // Mật khẩu khi mã hóa thường dài và có các ký tự đặc biệt
+                    if (!string.IsNullOrEmpty(passwordToSave) &&
+                        (passwordToSave.Length < 30 || !passwordToSave.Contains("/")))
+                    {
+                        // Mật khẩu chưa được mã hóa
+                        passwordToSave = _encryptionService.Encrypt(passwordToSave);
+                        _logger.LogDebug("Đã mã hóa mật khẩu cho tài khoản {Username}", account.Username);
+                    }
+
+                    accountsToSave.Add(new SteamAccount
+                    {
+                        Id = account.Id,
+                        ProfileName = account.ProfileName,
+                        Username = account.Username,
+                        Password = passwordToSave,
+                        AppIds = account.AppIds,
+                        GameNames = account.GameNames,
+                        CreatedAt = account.CreatedAt,
+                        UpdatedAt = account.UpdatedAt
+                    });
+                }
+
                 var options = new JsonSerializerOptions { WriteIndented = true };
                 string json = JsonSerializer.Serialize(accountsToSave, options);
                 File.WriteAllText(_accountsFilePath, json);
             }
         }
-        
+
         public async Task<SteamAccount> AddAccountAsync(SteamAccount account)
         {
             var accounts = await GetAllAccountsAsync();
-            
+
             account.Id = accounts.Count > 0 ? accounts.Max(a => a.Id) + 1 : 1;
             account.CreatedAt = DateTime.Now;
             account.UpdatedAt = DateTime.Now;
-            
+
+            // Mã hóa mật khẩu chỉ khi nó chưa được mã hóa
+            if (!string.IsNullOrEmpty(account.Password) && account.Password.Length < 20)
+            {
+                account.Password = _encryptionService.Encrypt(account.Password);
+            }
+
             accounts.Add(account);
             SaveAccounts(accounts);
-            
+
             return account;
         }
-        
+
         public async Task UpdateAccountAsync(SteamAccount account)
         {
             var accounts = await GetAllAccountsAsync();
             int index = accounts.FindIndex(a => a.Id == account.Id);
-            
+
             if (index == -1)
             {
                 throw new Exception($"Không tìm thấy tài khoản với ID {account.Id}");
             }
-            
+
+            // Kiểm tra xem mật khẩu có cần mã hóa không
+            if (!string.IsNullOrEmpty(account.Password) && account.Password.Length < 20)
+            {
+                account.Password = _encryptionService.Encrypt(account.Password);
+            }
+
             account.UpdatedAt = DateTime.Now;
             accounts[index] = account;
-            
+
             SaveAccounts(accounts);
         }
-        
+
         public async Task DeleteAccountAsync(int id)
         {
             var accounts = await GetAllAccountsAsync();
@@ -189,6 +221,12 @@ namespace SteamCmdWebAPI.Services
             {
                 accounts.Remove(account);
                 SaveAccounts(accounts);
+                _logger.LogInformation("Đã xóa tài khoản {Username} (ID: {Id})", account.Username, id);
+            }
+            else
+            {
+                _logger.LogWarning("Không tìm thấy tài khoản với ID {Id} để xóa", id);
+                throw new Exception($"Không tìm thấy tài khoản với ID {id}");
             }
         }
     }

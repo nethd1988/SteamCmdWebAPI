@@ -1520,14 +1520,53 @@ namespace SteamCmdWebAPI.Services
 
                     if (!string.IsNullOrEmpty(accountUsername) && !string.IsNullOrEmpty(accountPassword))
                     {
-                        // Sử dụng tài khoản từ SteamAccounts
+                        // QUAN TRỌNG: Kiểm tra xem accountPassword có vẻ như đã bị mã hóa không
+                        if (accountPassword.Length > 30 && accountPassword.Contains("/") && accountPassword.Contains("+"))
+                        {
+                            try
+                            {
+                                // Cố gắng giải mã lại một lần nữa
+                                string decryptedPass = _encryptionService.Decrypt(accountPassword);
+                                _logger.LogDebug("Đã giải mã mật khẩu từ {OrigLength} thành {NewLength} ký tự", 
+                                    accountPassword.Length, decryptedPass.Length);
+                                accountPassword = decryptedPass;
+                            }
+                            catch
+                            {
+                                // Nếu không giải mã được, vẫn sử dụng giá trị hiện tại
+                                _logger.LogWarning("Không thể giải mã lại mật khẩu, có thể đã giải mã rồi");
+                            }
+                        }
+                        
+                        // Thoát các ký tự đặc biệt trong mật khẩu để tránh lỗi trên command line
+                        if (accountPassword.Contains("@") || accountPassword.Contains("#") || 
+                            accountPassword.Contains("!") || accountPassword.Contains("&") ||
+                            accountPassword.Contains("<") || accountPassword.Contains(">") ||
+                            accountPassword.Contains("|") || accountPassword.Contains("^"))
+                        {
+                            // Đối với Windows, cách tốt nhất là đặt mật khẩu trong dấu ngoặc kép
+                            // và thoát các ký tự đặc biệt bằng dấu ^
+                            string originalPassword = accountPassword;
+                            accountPassword = "\"" + accountPassword
+                                .Replace("^", "^^")  // ^ phải được thoát đầu tiên
+                                .Replace("&", "^&")
+                                .Replace("|", "^|")
+                                .Replace("<", "^<")
+                                .Replace(">", "^>")
+                                .Replace("(", "^(")
+                                .Replace(")", "^)")
+                                + "\"";
+                            
+                            _logger.LogDebug("Đã thoát ký tự đặc biệt trong mật khẩu để tránh lỗi command line");
+                        }
+                        
+                        // Tạo lệnh đăng nhập với mật khẩu đã được giải mã
                         loginCommand = $"+login {accountUsername} {accountPassword}";
-                        _logger.LogInformation("RunSteamCmdProcessAsync: Sử dụng tài khoản {Username} từ SteamAccounts cho AppID {AppId}",
-                            accountUsername, appIdForAccount);
+                        _logger.LogInformation("Sử dụng tài khoản {Username} từ SteamAccounts", accountUsername);
                         await SafeSendLogAsync(profile.Name, "Info", $"Sử dụng tài khoản {accountUsername} từ SteamAccounts");
 
                         // Log thêm để kiểm tra
-                        _logger.LogDebug("RunSteamCmdProcessAsync: Login command: {LoginCommand}",
+                        _logger.LogDebug("Login command: {LoginCommand}",
                             $"+login {accountUsername} ***PASSWORD***");
                     }
                     else if (!string.IsNullOrEmpty(profile.SteamUsername) && !string.IsNullOrEmpty(profile.SteamPassword))
@@ -1540,6 +1579,27 @@ namespace SteamCmdWebAPI.Services
                             
                             if (!string.IsNullOrWhiteSpace(username) && !string.IsNullOrWhiteSpace(password))
                             {
+                                // Thoát các ký tự đặc biệt trong mật khẩu để tránh lỗi trên command line
+                                if (password.Contains("@") || password.Contains("#") || 
+                                    password.Contains("!") || password.Contains("&") ||
+                                    password.Contains("<") || password.Contains(">") ||
+                                    password.Contains("|") || password.Contains("^"))
+                                {
+                                    // Đối với Windows, cách tốt nhất là đặt mật khẩu trong dấu ngoặc kép
+                                    // và thoát các ký tự đặc biệt bằng dấu ^
+                                    password = "\"" + password
+                                        .Replace("^", "^^")  // ^ phải được thoát đầu tiên
+                                        .Replace("&", "^&")
+                                        .Replace("|", "^|")
+                                        .Replace("<", "^<")
+                                        .Replace(">", "^>")
+                                        .Replace("(", "^(")
+                                        .Replace(")", "^)")
+                                        + "\"";
+                                    
+                                    _logger.LogDebug("Đã thoát ký tự đặc biệt trong mật khẩu từ profile để tránh lỗi command line");
+                                }
+                                
                                 loginCommand = $"+login {username} {password}";
                                 _logger.LogWarning("RunSteamCmdProcessAsync: Không tìm thấy tài khoản trong SteamAccounts, sử dụng tài khoản từ profile");
                                 await SafeSendLogAsync(profile.Name, "Warning", "Không tìm thấy tài khoản trong SteamAccounts, sử dụng tài khoản từ profile");
@@ -3058,6 +3118,68 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogError(ex, "Lỗi khi xóa cache thông tin cập nhật cho App ID: {AppId}", appId);
                 return false;
             }
+        }
+        private void LogAccountDetails(string username, string password)
+        {
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                _logger.LogWarning("Tài khoản hoặc mật khẩu rỗng");
+                return;
+            }
+
+            _logger.LogDebug("Thông tin tài khoản:");
+            _logger.LogDebug("- Username: {0}", username);
+            _logger.LogDebug("- Password length: {0}", password.Length);
+            
+            // Kiểm tra dạng Base64
+            bool isBase64Pattern = Regex.IsMatch(password, @"^[a-zA-Z0-9\+/]*={0,2}$");
+            _logger.LogDebug("- Password có dạng Base64: {0}", isBase64Pattern);
+            
+            // Kiểm tra độ dài điển hình của mật khẩu mã hóa
+            bool isEncryptedLength = password.Length > 20 && password.Length % 4 == 0;
+            _logger.LogDebug("- Password có độ dài giống mã hóa: {0} (length={1}, divisible by 4={2})", 
+                isEncryptedLength, password.Length, password.Length % 4 == 0);
+                
+            // Kiểm tra các đặc điểm phổ biến của mật khẩu mã hóa
+            bool containsSpecialChars = password.Contains('+') || password.Contains('/') || password.Contains('=');
+            _logger.LogDebug("- Password chứa ký tự đặc biệt của Base64 (+/=): {0}", containsSpecialChars);
+            
+            // Kiểm tra cường độ entropy của mật khẩu (mật khẩu mã hóa thường có entropy cao)
+            double entropy = CalculateStringEntropy(password);
+            _logger.LogDebug("- Password entropy (measure of randomness): {0:F2} (>4.5 có thể là mã hóa)", entropy);
+            
+            // Kết luận về khả năng mật khẩu đang mã hóa
+            bool isLikelyEncrypted = isBase64Pattern && isEncryptedLength && entropy > 4.5;
+            _logger.LogDebug("- KẾT LUẬN: Password có khả năng vẫn bị mã hóa: {0}", isLikelyEncrypted);
+
+            // Chỉ in 5 ký tự đầu để kiểm tra, không in toàn bộ mật khẩu
+            if (password.Length > 5)
+            {
+                _logger.LogDebug("- 5 ký tự đầu của password: {0}...", password.Substring(0, 5));
+            }
+        }
+        
+        // Helper method to calculate entropy of a string (measure of randomness)
+        private double CalculateStringEntropy(string input)
+        {
+            var charCount = new Dictionary<char, int>();
+            foreach (char c in input)
+            {
+                if (charCount.ContainsKey(c))
+                    charCount[c]++;
+                else
+                    charCount[c] = 1;
+            }
+            
+            double entropy = 0;
+            int length = input.Length;
+            foreach (var count in charCount.Values)
+            {
+                double frequency = (double)count / length;
+                entropy -= frequency * Math.Log(frequency, 2);
+            }
+            
+            return entropy;
         }
     }
 }

@@ -353,13 +353,48 @@ namespace SteamCmdWebAPI.Services
                     return (null, null);
                 }
 
-                // QUAN TRỌNG: Đảm bảo thông tin tài khoản đã được giải mã
+                // Kiểm tra và giải mã mật khẩu
                 string decryptedPassword = null;
                 try
                 {
-                    // Password có thể đã được mã hóa, cần giải mã
+                    // Thêm log để kiểm tra mật khẩu trước khi giải mã
+                    _logger.LogDebug("GetSteamAccountForAppId: Mật khẩu gốc có độ dài {Length} ký tự", 
+                        account.Password?.Length ?? 0);
+                    _logger.LogDebug("GetSteamAccountForAppId: Mật khẩu có dạng Base64: {IsBase64}", 
+                        !string.IsNullOrEmpty(account.Password) && 
+                        System.Text.RegularExpressions.Regex.IsMatch(account.Password, @"^[a-zA-Z0-9\+/]*={0,2}$"));
+                        
+                    // Giải mã mật khẩu từ tài khoản
                     decryptedPassword = _encryptionService.Decrypt(account.Password);
-                    _logger.LogInformation("GetSteamAccountForAppId: Đã giải mã mật khẩu thành công cho tài khoản {Username}", account.Username);
+                    _logger.LogInformation("GetSteamAccountForAppId: Đã giải mã mật khẩu thành công cho tài khoản {Username}",
+                        account.Username);
+
+                    // Kiểm tra mật khẩu sau khi giải mã
+                    _logger.LogDebug("GetSteamAccountForAppId: Mật khẩu sau khi giải mã có độ dài: {Length} ký tự", 
+                        decryptedPassword?.Length ?? 0);
+                    
+                    // Nếu mật khẩu vẫn có dạng Base64 sau khi giải mã, có thể vẫn bị mã hóa
+                    if (!string.IsNullOrEmpty(decryptedPassword) && decryptedPassword.Length > 20 &&
+                        System.Text.RegularExpressions.Regex.IsMatch(decryptedPassword, @"^[a-zA-Z0-9\+/]*={0,2}$"))
+                    {
+                        _logger.LogWarning("GetSteamAccountForAppId: Mật khẩu có thể vẫn bị mã hóa sau khi giải mã!");
+                        
+                        try
+                        {
+                            // Thử giải mã thêm một lần nữa
+                            string doubleDecrypted = _encryptionService.Decrypt(decryptedPassword);
+                            if (!string.IsNullOrEmpty(doubleDecrypted))
+                            {
+                                _logger.LogInformation("GetSteamAccountForAppId: Đã giải mã thành công lần thứ hai cho tài khoản {Username}",
+                                    account.Username);
+                                decryptedPassword = doubleDecrypted;
+                            }
+                        }
+                        catch (Exception innerEx)
+                        {
+                            _logger.LogWarning("GetSteamAccountForAppId: Không thể giải mã lần thứ hai: {Error}", innerEx.Message);
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
