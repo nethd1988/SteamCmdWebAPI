@@ -90,6 +90,7 @@ namespace SteamCmdWebAPI.Services
                     Username = a.Username,
                     Password = _encryptionService.Encrypt(a.Password),
                     AppIds = a.AppIds,
+                    GameNames = a.GameNames,
                     CreatedAt = a.CreatedAt,
                     UpdatedAt = a.UpdatedAt
                 }).ToList();

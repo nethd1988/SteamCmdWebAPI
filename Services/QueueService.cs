@@ -28,18 +28,46 @@ namespace SteamCmdWebAPI.Services
         private bool _isProcessing = false;
         private CancellationTokenSource _cancellationTokenSource;
 
+        // Thay đổi từ private class thành public class
+        public class QueueData
+        {
+            public List<QueueItem> Queue { get; set; }
+            public List<QueueItem> History { get; set; }
+        }
+
+        public class QueueItem
+        {
+            public int Id { get; set; }
+            public int ProfileId { get; set; }
+            public string ProfileName { get; set; }
+            public string AppId { get; set; }
+            public string AppName { get; set; }
+            public string Status { get; set; }
+            public DateTime CreatedAt { get; set; }
+            public DateTime? StartedAt { get; set; }
+            public DateTime? CompletedAt { get; set; }
+            public string Error { get; set; }
+            public bool IsMainApp { get; set; }
+            public string ParentAppId { get; set; }
+            public int Order { get; set; }
+            public TimeSpan? ProcessingTime { get; set; }
+            public string ProcessingStatus { get; set; }
+            public int RetryCount { get; set; }
+            public DateTime? LastRetryTime { get; set; }
+        }
+
         public QueueService(
             ILogger<QueueService> logger,
             ProfileService profileService,
             SteamApiService steamApiService,
             IHubContext<LogHub> hubContext,
-            IServiceProvider serviceProvider) // Thêm IServiceProvider
+            IServiceProvider serviceProvider)
         {
             _logger = logger;
             _profileService = profileService;
             _steamApiService = steamApiService;
             _hubContext = hubContext;
-            _serviceProvider = serviceProvider; // Lưu IServiceProvider
+            _serviceProvider = serviceProvider;
 
             var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
             string dataDir = Path.Combine(baseDirectory, "data");
@@ -78,8 +106,26 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        public bool IsAlreadyInQueue(int profileId, string appId)
+        {
+            lock (_queueLock)
+            {
+                // Kiểm tra cả trong danh sách đang chờ và đang xử lý
+                return _queue.Any(q => q.ProfileId == profileId && 
+                                      q.AppId == appId && 
+                                      (q.Status == "Đang chờ" || q.Status == "Đang xử lý"));
+            }
+        }
+
         public async Task<bool> AddToQueue(int profileId, string appId, bool isMainApp = true, string parentAppId = null)
         {
+            // Kiểm tra ngay từ đầu nếu đã có trong hàng đợi
+            if (IsAlreadyInQueue(profileId, appId))
+            {
+                _logger.LogInformation("AddToQueue: AppID {AppId} đã có trong hàng đợi, bỏ qua", appId);
+                return true;
+            }
+
             try
             {
                 var profile = await _profileService.GetProfileById(profileId);
@@ -91,6 +137,18 @@ namespace SteamCmdWebAPI.Services
 
                 var appInfo = await _steamApiService.GetAppUpdateInfo(appId);
                 string appName = appInfo?.Name ?? $"AppID {appId}";
+
+                // Kiểm tra xem profile có quá nhiều app ID không
+                var existingAppIds = _queue
+                    .Where(q => q.ProfileId == profileId && q.Status == "Đang chờ")
+                    .Select(q => q.AppId)
+                    .ToList();
+                
+                if (existingAppIds.Count > 10) // Nếu có quá nhiều app ID trong queue
+                {
+                    _logger.LogWarning("Queue quá lớn cho profile {ProfileId}, xử lý theo lô", profileId);
+                    await _hubContext.Clients.All.SendAsync("ReceiveLog", $"Queue quá lớn cho profile {profile.Name}, xử lý theo lô");
+                }
 
                 var queueItem = new QueueItem
                 {
@@ -106,28 +164,48 @@ namespace SteamCmdWebAPI.Services
                     Order = GetNextOrder()
                 };
 
+                bool added = false;
                 lock (_queueLock)
                 {
-                    // Kiểm tra xem đã có trong hàng đợi chưa
-                    if (_queue.Any(q => q.ProfileId == profileId && q.AppId == appId && q.Status == "Đang chờ"))
+                    // Kiểm tra lại một lần nữa trong trường hợp đã có thêm vào khi đang xử lý
+                    if (!IsAlreadyInQueue(profileId, appId))
                     {
-                        _logger.LogInformation("AppID {AppId} của Profile {ProfileName} đã có trong hàng đợi", appId, profile.Name);
-                        return true;
+                        _queue.Add(queueItem);
+                        added = true;
+                        try {
+                            SaveQueueToFile();
+                        }
+                        catch (Exception ex) {
+                            _logger.LogError(ex, "Lỗi khi lưu hàng đợi vào file");
+                        }
+                    }
+                }
+
+                if (added)
+                {
+                    _logger.LogInformation("Đã thêm {AppName} (AppID: {AppId}) của Profile {ProfileName} vào hàng đợi", 
+                        appName, appId, profile.Name);
+                        
+                    // Gửi ngay thông báo cập nhật hàng đợi
+                    try {
+                        await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
+                            new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
+                    }
+                    catch (Exception ex) {
+                        _logger.LogError(ex, "Lỗi khi gửi thông báo ReceiveQueueUpdate");
                     }
 
-                    _queue.Add(queueItem);
-                    SaveQueueToFile();
+                    // Nếu chưa đang xử lý, bắt đầu xử lý
+                    if (!_isProcessing)
+                    {
+                        StartProcessing();
+                    }
                 }
-
-                _logger.LogInformation("Đã thêm {AppName} (AppID: {AppId}) của Profile {ProfileName} vào hàng đợi", appName, appId, profile.Name);
-
-                // Nếu chưa đang xử lý, bắt đầu xử lý
-                if (!_isProcessing)
+                else
                 {
-                    StartProcessing();
+                    _logger.LogInformation("Bỏ qua thêm {AppName} (AppID: {AppId}) vì đã có trong hàng đợi", appName, appId);
                 }
 
-                await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
                 return true;
             }
             catch (Exception ex)
@@ -216,15 +294,13 @@ namespace SteamCmdWebAPI.Services
 
         private async Task ProcessQueueAsync(CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Bắt đầu xử lý hàng đợi cập nhật");
-            await _hubContext.Clients.All.SendAsync("ReceiveLog", "Bắt đầu xử lý hàng đợi cập nhật");
-
             try
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     QueueItem currentItem = null;
 
+                    // Lấy mục tiếp theo cần xử lý
                     lock (_queueLock)
                     {
                         currentItem = _queue
@@ -236,64 +312,84 @@ namespace SteamCmdWebAPI.Services
                         {
                             currentItem.Status = "Đang xử lý";
                             currentItem.StartedAt = DateTime.Now;
+                            currentItem.ProcessingStatus = "Đang khởi động";
                             SaveQueueToFile();
                         }
                     }
 
                     if (currentItem == null)
                     {
-                        // Không còn mục nào để xử lý
-                        _isProcessing = false;
+                        // Không còn mục cần xử lý, thoát vòng lặp
                         break;
                     }
 
-                    await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
-
-                    _logger.LogInformation("Đang xử lý cập nhật {AppName} (AppID: {AppId}) cho Profile {ProfileName}",
+                    // Thông báo ngay cập nhật trạng thái
+                    await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
+                        new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
+                    
+                    _logger.LogInformation("Đang xử lý cập nhật {0} (AppID: {1}) cho Profile {2}",
                         currentItem.AppName, currentItem.AppId, currentItem.ProfileName);
 
-                    await _hubContext.Clients.All.SendAsync("ReceiveLog",
-                        $"Đang xử lý cập nhật {currentItem.AppName} (AppID: {currentItem.AppId}) cho Profile {currentItem.ProfileName}");
-
+                    // QUAN TRỌNG: Đánh dấu thời gian bắt đầu xử lý
+                    DateTime startTime = DateTime.Now;
                     bool success = false;
 
                     try
                     {
-                        // Lấy SteamCmdService từ IServiceProvider
+                        // Đảm bảo các tiến trình SteamCMD cũ đã dừng trước khi bắt đầu mục mới
                         using (var scope = _serviceProvider.CreateScope())
                         {
                             var steamCmdService = scope.ServiceProvider.GetRequiredService<SteamCmdService>();
+                            await steamCmdService.KillAllSteamCmdProcessesAsync();
+                            await Task.Delay(2000); // Đợi 2 giây để đảm bảo tiến trình đã dừng hoàn toàn
+                        }
+                        
+                        // Sử dụng SteamCmdService để cập nhật
+                        using (var scope = _serviceProvider.CreateScope())
+                        {
+                            var steamCmdService = scope.ServiceProvider.GetRequiredService<SteamCmdService>();
+                            var profile = await _profileService.GetProfileById(currentItem.ProfileId);
+                            if (profile != null)
+                            {
+                                currentItem.ProcessingStatus = "Đang chạy SteamCMD";
+                                await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
+                                    new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
 
-                            // Chạy cập nhật
-                            success = await steamCmdService.RunSpecificAppAsync(currentItem.ProfileId, currentItem.AppId);
+                                var result = await steamCmdService.ExecuteProfileUpdateAsync(currentItem.ProfileId, currentItem.AppId);
+                                success = result;
+                            }
+                        }
+                        
+                        // QUAN TRỌNG: Kiểm tra nếu xử lý quá nhanh (dưới 10 giây) - có thể có vấn đề
+                        TimeSpan processingTime = DateTime.Now - startTime;
+                        currentItem.ProcessingTime = processingTime;
+                        
+                        if (processingTime.TotalSeconds < 10 && !success)
+                        {
+                            _logger.LogWarning("ProcessQueueAsync: Xử lý quá nhanh ({0} giây) cho {1} (AppID: {2}), đánh dấu không thành công",
+                                processingTime.TotalSeconds, currentItem.AppName, currentItem.AppId);
+                            
+                            success = false;
+                            currentItem.Error = "Xử lý quá nhanh, có thể SteamCMD không chạy đúng cách";
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Lỗi khi cập nhật {AppName} (AppID: {AppId}) cho Profile {ProfileName}",
-                            currentItem.AppName, currentItem.AppId, currentItem.ProfileName);
-
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog",
-                            $"Lỗi cập nhật {currentItem.AppName}: {ex.Message}");
-
-                        // Cập nhật thông tin lỗi
-                        lock (_queueLock)
-                        {
-                            currentItem.Error = ex.Message;
-                        }
+                        _logger.LogError(ex, "Lỗi khi cập nhật {0} (AppID: {1})", currentItem.AppName, currentItem.AppId);
+                        currentItem.Error = ex.Message;
+                        currentItem.ProcessingStatus = "Lỗi: " + ex.Message;
                     }
 
-                    // Cập nhật trạng thái và di chuyển sang lịch sử
+                    // Cập nhật trạng thái và lưu lịch sử
                     lock (_queueLock)
                     {
                         currentItem.Status = success ? "Hoàn thành" : "Lỗi";
                         currentItem.CompletedAt = DateTime.Now;
+                        currentItem.ProcessingStatus = success ? "Hoàn thành" : "Thất bại";
 
-                        // Di chuyển từ hàng đợi sang lịch sử
                         _queue.Remove(currentItem);
                         _queueHistory.Insert(0, currentItem);
 
-                        // Đảm bảo giới hạn kích thước lịch sử
                         if (_queueHistory.Count > _maxHistoryItems)
                         {
                             _queueHistory.RemoveRange(_maxHistoryItems, _queueHistory.Count - _maxHistoryItems);
@@ -302,16 +398,29 @@ namespace SteamCmdWebAPI.Services
                         SaveQueueToFile();
                     }
 
-                    await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
+                    // QUAN TRỌNG: Thông báo ngay lập tức
+                    await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
+                        new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
 
-                    // Đợi 3 giây trước khi xử lý mục tiếp theo
-                    await Task.Delay(3000, cancellationToken);
+                    // Thông báo log
+                    if (success)
+                    {
+                        await _hubContext.Clients.All.SendAsync("ReceiveLog", 
+                            $"Đã hoàn thành cập nhật {currentItem.AppName} (AppID: {currentItem.AppId}) trong {currentItem.ProcessingTime?.TotalSeconds:F1} giây");
+                    }
+                    else
+                    {
+                        await _hubContext.Clients.All.SendAsync("ReceiveLog", 
+                            $"Lỗi khi cập nhật {currentItem.AppName} (AppID: {currentItem.AppId}): {currentItem.Error}");
+                    }
+
+                    // Chờ một chút trước khi xử lý mục tiếp theo
+                    await Task.Delay(1000, cancellationToken);
                 }
             }
             catch (OperationCanceledException)
             {
-                // Dừng xử lý do hủy
-                _logger.LogInformation("Xử lý hàng đợi đã bị hủy");
+                // Bỏ qua khi bị hủy
             }
             catch (Exception ex)
             {
@@ -320,10 +429,9 @@ namespace SteamCmdWebAPI.Services
             finally
             {
                 _isProcessing = false;
-                _logger.LogInformation("Kết thúc xử lý hàng đợi");
-
                 await _hubContext.Clients.All.SendAsync("ReceiveLog", "Đã hoàn thành xử lý hàng đợi cập nhật");
-                await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
+                await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
+                    new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
             }
         }
 
@@ -403,18 +511,93 @@ namespace SteamCmdWebAPI.Services
         {
             try
             {
+                string directory = Path.GetDirectoryName(_queueFilePath);
+                if (!Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
                 var queueData = new
                 {
                     Queue = _queue,
                     History = _queueHistory
                 };
 
-                string json = JsonSerializer.Serialize(queueData, new JsonSerializerOptions { WriteIndented = true });
+                var options = new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                };
+
+                string json = JsonSerializer.Serialize(queueData, options);
                 File.WriteAllText(_queueFilePath, json);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi lưu hàng đợi vào file");
+            }
+        }
+
+        // Thêm phương thức để lấy danh sách hàng đợi trực tiếp từ file
+        public async Task<(List<QueueItem> Queue, List<QueueItem> History)> LoadQueueFromFileAsync()
+        {
+            try
+            {
+                if (!File.Exists(_queueFilePath))
+                {
+                    return (new List<QueueItem>(), new List<QueueItem>());
+                }
+
+                string json = await File.ReadAllTextAsync(_queueFilePath);
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    return (new List<QueueItem>(), new List<QueueItem>());
+                }
+
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+
+                try
+                {
+                    var data = JsonSerializer.Deserialize<QueueData>(json, options);
+                    return (data.Queue ?? new List<QueueItem>(), data.History ?? new List<QueueItem>());
+                }
+                catch
+                {
+                    // Thử đọc theo định dạng cũ
+                    var allItems = JsonSerializer.Deserialize<List<QueueItem>>(json, options);
+                    var queue = allItems?.Where(q => q.Status == "Đang chờ" || q.Status == "Đang xử lý").ToList() ?? new List<QueueItem>();
+                    var history = allItems?.Where(q => q.Status != "Đang chờ" && q.Status != "Đang xử lý").ToList() ?? new List<QueueItem>();
+                    
+                    return (queue, history);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đọc hàng đợi từ file");
+                return (new List<QueueItem>(), new List<QueueItem>());
+            }
+        }
+
+        public async Task<QueueData> LoadQueueDataAsync()
+        {
+            var (queue, history) = await LoadQueueFromFileAsync();
+            return new QueueData { Queue = queue, History = history };
+        }
+
+        // Thêm phương thức cập nhật trạng thái hàng đợi và gửi thông báo
+        public async Task UpdateQueueStatusAsync()
+        {
+            try
+            {
+                await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
+                    new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi cập nhật trạng thái hàng đợi");
             }
         }
     }

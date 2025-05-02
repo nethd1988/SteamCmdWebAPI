@@ -1,4 +1,3 @@
-
 @page
 @model SteamCmdWebAPI.Pages.UpdateManagementModel
 @{
@@ -74,6 +73,57 @@
     </div>
 </div>
 
+<!-- Phần chọn profile sẽ được hiển thị tại đây khi nhấn nút chọn profile -->
+<div id="profileSelectionContainer" class="card mb-4" style="display: none;">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">Chọn Profile cho Game: <span id="selectedGameName"></span></h5>
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            <h6>Thông tin hiện tại:</h6>
+            <div class="d-flex flex-wrap">
+                <div class="me-3 mb-2"><strong>AppID:</strong> <span id="currentAppId"></span></div>
+                <div class="me-3 mb-2"><strong>Profile:</strong> <span id="currentProfileName"></span></div>
+            </div>
+        </div>
+
+        <h6>Chọn profile mới:</h6>
+        <div class="table-responsive">
+            <table class="table table-hover table-striped table-bordered" id="profilesTable">
+                <thead class="table-light">
+                    <tr>
+                        <th width="5%">ID</th>
+                        <th width="20%">Tên Profile</th>
+                        <th width="25%">Tài khoản Steam</th>
+                        <th width="30%">Thư mục cài đặt</th>
+                        <th width="20%">Thao tác</th>
+                    </tr>
+                </thead>
+                <tbody id="profilesTableBody">
+                    <!-- Dữ liệu sẽ được thêm vào đây bằng JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="alert alert-info mt-3">
+            <i class="bi bi-info-circle me-2"></i>
+            Chọn một profile từ danh sách để gán cho game này. Các profile được lấy từ danh sách tài khoản đã cấu hình trong trang Quản lý tài khoản Steam.
+        </div>
+
+        <div class="mt-3">
+            <a href="/SteamAccounts" class="btn btn-primary me-2" target="_blank">
+                <i class="bi bi-gear me-1"></i> Quản lý tài khoản
+            </a>
+            <button id="refreshProfileList" class="btn btn-info me-2">
+                <i class="bi bi-arrow-clockwise me-1"></i> Làm mới danh sách
+            </button>
+            <button id="cancelProfileSelection" class="btn btn-secondary">
+                <i class="bi bi-x-circle me-1"></i> Đóng
+            </button>
+        </div>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-header bg-success text-white">
         <h5 class="mb-0">Thông tin cập nhật game đã kiểm tra</h5>
@@ -129,9 +179,22 @@
                                     }
                                 </td>
                                 <td>
-                                    <button class="btn-icon edit update-btn" data-appid="@vm.ApiInfo.AppID" data-profileid="@vm.ProfileId" data-ismain="@vm.IsMainApp.ToString().ToLower()" title="Cập nhật">
-                                        <i class="bi bi-arrow-repeat"></i>
-                                    </button>
+                                    <div class="btn-group">
+                                        <button class="btn-icon update-btn" data-appid="@vm.ApiInfo.AppID" data-profileid="@vm.ProfileId" data-ismain="@vm.IsMainApp.ToString().ToLower()" title="Cập nhật">
+                                            <i class="bi bi-arrow-repeat"></i>
+                                        </button>
+                                        @if (vm.IsMainApp)
+                                        {
+                                            <button class="btn-icon select-profile-btn" 
+                                                    data-appid="@vm.ApiInfo.AppID" 
+                                                    data-profileid="@vm.ProfileId" 
+                                                    data-profilename="@vm.ProfileName"
+                                                    data-gamename="@vm.ApiInfo.Name"
+                                                    title="Chọn Profile">
+                                                <i class="bi bi-person-fill-gear"></i>
+                                            </button>
+                                        }
+                                    </div>
                                 </td>
                             </tr>
                         }
@@ -153,11 +216,11 @@
         background-color: #f8f9fa;
     }
 
-        .dependent-app-row td {
-            padding-top: 8px;
-            padding-bottom: 8px;
-            font-size: 0.95em;
-        }
+    .dependent-app-row td {
+        padding-top: 8px;
+        padding-bottom: 8px;
+        font-size: 0.95em;
+    }
 
     .badge.bg-primary {
         background-color: #3498db !important;
@@ -167,6 +230,12 @@
         background-color: #17a2b8 !important;
         color: white !important;
     }
+    
+    .profile-selection-header {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }
 </style>
 
 @section Scripts {
@@ -174,6 +243,69 @@
         $(document).ready(function() {
             // Lấy token CSRF
             var token = $('input[name="__RequestVerificationToken"]').val();
+            
+            // Hàm để tải danh sách profile
+            function loadProfilesList(appId, profileId, callback) {
+                $("#profilesTableBody").html('<tr><td colspan="5" class="text-center"><i class="bi bi-hourglass-split me-2"></i>Đang tải danh sách profile...</td></tr>');
+                
+                $.ajax({
+                    url: "/UpdateManagement?handler=ProfilesForSelection",
+                    method: "GET",
+                    success: function(response) {
+                        if (response.success) {
+                            // Xóa dữ liệu cũ trong bảng
+                            $("#profilesTableBody").empty();
+                            
+                            if (response.profiles.length === 0) {
+                                $("#profilesTableBody").html('<tr><td colspan="5" class="text-center">Không có profile nào. Hãy tạo profile trong trang <a href="/SteamAccounts" target="_blank">Quản lý tài khoản Steam</a>.</td></tr>');
+                                return;
+                            }
+                            
+                            // Thêm dữ liệu mới
+                            response.profiles.forEach(function(profile) {
+                                const isActive = profile.id === profileId;
+                                const row = `
+                                    <tr class="${isActive ? 'table-primary' : ''}">
+                                        <td>${profile.id}</td>
+                                        <td>
+                                            <strong>${profile.name}</strong>
+                                        </td>
+                                        <td>
+                                            <span class="badge ${profile.hasSteamAccount ? 'bg-success' : 'bg-secondary'} me-1">
+                                                <i class="bi bi-steam me-1"></i>
+                                            </span>
+                                            ${profile.steamAccount}
+                                        </td>
+                                        <td>
+                                            <small class="text-muted">
+                                                <i class="bi bi-folder me-1"></i>
+                                                ${profile.installDirectory}
+                                            </small>
+                                        </td>
+                                        <td class="text-center">
+                                            ${isActive 
+                                                ? '<span class="badge bg-success">Đang sử dụng</span>' 
+                                                : `<button class="btn btn-sm btn-primary select-profile-action" data-profileid="${profile.id}" data-appid="${appId}">Chọn</button>`
+                                            }
+                                        </td>
+                                    </tr>
+                                `;
+                                $("#profilesTableBody").append(row);
+                            });
+                            
+                            if (typeof callback === 'function') {
+                                callback();
+                            }
+                        } else {
+                            alert("Lỗi: " + (response.message || "Không thể lấy danh sách profiles"));
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        $("#profilesTableBody").html('<tr><td colspan="5" class="text-center text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Lỗi khi tải danh sách profile</td></tr>');
+                        console.error("Lỗi khi lấy danh sách profiles: " + error);
+                    }
+                });
+            }
 
             // Kiểm tra cập nhật ngay
             $("#checkUpdatesBtn").click(function() {
@@ -231,7 +363,89 @@
                 }
             });
 
-            // Cập nhật game theo App ID
+            // Biến lưu trữ dữ liệu cho phiên chọn profile hiện tại
+            let currentSelection = {
+                appId: null,
+                profileId: null,
+                profileName: null,
+                gameName: null
+            };
+
+            // Chọn profile cho game (mới với expand thay vì modal)
+            $(document).on("click", ".select-profile-btn", function() {
+                const appId = $(this).data("appid");
+                const profileId = $(this).data("profileid");
+                const profileName = $(this).data("profilename");
+                const gameName = $(this).data("gamename");
+                
+                // Lưu thông tin vào biến phiên hiện tại
+                currentSelection = {
+                    appId: appId,
+                    profileId: profileId,
+                    profileName: profileName,
+                    gameName: gameName
+                };
+                
+                // Hiển thị thông tin hiện tại
+                $("#selectedGameName").text(gameName);
+                $("#currentAppId").text(appId);
+                $("#currentProfileName").text(profileName);
+                
+                // Tải danh sách profiles
+                loadProfilesList(appId, profileId, function() {
+                    // Hiển thị vùng chọn profile và cuộn trang đến đó
+                    $("#profileSelectionContainer").show();
+                    $('html, body').animate({
+                        scrollTop: $("#profileSelectionContainer").offset().top - 20
+                    }, 500);
+                });
+            });
+            
+            // Làm mới danh sách profile
+            $("#refreshProfileList").click(function() {
+                if (currentSelection.appId) {
+                    loadProfilesList(currentSelection.appId, currentSelection.profileId);
+                }
+            });
+            
+            // Đóng phần chọn profile
+            $("#cancelProfileSelection").click(function() {
+                $("#profileSelectionContainer").hide();
+            });
+            
+            // Xử lý khi chọn profile
+            $(document).on("click", ".select-profile-action", function() {
+                const profileId = $(this).data("profileid");
+                const appId = $(this).data("appid");
+                
+                $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split'></i>");
+                
+                $.ajax({
+                    url: "/UpdateManagement?handler=ChangeGameProfile",
+                    method: "POST",
+                    data: { appId: appId, profileId: profileId },
+                    headers: {
+                        "RequestVerificationToken": token
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            // Ẩn vùng chọn profile và reload trang
+                            $("#profileSelectionContainer").hide();
+                            alert("Đã thay đổi profile thành công!");
+                            location.reload();
+                        } else {
+                            alert("Lỗi: " + (response.message || "Không thể thay đổi profile"));
+                            $(this).prop("disabled", false).html("Chọn");
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        alert("Lỗi khi thay đổi profile: " + error);
+                        $(this).prop("disabled", false).html("Chọn");
+                    }
+                });
+            });
+
+            // Xử lý nút cập nhật (update-btn)
             $(".update-btn").click(function() {
                 var appId = $(this).data("appid");
                 var profileId = $(this).data("profileid");

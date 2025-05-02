@@ -1,3 +1,4 @@
+// Models/SteamAccount.cs
 using System;
 using System.Collections.Generic;
 
@@ -10,6 +11,7 @@ namespace SteamCmdWebAPI.Models
         public string Username { get; set; }
         public string Password { get; set; }
         public string AppIds { get; set; } // Các AppId cách nhau bởi dấu phẩy
+        public string GameNames { get; set; } // Tên game tương ứng với AppIds
         public DateTime CreatedAt { get; set; } = DateTime.Now;
         public DateTime UpdatedAt { get; set; } = DateTime.Now;
     }

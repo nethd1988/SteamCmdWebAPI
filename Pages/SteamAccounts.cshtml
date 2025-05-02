@@ -32,6 +32,7 @@
                         <th>TÊN PROFILE</th>
                         <th>TÊN TÀI KHOẢN</th>
                         <th>APP IDS</th>
+                        <th>TÊN GAME</th>
                         <th>THAO TÁC</th>
                     </tr>
                 </thead>
@@ -44,7 +45,8 @@
                                 <td>@account.Id</td>
                                 <td>@account.ProfileName</td>
                                 <td>@account.Username</td>
-                                <td class="text-truncate" style="max-width: 200px;">@account.AppIds</td>
+                                <td class="text-truncate" style="max-width: 150px;">@account.AppIds</td>
+                                <td class="text-truncate" style="max-width: 200px;">@account.GameNames</td>
                                 <td>
                                     <div class="btn-group">
                                         <button class="btn-icon edit" onclick="editAccount(@account.Id)" title="Sửa">
@@ -61,7 +63,7 @@
                     else
                     {
                         <tr>
-                            <td colspan="5" class="text-center">Chưa có tài khoản nào</td>
+                            <td colspan="6" class="text-center">Chưa có tài khoản nào</td>
                         </tr>
                     }
                 </tbody>
@@ -132,6 +134,11 @@
                     <textarea class="form-control" id="editAppIds" name="Account.AppIds" rows="3"></textarea>
                     <small class="form-text text-muted">Ví dụ: 570,730,440</small>
                 </div>
+                <div class="mb-3">
+                    <label for="editGameNames" class="form-label">Tên game</label>
+                    <textarea class="form-control" id="editGameNames" name="Account.GameNames" rows="3" readonly></textarea>
+                    <small class="form-text text-muted">Sẽ tự động cập nhật khi lưu</small>
+                </div>
                 <div class="d-flex justify-content-end gap-2">
                     <button type="button" class="btn btn-secondary" id="btnCancelEdit">Đóng</button>
                     <button type="button" class="btn btn-primary" id="btnUpdateAccount">Cập nhật</button>
@@ -139,6 +146,11 @@
             </form>
         </div>
     </div>
+</div>
+
+<div class="alert alert-info mt-4" role="alert">
+    <i class="bi bi-info-circle me-2"></i>
+    Trang đang trong quá trình phát triển, một số tính năng có thể chưa hoạt động.
 </div>
 
 @section Scripts {
@@ -163,7 +175,7 @@
             // Lưu tài khoản mới
             $('#btnSaveAccount').click(function() {
                 const formData = $('#addAccountForm').serialize();
-                
+
                 $.ajax({
                     url: "/SteamAccounts?handler=AddAccount",
                     method: "POST",
@@ -184,7 +196,7 @@
             // Cập nhật tài khoản
             $('#btnUpdateAccount').click(function() {
                 const formData = $('#editAccountForm').serialize();
-                
+
                 $.ajax({
                     url: "/SteamAccounts?handler=UpdateAccount",
                     method: "POST",
@@ -207,7 +219,7 @@
         function editAccount(id) {
             // Ẩn form thêm mới nếu đang hiển thị
             $("#formAddAccount").slideUp();
-            
+
             $.ajax({
                 url: "/SteamAccounts?handler=GetAccount&id=" + id,
                 method: "GET",
@@ -219,7 +231,8 @@
                         $('#editUsername').val(account.username);
                         $('#editPassword').val(''); // Không hiển thị mật khẩu
                         $('#editAppIds').val(account.appIds);
-                        
+                        $('#editGameNames').val(account.gameNames);
+
                         $('#formEditAccount').slideDown();
                     } else {
                         alert("Lỗi: " + response.message);
@@ -235,7 +248,7 @@
         function deleteAccount(id, name) {
             if (confirm("Bạn có chắc chắn muốn xóa tài khoản \"" + name + "\"?")) {
                 const token = $('input[name="__RequestVerificationToken"]').val();
-                
+
                 $.ajax({
                     url: "/SteamAccounts?handler=DeleteAccount",
                     method: "POST",

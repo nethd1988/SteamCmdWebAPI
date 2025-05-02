@@ -114,79 +114,75 @@
     </div>
 </div>
 
-<!-- Bảng lịch sử hàng đợi -->
-<div class="table-container mt-4">
-    <div class="table-header">
-        <h5>Lịch sử cập nhật</h5>
-        <div class="search-box">
-            <input type="text" id="historySearch" placeholder="Tìm kiếm...">
-            <i class="bi bi-search"></i>
-        </div>
+<!-- Chỉnh sửa bảng lịch sử cập nhật -->
+<div class="card mb-4">
+    <div class="card-header bg-secondary text-white">
+        <h5 class="mb-0">Lịch sử cập nhật</h5>
     </div>
-    <div class="table-responsive">
-        <table id="historyTable" class="table">
-            <thead>
-                <tr>
-                    <th>STT</th>
-                    <th>Profile</th>
-                    <th>App</th>
-                    <th>Loại</th>
-                    <th>Thời gian thêm</th>
-                    <th>Bắt đầu</th>
-                    <th>Hoàn thành</th>
-                    <th>Trạng thái</th>
-                    <th>Thao tác</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var item in Model.QueueHistory)
-                {
-                    <tr data-id="@item.Id" class="@GetRowClass(item.Status)">
-                        <td>@item.Order</td>
-                        <td>@item.ProfileName</td>
-                        <td>
-                            <span title="AppID: @item.AppId">@item.AppName</span>
-                        </td>
-                        <td>
-                            @if (item.IsMainApp)
-                            {
-                                <span class="badge bg-primary">Chính</span>
-                            }
-                            else
-                            {
-                                <span class="badge bg-info">Phụ thuộc</span>
-                            }
-                        </td>
-                        <td>@item.CreatedAt.ToString("dd/MM/yyyy HH:mm:ss")</td>
-                        <td>@(item.StartedAt.HasValue ? item.StartedAt.Value.ToString("dd/MM/yyyy HH:mm:ss") : "-")</td>
-                        <td>@(item.CompletedAt.HasValue ? item.CompletedAt.Value.ToString("dd/MM/yyyy HH:mm:ss") : "-")</td>
-                        <td>
-                            <span class="status-badge @GetStatusClass(item.Status)">
-                                <i class="bi @GetStatusIcon(item.Status)"></i>
-                                @item.Status
-                            </span>
-                        </td>
-                        <td>
-                            @if (item.Status == "Lỗi")
-                            {
-                                <button class="btn-icon play retry-queue-btn" type="button" data-profile-id="@item.ProfileId" data-app-id="@item.AppId" data-is-main="@item.IsMainApp.ToString().ToLower()" title="Thử lại">
-                                    <i class="bi bi-arrow-clockwise"></i>
-                                </button>
-                                <span class="ms-2 text-danger" title="@item.Error">
-                                    <i class="bi bi-info-circle"></i>
-                                </span>
-                            }
-                        </td>
-                    </tr>
-                }
-                @if (!Model.QueueHistory.Any())
-                {
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
                     <tr>
-                        <td colspan="9" class="text-center">Chưa có lịch sử cập nhật.</td>
+                        <th>STT</th>
+                        <th>PROFILE</th>
+                        <th>APP</th>
+                        <th>LOẠI</th>
+                        <th>THỜI GIAN THÊM</th>
+                        <th>BẮT ĐẦU</th>
+                        <th>HOÀN THÀNH</th>
+                        <th>TRẠNG THÁI</th>
                     </tr>
-                }
-            </tbody>
-        </table>
+                </thead>
+                <tbody id="historyTableBody">
+                    @foreach (var item in Model.QueueHistory.OrderByDescending(h => h.CompletedAt ?? h.CreatedAt))
+                    {
+                        <tr>
+                            <td>@(Model.QueueHistory.IndexOf(item) + 1)</td>
+                            <td>@item.ProfileName</td>
+                            <td>@item.AppName</td>
+                            <td>
+                                @if (item.IsMainApp)
+                                {
+                                    <span class="badge bg-primary">Chính</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-info">Phụ</span>
+                                }
+                            </td>
+                            <td>@(item.CreatedAt.ToString("dd/MM/yyyy HH:mm:ss"))</td>
+                            <td>@(item.StartedAt?.ToString("dd/MM/yyyy HH:mm:ss") ?? "N/A")</td>
+                            <td>@(item.CompletedAt?.ToString("dd/MM/yyyy HH:mm:ss") ?? "N/A")</td>
+                            <td>
+                                @if (item.Status == "Hoàn thành")
+                                {
+                                    <span class="status-badge success">Hoàn thành</span>
+                                }
+                                else if (item.Status == "Lỗi")
+                                {
+                                    <span class="status-badge error">Lỗi</span>
+                                }
+                                else if (item.Status == "Đã hủy")
+                                {
+                                    <span class="status-badge cancelled">Đã hủy</span>
+                                }
+                                else
+                                {
+                                    <span class="status-badge">@item.Status</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (!Model.QueueHistory.Any())
+                    {
+                        <tr>
+                            <td colspan="8" class="text-center">Không có mục nào trong lịch sử</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
@@ -239,34 +235,210 @@
             // Khởi tạo SignalR connection cho cập nhật hàng đợi
             var connection = new signalR.HubConnectionBuilder()
                 .withUrl("/logHub")
-                .withAutomaticReconnect()
+                .withAutomaticReconnect([0, 1000, 5000, 10000])
+                .configureLogging(signalR.LogLevel.Error)
                 .build();
 
             // Sự kiện nhận cập nhật hàng đợi
-            connection.on("ReceiveQueueUpdate", function(queueItems) {
-                updateQueueTable(queueItems);
+            connection.on("ReceiveQueueUpdate", function(data) {
+                updateQueueTable(data.currentQueue);
+                updateHistoryTable(data.queueHistory);
             });
 
             connection.start()
                 .then(function() {
-                    console.log("Kết nối SignalR thành công");
+                    console.log("Đã kết nối với server");
+                    // Yêu cầu cập nhật hàng đợi
+                    connection.invoke("RequestQueueUpdate");
                 })
                 .catch(function(err) {
-                    console.error("Lỗi kết nối SignalR: " + err);
+                    console.error("Lỗi kết nối SignalR:", err);
                 });
 
-            // Tự động làm mới hàng đợi hiện tại mỗi 5 giây
+            // Tự động cập nhật hàng đợi mỗi 10 giây
             setInterval(function() {
                 $.ajax({
-                    url: "/QueueManager?handler=GetCurrentQueue",
+                    url: "/QueueManager?handler=UpdateQueueStatus",
                     method: "GET",
                     success: function(response) {
                         if (response.success) {
-                            updateCurrentQueueTable(response.data);
+                            updateQueueTable(response.currentQueue);
+                            updateHistoryTable(response.queueHistory);
                         }
+                    },
+                    error: function(xhr, status, error) {
+                        console.error("Lỗi khi cập nhật hàng đợi:", error);
                     }
                 });
-            }, 5000);
+            }, 10000);
+
+            // Hàm cập nhật bảng hàng đợi
+            function updateQueueTable(queueItems) {
+                var tableBody = $("#queueTable tbody");
+                tableBody.empty();
+                
+                if (queueItems && queueItems.length > 0) {
+                    queueItems.forEach(function(item) {
+                        var row = $("<tr>");
+                        row.append($("<td>").text(item.order));
+                        row.append($("<td>").text(item.profileName));
+                        row.append($("<td>").text(item.appName));
+                        row.append($("<td>").text(item.isMainApp ? "Chính" : "Phụ thuộc"));
+                        
+                        var statusCell = $("<td>");
+                        var statusBadge = $("<span>").addClass("status-badge");
+                        
+                        if (item.status === "Đang chờ") {
+                            statusBadge.addClass("waiting").text("Đang chờ");
+                        } else if (item.status === "Đang xử lý") {
+                            statusBadge.addClass("processing").text("Đang xử lý");
+                        }
+                        
+                        statusCell.append(statusBadge);
+                        row.append(statusCell);
+                        
+                        var createdTime = new Date(item.createdAt);
+                        row.append($("<td>").text(createdTime.toLocaleString()));
+                        
+                        var actionsCell = $("<td>");
+                        var removeButton = $("<button>")
+                            .addClass("btn-icon delete")
+                            .attr("title", "Xóa khỏi hàng đợi")
+                            .attr("data-id", item.id)
+                            .append($("<i>").addClass("bi bi-trash"));
+                            
+                        removeButton.click(function() {
+                            removeFromQueue(item.id);
+                        });
+                        
+                        actionsCell.append(removeButton);
+                        row.append(actionsCell);
+                        
+                        tableBody.append(row);
+                    });
+                } else {
+                    tableBody.append(
+                        $("<tr>").append(
+                            $("<td>").attr("colspan", "6").addClass("text-center").text("Không có mục nào trong hàng đợi")
+                        )
+                    );
+                }
+                
+                // Cập nhật số lượng
+                $("#queueCount").text(queueItems ? queueItems.length : 0);
+            }
+
+            // Cập nhật hàm updateHistoryTable trong phần JavaScript
+            function updateHistoryTable(historyItems) {
+                var tableBody = $("#historyTableBody");
+                tableBody.empty();
+                
+                if (historyItems && historyItems.length > 0) {
+                    historyItems.forEach(function(item, index) {
+                        var row = $("<tr>");
+                        
+                        // Số thứ tự
+                        row.append($("<td>").text(index + 1));
+                        
+                        // Tên profile
+                        row.append($("<td>").text(item.profileName));
+                        
+                        // Tên app
+                        row.append($("<td>").text(item.appName));
+                        
+                        // Loại (chính/phụ)
+                        var typeCell = $("<td>");
+                        if (item.isMainApp) {
+                            typeCell.append($("<span>").addClass("badge bg-primary").text("Chính"));
+                        } else {
+                            typeCell.append($("<span>").addClass("badge bg-info").text("Phụ"));
+                        }
+                        row.append(typeCell);
+                        
+                        // Thời gian thêm
+                        var createdTime = item.createdAt ? new Date(item.createdAt) : null;
+                        row.append($("<td>").text(createdTime ? formatDateTime(createdTime) : "N/A"));
+                        
+                        // Thời gian bắt đầu
+                        var startTime = item.startedAt ? new Date(item.startedAt) : null;
+                        row.append($("<td>").text(startTime ? formatDateTime(startTime) : "N/A"));
+                        
+                        // Thời gian hoàn thành
+                        var completeTime = item.completedAt ? new Date(item.completedAt) : null;
+                        row.append($("<td>").text(completeTime ? formatDateTime(completeTime) : "N/A"));
+                        
+                        // Trạng thái
+                        var statusCell = $("<td>");
+                        var statusBadge = $("<span>").addClass("status-badge");
+                        
+                        if (item.status === "Hoàn thành") {
+                            statusBadge.addClass("success").text("Hoàn thành");
+                        } else if (item.status === "Lỗi") {
+                            statusBadge.addClass("error").text("Lỗi");
+                        } else if (item.status === "Đã hủy") {
+                            statusBadge.addClass("cancelled").text("Đã hủy");
+                        } else {
+                            statusBadge.text(item.status);
+                        }
+                        
+                        statusCell.append(statusBadge);
+                        row.append(statusCell);
+                        
+                        tableBody.append(row);
+                    });
+                } else {
+                    tableBody.append(
+                        $("<tr>").append(
+                            $("<td>").attr("colspan", "8").addClass("text-center").text("Không có mục nào trong lịch sử")
+                        )
+                    );
+                }
+                
+                // Cập nhật thống kê
+                var completedCount = historyItems ? historyItems.filter(i => i.status === "Hoàn thành").length : 0;
+                var failedCount = historyItems ? historyItems.filter(i => i.status === "Lỗi").length : 0;
+                
+                $("#completedCount").text(completedCount);
+                $("#failedCount").text(failedCount);
+            }
+
+            // Hàm hỗ trợ định dạng ngày giờ
+            function formatDateTime(date) {
+                if (!(date instanceof Date) || isNaN(date)) return "N/A";
+                
+                var day = date.getDate().toString().padStart(2, '0');
+                var month = (date.getMonth() + 1).toString().padStart(2, '0');
+                var year = date.getFullYear();
+                var hours = date.getHours().toString().padStart(2, '0');
+                var minutes = date.getMinutes().toString().padStart(2, '0');
+                var seconds = date.getSeconds().toString().padStart(2, '0');
+                
+                return day + "/" + month + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
+            }
+
+            // Hàm xóa khỏi hàng đợi
+            function removeFromQueue(id) {
+                if (confirm("Bạn có chắc chắn muốn xóa mục này khỏi hàng đợi?")) {
+                    var token = $('input[name="__RequestVerificationToken"]').val();
+                    
+                    $.ajax({
+                        url: "/QueueManager?handler=RemoveFromQueue",
+                        method: "POST",
+                        data: { id: id, __RequestVerificationToken: token },
+                        success: function(response) {
+                            if (response.success) {
+                                // Yêu cầu cập nhật lại hàng đợi
+                                connection.invoke("RequestQueueUpdate");
+                            } else {
+                                alert("Lỗi: " + response.message);
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            alert("Lỗi khi xóa khỏi hàng đợi: " + error);
+                        }
+                    });
+                }
+            }
 
             // Tìm kiếm trong bảng hàng đợi
             $("#queueSearch").on("keyup", function() {
@@ -276,14 +448,6 @@
                 });
             });
             
-            // Thêm sự kiện tìm kiếm cho bảng lịch sử
-            $("#historySearch").on("keyup", function() {
-                var value = $(this).val().toLowerCase();
-                $("#historyTable tbody tr").filter(function() {
-                    $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1);
-                });
-            });
-
             // Xử lý nút Kiểm tra cập nhật
             $("#checkUpdatesBtn").click(function() {
                 $(this).prop("disabled", true).html('<i class="bi bi-hourglass-split me-1"></i> Đang kiểm tra...');
@@ -410,259 +574,6 @@
                     }
                 });
             });
-
-            // Xử lý nút Thử lại
-            $(document).on("click", ".retry-queue-btn", function() {
-                var profileId = $(this).data("profile-id");
-                var appId = $(this).data("app-id");
-                var isMain = $(this).data("is-main");
-                
-                $.ajax({
-                    url: "/QueueManager?handler=RetryItem",
-                    method: "POST",
-                    data: { 
-                        profileId: profileId,
-                        appId: appId,
-                        isMainApp: isMain
-                    },
-                    headers: {
-                        "RequestVerificationToken": token
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            showToast("Đã thêm lại vào hàng đợi", "success");
-                        } else {
-                            showToast("Lỗi: " + (response.message || "Không thể thêm lại vào hàng đợi"), "danger");
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        showToast("Lỗi: " + error, "danger");
-                    }
-                });
-            });
-            
-            // Sửa hàm cập nhật bảng để xử lý cả 2 loại dữ liệu
-            function updateQueueTable(queueData) {
-                // Tách dữ liệu thành 2 phần
-                var currentQueue = queueData.filter(q => q.status === "Đang chờ" || q.status === "Đang xử lý");
-                var queueHistory = queueData.filter(q => q.status !== "Đang chờ" && q.status !== "Đang xử lý");
-                
-                // Cập nhật bảng hàng đợi hiện tại
-                updateCurrentQueueTable(currentQueue);
-                
-                // Cập nhật bảng lịch sử
-                updateHistoryQueueTable(queueHistory);
-                
-                // Cập nhật trạng thái nút
-                var isProcessing = currentQueue.some(item => item.status === "Đang xử lý");
-                $("#processQueueBtn").prop("disabled", isProcessing);
-                $("#stopQueueBtn").prop("disabled", !isProcessing);
-            }
-            
-            // Hàm cập nhật bảng hàng đợi hiện tại
-            function updateCurrentQueueTable(queueItems) {
-                var tbody = $("#queueTable tbody");
-                tbody.empty();
-                
-                if (queueItems.length === 0) {
-                    tbody.append('<tr><td colspan="8" class="text-center">Không có mục nào trong hàng đợi.</td></tr>');
-                    return;
-                }
-                
-                // Sắp xếp theo thứ tự
-                queueItems.sort((a, b) => a.order - b.order);
-                
-                // Tạo HTML cho mỗi mục
-                queueItems.forEach(function(item) {
-                    var rowClass = getRowClass(item.status);
-                    var statusClass = getStatusClass(item.status);
-                    var statusIcon = getStatusIcon(item.status);
-                    
-                    var row = $("<tr>")
-                        .attr("data-id", item.id)
-                        .addClass(rowClass);
-                        
-                    row.append(
-                        $("<td>").text(item.order),
-                        $("<td>").text(item.profileName),
-                        $("<td>").append(
-                            $("<span>")
-                                .attr("title", "AppID: " + item.appId)
-                                .text(item.appName)
-                        ),
-                        $("<td>").append(
-                            item.isMainApp ?
-                            $("<span>").addClass("badge bg-primary").text("Chính") :
-                            $("<span>").addClass("badge bg-info").text("Phụ thuộc")
-                        ),
-                        $("<td>").text(formatDateTime(item.createdAt)),
-                        $("<td>").text(item.startedAt ? formatDateTime(item.startedAt) : "-"),
-                        $("<td>").append(
-                            $("<span>")
-                                .addClass("status-badge " + statusClass)
-                                .append($("<i>").addClass("bi " + statusIcon))
-                                .append(" " + item.status)
-                        ),
-                        $("<td>").append(
-                            item.status === "Đang chờ" ?
-                            $("<button>")
-                                .addClass("btn-icon delete remove-queue-btn")
-                                .attr("type", "button")
-                                .attr("data-id", item.id)
-                                .attr("title", "Xóa khỏi hàng đợi")
-                                .append($("<i>").addClass("bi bi-trash")) :
-                            ""
-                        )
-                    );
-                    
-                    tbody.append(row);
-                });
-                
-                // Áp dụng lại filter nếu có
-                var searchValue = $("#queueSearch").val().toLowerCase();
-                if (searchValue) {
-                    $("#queueTable tbody tr").filter(function() {
-                        $(this).toggle($(this).text().toLowerCase().indexOf(searchValue) > -1);
-                    });
-                }
-            }
-            
-            // Hàm cập nhật bảng lịch sử
-            function updateHistoryQueueTable(queueItems) {
-                var tbody = $("#historyTable tbody");
-                tbody.empty();
-                
-                if (queueItems.length === 0) {
-                    tbody.append('<tr><td colspan="9" class="text-center">Chưa có lịch sử cập nhật.</td></tr>');
-                    return;
-                }
-                
-                // Sắp xếp theo thời gian hoàn thành, mới nhất lên đầu
-                queueItems.sort((a, b) => {
-                    const dateA = a.completedAt ? new Date(a.completedAt) : new Date(a.createdAt);
-                    const dateB = b.completedAt ? new Date(b.completedAt) : new Date(b.createdAt);
-                    return dateB - dateA;
-                });
-                
-                // Tạo HTML cho mỗi mục
-                queueItems.forEach(function(item) {
-                    var rowClass = getRowClass(item.status);
-                    var statusClass = getStatusClass(item.status);
-                    var statusIcon = getStatusIcon(item.status);
-                    
-                    var row = $("<tr>")
-                        .attr("data-id", item.id)
-                        .addClass(rowClass);
-                        
-                    row.append(
-                        $("<td>").text(item.order),
-                        $("<td>").text(item.profileName),
-                        $("<td>").append(
-                            $("<span>")
-                                .attr("title", "AppID: " + item.appId)
-                                .text(item.appName)
-                        ),
-                        $("<td>").append(
-                            item.isMainApp ?
-                            $("<span>").addClass("badge bg-primary").text("Chính") :
-                            $("<span>").addClass("badge bg-info").text("Phụ thuộc")
-                        ),
-                        $("<td>").text(formatDateTime(item.createdAt)),
-                        $("<td>").text(item.startedAt ? formatDateTime(item.startedAt) : "-"),
-                        $("<td>").text(item.completedAt ? formatDateTime(item.completedAt) : "-"),
-                        $("<td>").append(
-                            $("<span>")
-                                .addClass("status-badge " + statusClass)
-                                .append($("<i>").addClass("bi " + statusIcon))
-                                .append(" " + item.status)
-                        ),
-                        createHistoryActionColumn(item)
-                    );
-                    
-                    tbody.append(row);
-                });
-                
-                // Áp dụng lại filter nếu có
-                var searchValue = $("#historySearch").val().toLowerCase();
-                if (searchValue) {
-                    $("#historyTable tbody tr").filter(function() {
-                        $(this).toggle($(this).text().toLowerCase().indexOf(searchValue) > -1);
-                    });
-                }
-            }
-            
-            function createHistoryActionColumn(item) {
-                var cell = $("<td>");
-                
-                if (item.status === "Lỗi") {
-                    cell.append(
-                        $("<button>")
-                            .addClass("btn-icon play retry-queue-btn")
-                            .attr("type", "button")
-                            .attr("data-profile-id", item.profileId)
-                            .attr("data-app-id", item.appId)
-                            .attr("data-is-main", item.isMainApp.toString().toLowerCase())
-                            .attr("title", "Thử lại")
-                            .append($("<i>").addClass("bi bi-arrow-clockwise"))
-                    );
-                    
-                    if (item.error) {
-                        cell.append(
-                            $("<span>")
-                                .addClass("ms-2 text-danger")
-                                .attr("title", item.error)
-                                .append($("<i>").addClass("bi bi-info-circle"))
-                        );
-                    }
-                }
-                
-                return cell;
-            }
-            
-            function getRowClass(status) {
-                switch(status) {
-                    case "Đang xử lý": return "table-primary";
-                    case "Hoàn thành": return "table-success";
-                    case "Lỗi": return "table-danger";
-                    case "Đã hủy": return "table-warning";
-                    default: return "";
-                }
-            }
-            
-            function getStatusClass(status) {
-                switch(status) {
-                    case "Đang chờ": return "waiting";
-                    case "Đang xử lý": return "processing";
-                    case "Hoàn thành": return "success";
-                    case "Lỗi": return "error";
-                    case "Đã hủy": return "cancelled";
-                    default: return "";
-                }
-            }
-            
-            function getStatusIcon(status) {
-                switch(status) {
-                    case "Đang chờ": return "bi-hourglass-split";
-                    case "Đang xử lý": return "bi-arrow-repeat";
-                    case "Hoàn thành": return "bi-check-circle";
-                    case "Lỗi": return "bi-exclamation-triangle";
-                    case "Đã hủy": return "bi-x-circle";
-                    default: return "bi-question-circle";
-                }
-            }
-            
-            function formatDateTime(dateStr) {
-                if (!dateStr) return "-";
-                var date = new Date(dateStr);
-                return date.toLocaleString('vi-VN', { 
-                    day: '2-digit', 
-                    month: '2-digit', 
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                });
-            }
         });
     </script>
 }

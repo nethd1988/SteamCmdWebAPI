@@ -262,5 +262,34 @@ namespace SteamCmdWebAPI.Services
             }
             return false;
         }
+
+        /// <summary>
+        /// Xóa cache thông tin cập nhật của một ứng dụng cụ thể
+        /// </summary>
+        public Task<bool> ClearAppUpdateCache(string appId)
+        {
+            if (string.IsNullOrWhiteSpace(appId) || !int.TryParse(appId, out _))
+            {
+                _logger.LogWarning("Yêu cầu xóa cache với AppID không hợp lệ: '{AppID}'", appId);
+                return Task.FromResult(false);
+            }
+
+            try
+            {
+                // Xóa cache cho AppID này
+                _cachedAppInfo.TryRemove(appId, out _);
+                
+                // Lưu lại cache mới
+                SaveCachedAppInfo();
+                
+                _logger.LogInformation("Đã xóa cache thông tin cập nhật cho AppID: {AppID}", appId);
+                return Task.FromResult(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xóa cache thông tin cập nhật cho AppID: {AppID}", appId);
+                return Task.FromResult(false);
+            }
+        }
     }
 }

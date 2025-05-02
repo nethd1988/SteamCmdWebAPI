@@ -20,5 +20,6 @@ namespace SteamCmdWebAPI.Models
         public int Pid { get; set; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public DateTime? LastRun { get; set; }
+        public string DependencyIDs { get; set; } = string.Empty;
     }
 }

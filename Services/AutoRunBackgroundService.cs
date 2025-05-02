@@ -111,6 +111,7 @@ namespace SteamCmdWebAPI.Services
         // CheckAndRunScheduledTasksAsync from original .cs file (unchanged by 1.txt logic but semicolons added)
         // Trong Services/AutoRunBackgroundService.cs, sửa đổi phương thức CheckAndRunScheduledTasksAsync() để đảm bảo chạy tất cả app khi tự động chạy theo lịch trình
 
+        // Tối ưu phương thức CheckAndRunScheduledTasksAsync
         private async Task CheckAndRunScheduledTasksAsync()
         {
             if (_isRunningAutoTask)
@@ -139,18 +140,23 @@ namespace SteamCmdWebAPI.Services
                     _isRunningAutoTask = true;
                     try
                     {
-                        _logger.LogInformation("AutoRun triggered by schedule for ClientID {ClientId}. Starting all marked profiles...", _clientId);
+                        _logger.LogInformation("AutoRun kích hoạt theo lịch trình cho ClientID {0}. Bắt đầu cập nhật...", _clientId);
 
-                        // Đảm bảo rằng khi chạy theo lịch trình, cũng sẽ chạy tất cả apps (chính và phụ thuộc)
-                        // bằng cách gọi StartAllAutoRunProfilesAsync thay vì chạy từng profile một
+                        // Đảm bảo dừng tất cả các tiến trình đang chạy trước
+                        await _steamCmdService.StopAllProfilesAsync();
+
+                        // Đợi một chút để đảm bảo các tiến trình đã dừng hoàn toàn
+                        await Task.Delay(3000);
+
+                        // Chạy tất cả profile
                         await _steamCmdService.StartAllAutoRunProfilesAsync();
 
                         _lastAutoRunTime = now;
-                        _logger.LogInformation("AutoRun task completed for ClientID {ClientId}. Next run check after {IntervalHours} hours.", _clientId, intervalHours);
+                        _logger.LogInformation("AutoRun hoàn tất. Lần chạy tiếp theo sau {0} giờ.", intervalHours);
                     }
                     catch (Exception runEx)
                     {
-                        _logger.LogError(runEx, "Error occurred while running AutoRun profiles for ClientID {ClientId}", _clientId);
+                        _logger.LogError(runEx, "Lỗi khi chạy AutoRun cho ClientID {0}", _clientId);
                     }
                     finally
                     {
@@ -160,7 +166,7 @@ namespace SteamCmdWebAPI.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi kiểm tra lịch hẹn auto-run cho ClientID {ClientId}", _clientId);
+                _logger.LogError(ex, "Lỗi khi kiểm tra lịch hẹn auto-run cho ClientID {0}", _clientId);
                 _isRunningAutoTask = false;
             }
         }

@@ -19,6 +19,9 @@ namespace SteamCmdWebAPI.Services
         private readonly SettingsService _settingsService;
         private readonly EncryptionService _encryptionService;
         private readonly LicenseService _licenseService;
+        private readonly string _settingsPath;
+        private readonly object _lock = new object();
+        private List<SteamCmdProfile> _profiles;
 
         public ProfileService(
             ILogger<ProfileService> logger,
@@ -51,29 +54,80 @@ namespace SteamCmdWebAPI.Services
             {
                 _logger.LogInformation("File profiles chưa tồn tại, sẽ được tạo khi cần.");
             }
+
+            _settingsPath = Path.Combine(Directory.GetCurrentDirectory(), "settings.json");
+            _profiles = new List<SteamCmdProfile>();
+            EnsureSettingsFileExists();
+        }
+
+        private void EnsureSettingsFileExists()
+        {
+            try
+            {
+                if (!File.Exists(_settingsPath))
+                {
+                    _logger.LogInformation("File settings.json không tồn tại. Đang tạo file mới...");
+                    var defaultSettings = new { Profiles = new List<SteamCmdProfile>() };
+                    string jsonString = JsonSerializer.Serialize(defaultSettings, new JsonSerializerOptions { WriteIndented = true });
+                    File.WriteAllText(_settingsPath, jsonString);
+                    _logger.LogInformation("Đã tạo file settings.json mới.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi tạo file settings.json: {Message}", ex.Message);
+                throw;
+            }
         }
 
         public async Task<List<SteamCmdProfile>> GetAllProfiles()
         {
-            if (!File.Exists(_profilesPath))
+            int retryCount = 0;
+            const int maxRetries = 3;
+            const int retryDelayMs = 500;
+
+            while (retryCount < maxRetries)
             {
-                _logger.LogInformation("File profiles.json không tồn tại tại {0}. Trả về danh sách rỗng.", _profilesPath);
-                return new List<SteamCmdProfile>();
+                try
+                {
+                    if (!File.Exists(_profilesPath))
+                    {
+                        _logger.LogInformation("File profiles.json không tồn tại tại {0}. Trả về danh sách rỗng.", _profilesPath);
+                        return new List<SteamCmdProfile>();
+                    }
+
+                    using (var fileStream = new FileStream(_profilesPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var reader = new StreamReader(fileStream))
+                    {
+                        string json = await reader.ReadToEndAsync().ConfigureAwait(false);
+                        var profiles = JsonSerializer.Deserialize<List<SteamCmdProfile>>(json) ?? new List<SteamCmdProfile>();
+                        _logger.LogInformation("Đã đọc {0} profiles từ {1}", profiles.Count, _profilesPath);
+                        return profiles;
+                    }
+                }
+                catch (IOException ex) when (ex.Message.Contains("being used by another process"))
+                {
+                    retryCount++;
+                    if (retryCount < maxRetries)
+                    {
+                        _logger.LogWarning("Lần thử {0}/{1}: File profiles.json đang bị khóa, đợi {2}ms...", 
+                            retryCount, maxRetries, retryDelayMs);
+                        await Task.Delay(retryDelayMs);
+                    }
+                    else
+                    {
+                        _logger.LogError("Không thể đọc file profiles.json sau {0} lần thử: {1}", maxRetries, ex.Message);
+                        throw new Exception($"Không thể đọc file profiles.json: {ex.Message}", ex);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi đọc file profiles.json tại {0}", _profilesPath);
+                    throw new Exception($"Không thể đọc file profiles.json: {ex.Message}", ex);
+                }
             }
 
-            try
-            {
-                string json;
-                json = await File.ReadAllTextAsync(_profilesPath).ConfigureAwait(false);
-                var profiles = JsonSerializer.Deserialize<List<SteamCmdProfile>>(json) ?? new List<SteamCmdProfile>();
-                _logger.LogInformation("Đã đọc {0} profiles từ {1}", profiles.Count, _profilesPath);
-                return profiles;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi khi đọc file profiles.json tại {0}", _profilesPath);
-                throw new Exception($"Không thể đọc file profiles.json: {ex.Message}", ex);
-            }
+            throw new Exception("Không thể đọc file profiles.json sau nhiều lần thử");
         }
 
         public async Task<SteamCmdProfile> GetProfileById(int id)
@@ -81,25 +135,46 @@ namespace SteamCmdWebAPI.Services
             try
             {
                 var profiles = await GetAllProfiles();
-                var profile = profiles.FirstOrDefault(p => p.Id == id);
-                if (profile == null)
-                {
-                    _logger.LogWarning("Không tìm thấy profile với ID {0}", id);
-                }
-                return profile;
+                return profiles.FirstOrDefault(p => p.Id == id);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi lấy profile với ID {0}", id);
-                throw;
+                _logger.LogError(ex, "Lỗi khi lấy thông tin profile theo ID");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Lấy tất cả các profile chứa AppID cụ thể
+        /// </summary>
+        public async Task<List<SteamCmdProfile>> GetProfilesByAppId(string appId)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(appId))
+                {
+                    return new List<SteamCmdProfile>();
+                }
+
+                var profiles = await GetAllProfiles();
+                return profiles.Where(p => 
+                    !string.IsNullOrEmpty(p.AppID) && 
+                    p.AppID.Split(',').Select(a => a.Trim()).Contains(appId)
+                ).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy danh sách profile theo AppID: {AppId}", appId);
+                return new List<SteamCmdProfile>();
             }
         }
 
         public async Task SaveProfiles(List<SteamCmdProfile> profiles)
         {
             int retryCount = 0;
-            int maxRetries = 5;
-            int retryDelayMs = 200;
+            const int maxRetries = 5;
+            const int initialRetryDelayMs = 200;
+            int retryDelayMs = initialRetryDelayMs;
 
             while (retryCount < maxRetries)
             {
@@ -114,24 +189,24 @@ namespace SteamCmdWebAPI.Services
 
                     string updatedJson = JsonSerializer.Serialize(profiles, new JsonSerializerOptions { WriteIndented = true });
 
-                    // Sử dụng FileMode.Create để tạo mới file mỗi lần ghi
-                    using (var fileStream = new FileStream(_profilesPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    // Sử dụng FileShare.Read để cho phép đọc trong khi đang ghi
+                    using (var fileStream = new FileStream(_profilesPath, FileMode.Create, FileAccess.Write, FileShare.Read))
                     using (var writer = new StreamWriter(fileStream))
                     {
                         await writer.WriteAsync(updatedJson);
+                        await writer.FlushAsync();
                     }
 
                     _logger.LogInformation("Đã lưu {0} profiles vào {1}", profiles.Count, _profilesPath);
                     return;
                 }
-                catch (IOException ex) when (ex.Message.Contains("being used") || ex.Message.Contains("access") || ex.HResult == -2147024864)
+                catch (IOException ex) when (ex.Message.Contains("being used by another process"))
                 {
                     retryCount++;
-                    _logger.LogWarning("Lần thử {0}/{1}: Không thể truy cập file profiles.json, đang chờ {2}ms",
-                        retryCount, maxRetries, retryDelayMs);
-
                     if (retryCount < maxRetries)
                     {
+                        _logger.LogWarning("Lần thử {0}/{1}: File profiles.json đang bị khóa, đợi {2}ms...", 
+                            retryCount, maxRetries, retryDelayMs);
                         await Task.Delay(retryDelayMs);
                         retryDelayMs *= 2; // Tăng thời gian chờ theo cấp số nhân
                     }

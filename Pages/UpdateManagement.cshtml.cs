@@ -21,6 +21,7 @@ namespace SteamCmdWebAPI.Pages
         // Thuộc tính để hiển thị dễ đọc
         public int ProfileId { get; set; }
         public string ProfileName { get; set; }
+        public string Username { get; set; } // Tên tài khoản Steam đã giải mã
         public bool IsMainApp { get; set; } = true;
         public string ParentAppId { get; set; } // AppId chính nếu đây là app phụ thuộc
     }
@@ -33,6 +34,7 @@ namespace SteamCmdWebAPI.Pages
         private readonly SteamCmdService _steamCmdService;
         private readonly UpdateCheckService _updateCheckService;
         private readonly DependencyManagerService _dependencyManagerService;
+        private readonly EncryptionService _encryptionService;
 
         [TempData]
         public string StatusMessage { get; set; }
@@ -57,7 +59,8 @@ namespace SteamCmdWebAPI.Pages
             ProfileService profileService,
             SteamCmdService steamCmdService,
             UpdateCheckService updateCheckService,
-            DependencyManagerService dependencyManagerService)
+            DependencyManagerService dependencyManagerService,
+            EncryptionService encryptionService)
         {
             _logger = logger;
             _steamApiService = steamApiService;
@@ -65,6 +68,7 @@ namespace SteamCmdWebAPI.Pages
             _steamCmdService = steamCmdService;
             _updateCheckService = updateCheckService;
             _dependencyManagerService = dependencyManagerService;
+            _encryptionService = encryptionService;
         }
 
         public async Task OnGetAsync()
@@ -90,6 +94,20 @@ namespace SteamCmdWebAPI.Pages
                         continue;
                     }
 
+                    // Giải mã tên tài khoản
+                    string username = "Không có";
+                    if (!string.IsNullOrEmpty(profile.SteamUsername))
+                    {
+                        try
+                        {
+                            username = _encryptionService.Decrypt(profile.SteamUsername);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi giải mã tên tài khoản cho profile {0}", profile.Name);
+                        }
+                    }
+
                     // Xử lý app chính
                     var apiInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID);
                     if (apiInfo == null)
@@ -105,6 +123,7 @@ namespace SteamCmdWebAPI.Pages
                             NeedsUpdate = false,
                             ProfileId = profile.Id,
                             ProfileName = profile.Name,
+                            Username = username,
                             IsMainApp = true
                         });
                         continue;
@@ -117,6 +136,7 @@ namespace SteamCmdWebAPI.Pages
                         SizeOnDisk = apiInfo.SizeOnDisk,
                         ProfileId = profile.Id,
                         ProfileName = profile.Name,
+                        Username = username,
                         IsMainApp = true
                     };
 
@@ -170,6 +190,7 @@ namespace SteamCmdWebAPI.Pages
                                 SizeOnDisk = dependentAppInfo.SizeOnDisk,
                                 ProfileId = profile.Id,
                                 ProfileName = profile.Name,
+                                Username = username, // Sử dụng cùng tài khoản với profile chính
                                 IsMainApp = false,
                                 ParentAppId = profile.AppID
                             };
@@ -421,6 +442,121 @@ namespace SteamCmdWebAPI.Pages
             {
                 _logger.LogError(ex, "Lỗi khi cập nhật App ID {AppId} của profile {ProfileId}", appId, profileId);
                 return new JsonResult(new { success = false, message = ex.Message });
+            }
+        }
+
+        // Thêm lớp mới cho dữ liệu trả về từ API
+        public class ProfileSelectionModel
+        {
+            public int Id { get; set; }
+            public string Name { get; set; }
+            public string SteamAccount { get; set; } // Tên tài khoản Steam
+            public bool HasSteamAccount => !string.IsNullOrEmpty(SteamAccount);
+            public string InstallDirectory { get; set; } // Thư mục cài đặt
+        }
+
+        // Hàm lấy danh sách profile cho việc chọn
+        public async Task<IActionResult> OnGetProfilesForSelectionAsync()
+        {
+            try
+            {
+                var profiles = await _profileService.GetAllProfiles();
+                
+                // Lấy thông tin profile chi tiết hơn
+                var profileModels = new List<ProfileSelectionModel>();
+                foreach (var profile in profiles)
+                {
+                    string steamAccount = "Không có";
+                    
+                    // Giải mã tên tài khoản nếu có
+                    if (!string.IsNullOrEmpty(profile.SteamUsername))
+                    {
+                        try
+                        {
+                            steamAccount = _encryptionService.Decrypt(profile.SteamUsername);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi giải mã username cho profile {0}", profile.Name);
+                        }
+                    }
+                    
+                    profileModels.Add(new ProfileSelectionModel
+                    {
+                        Id = profile.Id,
+                        Name = profile.Name,
+                        SteamAccount = steamAccount,
+                        InstallDirectory = !string.IsNullOrEmpty(profile.InstallDirectory) 
+                            ? profile.InstallDirectory 
+                            : "Chưa cấu hình"
+                    });
+                }
+                
+                return new JsonResult(new { success = true, profiles = profileModels });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy danh sách profiles cho selection");
+                return new JsonResult(new { success = false, message = "Lỗi khi lấy danh sách profiles: " + ex.Message });
+            }
+        }
+        
+        // Hàm thay đổi profile cho game
+        public async Task<IActionResult> OnPostChangeGameProfileAsync(string appId, int profileId)
+        {
+            try
+            {
+                // Kiểm tra profile tồn tại
+                var profile = await _profileService.GetProfileById(profileId);
+                if (profile == null)
+                {
+                    return new JsonResult(new { success = false, message = "Profile không tồn tại" });
+                }
+                
+                // Tìm profile hiện tại đang sử dụng appId này
+                var currentProfiles = await _profileService.GetProfilesByAppId(appId);
+                if (currentProfiles != null && currentProfiles.Any())
+                {
+                    foreach (var currentProfile in currentProfiles)
+                    {
+                        // Tạo danh sách AppIDs mới không bao gồm appId hiện tại
+                        var appIds = currentProfile.AppID.Split(',').ToList();
+                        var dependencyIds = currentProfile.DependencyIDs?.Split(',').ToList() ?? new List<string>();
+                        
+                        if (appIds.Contains(appId))
+                        {
+                            appIds.Remove(appId);
+                            currentProfile.AppID = string.Join(",", appIds);
+                            
+                            // Cập nhật profile hiện tại nếu vẫn còn AppIDs khác
+                            await _profileService.UpdateProfile(currentProfile);
+                        }
+                    }
+                }
+                
+                // Thêm AppID vào profile mới
+                var currentAppIds = string.IsNullOrEmpty(profile.AppID) 
+                    ? new List<string>() 
+                    : profile.AppID.Split(',').ToList();
+                
+                if (!currentAppIds.Contains(appId))
+                {
+                    currentAppIds.Add(appId);
+                    profile.AppID = string.Join(",", currentAppIds);
+                    
+                    // Cập nhật profile mới
+                    await _profileService.UpdateProfile(profile);
+                }
+                
+                // Cập nhật cache thông tin cập nhật
+                await _steamCmdService.InvalidateAppUpdateCache(appId);
+                
+                return new JsonResult(new { success = true, message = "Đã thay đổi profile thành công" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi thay đổi profile cho game: {AppId}", appId);
+                return new JsonResult(new { success = false, message = "Lỗi khi thay đổi profile: " + ex.Message });
             }
         }
     }

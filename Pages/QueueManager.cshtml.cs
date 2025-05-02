@@ -16,9 +16,14 @@ namespace SteamCmdWebAPI.Pages
         private readonly QueueService _queueService;
         private readonly ProfileService _profileService;
 
-        public List<QueueItem> CurrentQueue { get; set; } = new List<QueueItem>();
-        public List<QueueItem> QueueHistory { get; set; } = new List<QueueItem>();
+        public List<QueueService.QueueItem> CurrentQueue { get; set; } = new List<QueueService.QueueItem>();
+        public List<QueueService.QueueItem> QueueHistory { get; set; } = new List<QueueService.QueueItem>();
         public bool IsProcessing { get; set; }
+        public int TotalQueueItems { get; set; }
+        public int CompletedItems { get; set; }
+        public int FailedItems { get; set; }
+        public string StatusMessage { get; set; }
+        public bool IsSuccess { get; set; } = true;
 
         public QueueManagerModel(
             ILogger<QueueManagerModel> logger,
@@ -30,11 +35,28 @@ namespace SteamCmdWebAPI.Pages
             _profileService = profileService;
         }
 
-        public void OnGet()
+        public async Task OnGetAsync()
         {
-            CurrentQueue = _queueService.GetQueue();
-            QueueHistory = _queueService.GetQueueHistory();
-            IsProcessing = CurrentQueue.Any(q => q.Status == "Đang xử lý");
+            try
+            {
+                // Tải trực tiếp từ file để đảm bảo dữ liệu mới nhất
+                var (queue, history) = await _queueService.LoadQueueFromFileAsync();
+                CurrentQueue = queue;
+                QueueHistory = history;
+                
+                // Thêm thống kê
+                TotalQueueItems = CurrentQueue.Count;
+                CompletedItems = QueueHistory.Count(i => i.Status == "Hoàn thành");
+                FailedItems = QueueHistory.Count(i => i.Status == "Lỗi");
+                
+                // Cập nhật lại trạng thái của hàng đợi
+                await _queueService.UpdateQueueStatusAsync();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Lỗi khi tải danh sách hàng đợi: {ex.Message}";
+                IsSuccess = false;
+            }
         }
 
         public IActionResult OnGetGetCurrentQueue()
@@ -48,6 +70,30 @@ namespace SteamCmdWebAPI.Pages
             {
                 _logger.LogError(ex, "Lỗi khi lấy danh sách hàng đợi hiện tại");
                 return new JsonResult(new { success = false, message = "Lỗi khi lấy danh sách hàng đợi" });
+            }
+        }
+
+        // Thêm endpoint AJAX để cập nhật trạng thái hàng đợi
+        public async Task<IActionResult> OnGetUpdateQueueStatusAsync()
+        {
+            try
+            {
+                // Tải lại từ file để đảm bảo dữ liệu mới nhất
+                var (queue, history) = await _queueService.LoadQueueFromFileAsync();
+                
+                return new JsonResult(new { 
+                    success = true, 
+                    currentQueue = queue, 
+                    queueHistory = history 
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi cập nhật trạng thái hàng đợi");
+                return new JsonResult(new { 
+                    success = false, 
+                    message = ex.Message 
+                });
             }
         }
 

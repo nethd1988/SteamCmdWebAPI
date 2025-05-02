@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Models;
 using SteamCmdWebAPI.Services;
+using System.Linq;
 
 namespace SteamCmdWebAPI.Pages
 {
@@ -13,6 +14,7 @@ namespace SteamCmdWebAPI.Pages
     {
         private readonly ILogger<SteamAccountsModel> _logger;
         private readonly SteamAccountService _accountService;
+        private readonly SteamApiService _steamApiService;
 
         public List<SteamAccount> Accounts { get; set; } = new List<SteamAccount>();
 
@@ -25,10 +27,14 @@ namespace SteamCmdWebAPI.Pages
         [BindProperty]
         public SteamAccount Account { get; set; }
 
-        public SteamAccountsModel(ILogger<SteamAccountsModel> logger, SteamAccountService accountService)
+        public SteamAccountsModel(
+            ILogger<SteamAccountsModel> logger, 
+            SteamAccountService accountService,
+            SteamApiService steamApiService)
         {
             _logger = logger;
             _accountService = accountService;
+            _steamApiService = steamApiService;
         }
 
         public async Task OnGetAsync()
@@ -75,6 +81,21 @@ namespace SteamCmdWebAPI.Pages
                     return new JsonResult(new { success = false, message = "Vui lòng điền đầy đủ thông tin bắt buộc" });
                 }
 
+                // Lấy tên game từ AppIds nếu có
+                if (!string.IsNullOrWhiteSpace(Account.AppIds))
+                {
+                    var appIds = Account.AppIds.Split(',').Select(id => id.Trim()).Where(id => !string.IsNullOrEmpty(id)).ToList();
+                    var gameNames = new List<string>();
+                    
+                    foreach (var appId in appIds)
+                    {
+                        var appInfo = await _steamApiService.GetAppUpdateInfo(appId);
+                        gameNames.Add(appInfo?.Name ?? $"AppID {appId}");
+                    }
+                    
+                    Account.GameNames = string.Join(", ", gameNames);
+                }
+
                 await _accountService.AddAccountAsync(Account);
 
                 return new JsonResult(new { success = true });
@@ -105,6 +126,25 @@ namespace SteamCmdWebAPI.Pages
                 if (string.IsNullOrWhiteSpace(Account.Password))
                 {
                     Account.Password = existingAccount.Password;
+                }
+
+                // Cập nhật tên game nếu AppIds thay đổi
+                if (Account.AppIds != existingAccount.AppIds)
+                {
+                    var appIds = Account.AppIds.Split(',').Select(id => id.Trim()).Where(id => !string.IsNullOrEmpty(id)).ToList();
+                    var gameNames = new List<string>();
+                    
+                    foreach (var appId in appIds)
+                    {
+                        var appInfo = await _steamApiService.GetAppUpdateInfo(appId);
+                        gameNames.Add(appInfo?.Name ?? $"AppID {appId}");
+                    }
+                    
+                    Account.GameNames = string.Join(", ", gameNames);
+                }
+                else
+                {
+                    Account.GameNames = existingAccount.GameNames;
                 }
 
                 // Cập nhật thông tin khác

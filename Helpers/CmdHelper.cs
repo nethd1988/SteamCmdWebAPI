@@ -4,7 +4,7 @@ using System.IO;
 
 namespace SteamCmdWebAPI.Helpers
 {
-    public class CmdHelper
+    public static class CmdHelper
     {
         /// <summary>
         /// Thực thi một lệnh command thông qua cmd.exe.
@@ -44,16 +44,24 @@ namespace SteamCmdWebAPI.Helpers
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                if (timeWaitToKill > 0)
+                if (timeWaitToKill <= 0)
                 {
-                    if (!process.WaitForExit(timeWaitToKill))
-                    {
-                        try { process.Kill(); } catch { }
-                    }
+                    timeWaitToKill = 60000; // 1 phút mặc định
                 }
-                else
+
+                if (!process.WaitForExit(timeWaitToKill))
                 {
-                    process.WaitForExit();
+                    try { process.Kill(); }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"Lỗi khi kết thúc tiến trình: {ex.Message}");
+                        // Thử dùng taskkill nếu Kill() không thành công
+                        try
+                        {
+                            System.Diagnostics.Process.Start("taskkill", $"/F /PID {process.Id}").WaitForExit();
+                        }
+                        catch { }
+                    }
                 }
             }
         }
