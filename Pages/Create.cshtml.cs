@@ -108,11 +108,21 @@ namespace SteamCmdWebAPI.Pages
                 {
                     _isProfileFromServer = true;
                     _serverProfileCache = profile;
-                    
-                    // Ghi log chi tiết thông tin nhận được từ server để debug
+
+                    // Đảm bảo xử lý đúng tên profile dài có dấu ":" 
+                    if (profile.Name.Contains(":"))
+                    {
+                        _logger.LogInformation("Nhận được profile có tên dài từ server: {Name}", profile.Name);
+                        // Đảm bảo hiển thị đầy đủ tên không bị cắt
+                        profile.Name = profile.Name.Trim();
+                    }
+
+                    // Ghi log chi tiết thông tin nhận được từ server
                     _logger.LogInformation("Đã nhận profile từ server: Name={Name}, AppID={AppID}, Username={Username}, HasPassword={HasPassword}",
-                        profile.Name, profile.AppID, profile.SteamUsername, !string.IsNullOrEmpty(profile.SteamPassword));
-                    
+                        profile.Name, profile.AppID,
+                        !string.IsNullOrEmpty(profile.SteamUsername) ? "[Có]" : "[Không]",
+                        !string.IsNullOrEmpty(profile.SteamPassword) ? "[Có]" : "[Không]");
+
                     return new JsonResult(new { success = true, profile = profile });
                 }
                 else
@@ -126,7 +136,7 @@ namespace SteamCmdWebAPI.Pages
                 return StatusCode(500, new { success = false, error = ex.Message });
             }
         }
-        
+
         // Handler lấy thông tin từ server - sửa tên phù hợp với client
         public async Task<IActionResult> OnGetProfileDetailsAsync(string profileName)
         {
@@ -138,7 +148,7 @@ namespace SteamCmdWebAPI.Pages
             _logger.LogInformation("OnPostSaveProfileAsync called");
             // Loại bỏ validation cho ServerProfileJson
             ModelState.Remove("ServerProfileJson");
-            
+
             // Nếu có profile từ server, loại bỏ validation cho Username/Password
             if (!string.IsNullOrEmpty(ServerProfileJson))
             {
@@ -189,18 +199,18 @@ namespace SteamCmdWebAPI.Pages
                 {
                     var existingProfiles = await _profileService.GetAllProfiles();
                     var appIds = Profile.AppID.Split(',').Select(id => id.Trim()).ToList();
-                    
+
                     foreach (var appId in appIds)
                     {
-                        var duplicateProfile = existingProfiles.FirstOrDefault(p => 
-                            !string.IsNullOrEmpty(p.AppID) && 
+                        var duplicateProfile = existingProfiles.FirstOrDefault(p =>
+                            !string.IsNullOrEmpty(p.AppID) &&
                             p.AppID.Split(',').Select(id => id.Trim()).Contains(appId));
-                        
+
                         if (duplicateProfile != null)
                         {
                             StatusMessage = $"Lỗi: AppID {appId} đã tồn tại trong profile '{duplicateProfile.Name}'. Không thể tạo profile trùng lặp.";
                             IsSuccess = false;
-                            
+
                             // Lấy lại danh sách profile từ server
                             try
                             {
@@ -210,7 +220,7 @@ namespace SteamCmdWebAPI.Pages
                             {
                                 ServerProfiles = new List<string>();
                             }
-                            
+
                             return Page();
                         }
                     }
@@ -222,27 +232,28 @@ namespace SteamCmdWebAPI.Pages
                     try
                     {
                         _logger.LogDebug("ServerProfileJson raw: {Json}", ServerProfileJson);
-                        var options = new JsonSerializerOptions { 
+                        var options = new JsonSerializerOptions
+                        {
                             PropertyNameCaseInsensitive = true,
                             AllowTrailingCommas = true,
                             ReadCommentHandling = JsonCommentHandling.Skip
                         };
-                        
+
                         var serverProfile = JsonSerializer.Deserialize<SteamCmdProfile>(ServerProfileJson, options);
                         if (serverProfile != null)
                         {
                             _logger.LogInformation("[DEBUG] Profile từ server: Name={0}, AppID={1}, Username={2}, HasPassword={3}",
-                                serverProfile.Name, serverProfile.AppID, 
-                                serverProfile.SteamUsername?.Length > 0 ? "Có" : "Không", 
+                                serverProfile.Name, serverProfile.AppID,
+                                serverProfile.SteamUsername?.Length > 0 ? "Có" : "Không",
                                 serverProfile.SteamPassword?.Length > 0 ? "Có" : "Không");
-                            
+
                             // Kiểm tra xem username và password có null/rỗng không
                             if (string.IsNullOrEmpty(serverProfile.SteamUsername) || string.IsNullOrEmpty(serverProfile.SteamPassword))
                             {
                                 _logger.LogWarning("Thông tin tài khoản từ server bị thiếu: Username={HasUsername}, Password={HasPassword}",
                                     !string.IsNullOrEmpty(serverProfile.SteamUsername),
                                     !string.IsNullOrEmpty(serverProfile.SteamPassword));
-                                
+
                                 // Nếu thông tin từ server không đầy đủ, sử dụng thông tin nhập trực tiếp nếu có
                                 if (!string.IsNullOrEmpty(Username) && !string.IsNullOrEmpty(Password))
                                 {
@@ -254,7 +265,7 @@ namespace SteamCmdWebAPI.Pages
                                 {
                                     StatusMessage = "Thông tin tài khoản từ server không đầy đủ. Vui lòng nhập username/password.";
                                     IsSuccess = false;
-                                    
+
                                     // Lấy lại danh sách profile từ server
                                     try
                                     {
@@ -264,23 +275,23 @@ namespace SteamCmdWebAPI.Pages
                                     {
                                         ServerProfiles = new List<string>();
                                     }
-                                    
+
                                     return Page();
                                 }
                             }
-                            
+
                             // Kiểm tra độ dài để xác định dữ liệu có được mã hóa hay không
                             bool usernameEncoded = serverProfile.SteamUsername.Length > 30;
                             bool passwordEncoded = serverProfile.SteamPassword.Length > 30;
-                            
-                            _logger.LogDebug("Username có vẻ {EncodedStatus}, độ dài {Length}", 
-                                usernameEncoded ? "đã mã hóa" : "chưa mã hóa", 
+
+                            _logger.LogDebug("Username có vẻ {EncodedStatus}, độ dài {Length}",
+                                usernameEncoded ? "đã mã hóa" : "chưa mã hóa",
                                 serverProfile.SteamUsername.Length);
-                                
-                            _logger.LogDebug("Password có vẻ {EncodedStatus}, độ dài {Length}", 
-                                passwordEncoded ? "đã mã hóa" : "chưa mã hóa", 
+
+                            _logger.LogDebug("Password có vẻ {EncodedStatus}, độ dài {Length}",
+                                passwordEncoded ? "đã mã hóa" : "chưa mã hóa",
                                 serverProfile.SteamPassword.Length);
-                            
+
                             // Lưu thông tin vào SteamAccounts, mã hóa nếu cần
                             var steamAccount = new SteamAccount
                             {
@@ -292,19 +303,19 @@ namespace SteamCmdWebAPI.Pages
                                 CreatedAt = DateTime.Now,
                                 UpdatedAt = DateTime.Now
                             };
-                            
+
                             await _steamAccountService.AddAccountAsync(steamAccount);
-                            
-                            _logger.LogInformation("Đã lưu thông tin tài khoản từ server vào SteamAccounts: Username={0}, AppID={1}", 
+
+                            _logger.LogInformation("Đã lưu thông tin tài khoản từ server vào SteamAccounts: Username={0}, AppID={1}",
                                 serverProfile.SteamUsername, serverProfile.AppID);
-                                
+
                             // Cập nhật thông tin trong Profile để lưu vào ProfileService
                             Profile.Name = serverProfile.Name;
                             Profile.AppID = serverProfile.AppID;
                             // Không lưu thông tin nhạy cảm vào Profile
                             Profile.SteamUsername = ""; // Để trống vì đã lưu trong SteamAccounts
                             Profile.SteamPassword = ""; // Để trống vì đã lưu trong SteamAccounts
-                            
+
                             StatusMessage = "Đã sử dụng tài khoản và ID game từ server. Thông tin tài khoản đã được lưu an toàn.";
                             IsSuccess = true;
                         }
@@ -313,7 +324,7 @@ namespace SteamCmdWebAPI.Pages
                             _logger.LogWarning("Không thể phân tích ServerProfileJson");
                             StatusMessage = "Không thể đọc thông tin profile từ server. Vui lòng nhập thông tin trực tiếp.";
                             IsSuccess = false;
-                            
+
                             // Lấy lại danh sách profile từ server
                             try
                             {
@@ -323,7 +334,7 @@ namespace SteamCmdWebAPI.Pages
                             {
                                 ServerProfiles = new List<string>();
                             }
-                            
+
                             return Page();
                         }
                     }
@@ -332,7 +343,7 @@ namespace SteamCmdWebAPI.Pages
                         _logger.LogError(ex, "Lỗi khi deserialize ServerProfileJson hoặc lưu SteamAccount");
                         StatusMessage = "Lỗi khi xử lý thông tin từ server: " + ex.Message;
                         IsSuccess = false;
-                        
+
                         // Lấy lại danh sách profile từ server
                         try
                         {
@@ -342,7 +353,7 @@ namespace SteamCmdWebAPI.Pages
                         {
                             ServerProfiles = new List<string>();
                         }
-                        
+
                         return Page();
                     }
                 }
@@ -351,7 +362,7 @@ namespace SteamCmdWebAPI.Pages
                     // Mã hóa thông tin đăng nhập Steam nếu có
                     Profile.SteamUsername = Username;
                     Profile.SteamPassword = Password;
-                    
+
                     if (!string.IsNullOrEmpty(Username))
                     {
                         try
@@ -381,17 +392,17 @@ namespace SteamCmdWebAPI.Pages
                             return Page();
                         }
                     }
-                    
+
                     // Nếu có thông tin tài khoản, lưu vào SteamAccounts
                     if (!string.IsNullOrEmpty(Username) && !string.IsNullOrEmpty(Password))
                     {
-                        try 
+                        try
                         {
                             // Kiểm tra xem tài khoản đã tồn tại chưa
                             var existingAccounts = await _steamAccountService.GetAllAccountsAsync();
-                            var existingAccount = existingAccounts.FirstOrDefault(a => 
+                            var existingAccount = existingAccounts.FirstOrDefault(a =>
                                 _encryptionService.Decrypt(a.Username).Equals(Username, StringComparison.OrdinalIgnoreCase));
-                            
+
                             if (existingAccount == null)
                             {
                                 // Tạo tài khoản mới trong SteamAccounts
@@ -405,7 +416,7 @@ namespace SteamCmdWebAPI.Pages
                                     CreatedAt = DateTime.Now,
                                     UpdatedAt = DateTime.Now
                                 };
-                                
+
                                 await _steamAccountService.AddAccountAsync(steamAccount);
                                 _logger.LogInformation("Đã thêm tài khoản {Username} vào SteamAccounts", Username);
                             }
@@ -418,7 +429,7 @@ namespace SteamCmdWebAPI.Pages
                                     appIds.Add(Profile.AppID);
                                     existingAccount.AppIds = string.Join(",", appIds);
                                     existingAccount.UpdatedAt = DateTime.Now;
-                                    
+
                                     // Cập nhật tên game
                                     var gameNames = existingAccount.GameNames?.Split(',').ToList() ?? new List<string>();
                                     if (!gameNames.Contains(Profile.Name))
@@ -426,7 +437,7 @@ namespace SteamCmdWebAPI.Pages
                                         gameNames.Add(Profile.Name);
                                         existingAccount.GameNames = string.Join(",", gameNames);
                                     }
-                                    
+
                                     await _steamAccountService.UpdateAccountAsync(existingAccount);
                                     _logger.LogInformation("Đã cập nhật AppID {AppID} vào tài khoản {Username} trong SteamAccounts", Profile.AppID, Username);
                                 }
@@ -472,7 +483,7 @@ namespace SteamCmdWebAPI.Pages
                 _logger.LogError(ex, "Lỗi khi lưu profile trong Create");
                 StatusMessage = $"Đã xảy ra lỗi khi lưu profile: {ex.Message}";
                 IsSuccess = false;
-                
+
                 // Lấy lại danh sách profile từ server
                 try
                 {
@@ -594,7 +605,7 @@ namespace SteamCmdWebAPI.Pages
             }
         }
 
-        // Thêm phương thức quét đệ quy
+        // Phương thức quét thư mục đệ quy - hỗ trợ symbolic link
         private async Task ScanDirectoryForGamesAsync(string directory, List<object> scannedGames, List<string> existingAppIds, HashSet<string> processedPaths, int maxDepth = 2, int currentDepth = 0)
         {
             if (currentDepth > maxDepth || !Directory.Exists(directory) || processedPaths.Contains(directory))
@@ -608,6 +619,15 @@ namespace SteamCmdWebAPI.Pages
                 var steamappsDir = Path.Combine(directory, "steamapps");
                 if (Directory.Exists(steamappsDir))
                 {
+                    // Kiểm tra xem steamappsDir có phải là symbolic link không
+                    var dirInfo = new DirectoryInfo(steamappsDir);
+                    bool isSymbolicLink = dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint);
+
+                    if (isSymbolicLink)
+                    {
+                        _logger.LogInformation("Đã phát hiện symbolic link tại: {Path}", steamappsDir);
+                    }
+
                     // Tìm tất cả file appmanifest_*.acf
                     var manifestFiles = Directory.GetFiles(steamappsDir, "appmanifest_*.acf");
 
@@ -638,7 +658,7 @@ namespace SteamCmdWebAPI.Pages
                                 continue;
                             }
 
-                            // Lấy đường dẫn cài đặt (phụ huynh của steamapps)
+                            // Lấy đường dẫn cài đặt (thư mục cha của steamapps)
                             var installDir = directory;
 
                             scannedGames.Add(new
@@ -686,11 +706,11 @@ namespace SteamCmdWebAPI.Pages
         {
             if (string.IsNullOrEmpty(input))
                 return false;
-                
+
             // Chuỗi Base64 phải có độ dài chia hết cho 4
             if (input.Length % 4 != 0)
                 return false;
-                
+
             // Chuỗi Base64 chỉ chứa các ký tự hợp lệ: A-Z, a-z, 0-9, +, /, và = ở cuối
             return System.Text.RegularExpressions.Regex.IsMatch(
                 input, @"^[a-zA-Z0-9\+/]*={0,3}$");
@@ -707,10 +727,10 @@ namespace SteamCmdWebAPI.Pages
             try
             {
                 int importedCount = 0;
-                
+
                 // Lấy tất cả tài khoản SteamAccounts để tìm kiếm tài khoản phù hợp
                 var allSteamAccounts = await _steamAccountService.GetAllAccountsAsync();
-                
+
                 foreach (var game in games)
                 {
                     if (string.IsNullOrEmpty(game.AppId) || string.IsNullOrEmpty(game.InstallPath))
@@ -747,7 +767,7 @@ namespace SteamCmdWebAPI.Pages
                         ValidateFiles = true,
                         AutoRun = false
                     };
-                    
+
                     // Sử dụng thông tin đăng nhập từ tài khoản phù hợp nếu có
                     if (matchingAccount != null)
                     {
@@ -766,15 +786,15 @@ namespace SteamCmdWebAPI.Pages
 
                     // Lưu profile mới
                     await _profileService.AddProfileAsync(profile);
-                    
+
                     // Nếu chưa có tài khoản phù hợp, thêm entry game này vào danh sách game cần tài khoản
                     if (matchingAccount == null && !string.IsNullOrEmpty(game.AppId))
                     {
                         // Kiểm tra xem có tài khoản "default" hoặc "Auto" chưa để thêm vào
-                        var defaultAccount = allSteamAccounts.FirstOrDefault(a => 
-                            a.ProfileName.Equals("Default", StringComparison.OrdinalIgnoreCase) || 
+                        var defaultAccount = allSteamAccounts.FirstOrDefault(a =>
+                            a.ProfileName.Equals("Default", StringComparison.OrdinalIgnoreCase) ||
                             a.ProfileName.Equals("Auto", StringComparison.OrdinalIgnoreCase));
-                            
+
                         if (defaultAccount != null)
                         {
                             // Thêm AppID vào tài khoản default
@@ -783,7 +803,7 @@ namespace SteamCmdWebAPI.Pages
                             {
                                 appIds.Add(game.AppId);
                                 defaultAccount.AppIds = string.Join(",", appIds);
-                                
+
                                 // Thêm tên game vào danh sách
                                 var gameNames = defaultAccount.GameNames?.Split(',').ToList() ?? new List<string>();
                                 if (!gameNames.Contains(game.Name))
@@ -791,15 +811,15 @@ namespace SteamCmdWebAPI.Pages
                                     gameNames.Add(game.Name);
                                     defaultAccount.GameNames = string.Join(",", gameNames);
                                 }
-                                
+
                                 defaultAccount.UpdatedAt = DateTime.Now;
                                 await _steamAccountService.UpdateAccountAsync(defaultAccount);
-                                
+
                                 _logger.LogInformation("Đã thêm AppID {AppId} vào tài khoản Default", game.AppId);
                             }
                         }
                     }
-                    
+
                     importedCount++;
                 }
 
@@ -823,16 +843,16 @@ namespace SteamCmdWebAPI.Pages
             try
             {
                 var existingProfiles = await _profileService.GetAllProfiles();
-                
-                var duplicateProfile = existingProfiles.FirstOrDefault(p => 
-                    !string.IsNullOrEmpty(p.AppID) && 
+
+                var duplicateProfile = existingProfiles.FirstOrDefault(p =>
+                    !string.IsNullOrEmpty(p.AppID) &&
                     p.AppID.Split(',').Select(id => id.Trim()).Contains(appId));
-                
+
                 if (duplicateProfile != null)
                 {
                     return new JsonResult(new { exists = true, profileName = duplicateProfile.Name });
                 }
-                
+
                 return new JsonResult(new { exists = false });
             }
             catch (Exception ex)

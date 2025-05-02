@@ -1,6 +1,6 @@
 /* Critical override for select options */
 option {
-    white-space: nowrap !important;
+    white-space: normal !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     max-width: 100% !important;
@@ -13,16 +13,16 @@ select.form-select {
 
 /* Hide long text overflow and prevent wrapping */
 .dropdown-menu .dropdown-item {
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
 }
 
 /* Style for select items in server list */
 .server-profile-item {
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
     width: 100% !important;
     display: block !important;
 }
@@ -37,79 +37,97 @@ select option {
     text-overflow: ellipsis;
 }
 
+/* Adjust select2 styles for better display of long text */
+.select2-container .select2-selection--single {
+    height: 38px !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__rendered {
+    line-height: 36px !important;
+    padding-left: 12px !important;
+    padding-right: 30px !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__arrow {
+    height: 36px !important;
+}
+
+/* Critical styles for Select2 dropdown */
+.select2-results__option {
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    padding: 8px 12px;
+    min-height: 40px;
+}
+
+.select2-option-container {
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow: visible !important;
+    width: 100%;
+}
+
+.select2-option-text {
+    display: inline-block;
+    width: 100%;
+}
+
+/* Sửa lại style cho dropdown */
+.select2-dropdown {
+    width: auto !important;
+    min-width: 100% !important;
+    max-width: 500px !important;
+}
+
+/* Style for server-profile-dropdown */
+.server-profile-dropdown {
+    min-width: 300px !important;
+    max-width: 500px !important;
+}
+
 /* Add specific fix for browser-native dropdowns */
 @-moz-document url-prefix() {
     select option {
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
     }
 }
 
 @media screen and (-webkit-min-device-pixel-ratio:0) {
     select option {
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
     }
 }
 
-/* Custom styling for Select2 */
+/* Custom Styles for Select2 Fixed */
+.select2-container--default .select2-results > .select2-results__options {
+    max-height: 400px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
 .select2-container--default .select2-selection--single {
-    height: 38px;
-    padding: 0.375rem 0.75rem;
-    font-size: 1rem;
-    font-weight: 400;
-    line-height: 1.5;
-    color: #212529;
     background-color: #fff;
-    background-clip: padding-box;
     border: 1px solid #ced4da;
     border-radius: 0.375rem;
+    height: 38px !important;
 }
 
-.select2-container--default .select2-selection--single .select2-selection__rendered {
-    color: #212529;
-    line-height: 1.5;
-    padding-left: 0;
-    padding-right: 20px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.select2-container--default .select2-selection--single .select2-selection__arrow {
-    height: 36px;
-}
-
-.select2-dropdown {
-    border: 1px solid #ced4da;
-    border-radius: 0.375rem;
-}
-
-.select2-results__option {
-    padding: 8px 12px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.select2-container--default .select2-results__option--highlighted[aria-selected] {
-    background-color: #0d6efd;
-}
-
-.select2-option-container {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    width: 100%;
-}
+    .select2-container--default .select2-selection--single .select2-selection__placeholder {
+        color: #6c757d;
+    }
 
 /* Định nghĩa keyframes cho các animation */
 @keyframes fadeIn {
     from {
         opacity: 0;
     }
+
     to {
         opacity: 1;
     }
@@ -120,6 +138,7 @@ select option {
         transform: translateY(-30px);
         opacity: 0;
     }
+
     to {
         transform: translateY(0);
         opacity: 1;
@@ -131,7 +150,7 @@ select option {
         transform: rotate(360deg);
     }
 }
-    
+
 /* CSS cho modal tùy chỉnh */
 .custom-modal {
     display: none;
@@ -149,12 +168,12 @@ select option {
     transition: opacity 0.3s ease;
 }
 
-.custom-modal.show {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 1;
-}
+    .custom-modal.show {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 1;
+    }
 
 .custom-modal-dialog {
     position: relative;
@@ -210,6 +229,14 @@ select option {
     font-size: 20px;
 }
 
+.custom-modal-header.bg-success {
+    background: linear-gradient(135deg, #10b981, #059669);
+}
+
+.custom-modal-header.bg-danger {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
 .custom-close-btn {
     background: rgba(255, 255, 255, 0.2);
     border-radius: 50%;
@@ -225,10 +252,10 @@ select option {
     font-size: 20px;
 }
 
-.custom-close-btn:hover {
-    background: rgba(255, 255, 255, 0.3);
-    transform: rotate(90deg);
-}
+    .custom-close-btn:hover {
+        background: rgba(255, 255, 255, 0.3);
+        transform: rotate(90deg);
+    }
 
 .custom-modal-body {
     position: relative;
@@ -279,11 +306,11 @@ select option {
     transition: all 0.2s ease;
 }
 
-.game-item:hover {
-    background-color: #eef2ff;
-    border-color: #c7d2fe;
-    box-shadow: 0 2px 10px rgba(79, 70, 229, 0.1);
-}
+    .game-item:hover {
+        background-color: #eef2ff;
+        border-color: #c7d2fe;
+        box-shadow: 0 2px 10px rgba(79, 70, 229, 0.1);
+    }
 
 .game-info {
     flex: 1;
@@ -309,11 +336,11 @@ select option {
     color: #64748b;
 }
 
-.game-details span {
-    background-color: #e2e8f0;
-    padding: 2px 8px;
-    border-radius: 4px;
-}
+    .game-details span {
+        background-color: #e2e8f0;
+        padding: 2px 8px;
+        border-radius: 4px;
+    }
 
 .btn-select {
     flex-shrink: 0;
@@ -333,10 +360,10 @@ select option {
     justify-content: center;
 }
 
-.btn-select:hover {
-    background-color: #4338ca;
-    transform: translateY(-2px);
-}
+    .btn-select:hover {
+        background-color: #4338ca;
+        transform: translateY(-2px);
+    }
 
 .search-container {
     position: relative;
@@ -360,8 +387,8 @@ select option {
     transition: all 0.2s;
 }
 
-.search-input:focus {
-    outline: none;
-    border-color: #4f46e5;
-    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
-} 
+    .search-input:focus {
+        outline: none;
+        border-color: #4f46e5;
+        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
+    }

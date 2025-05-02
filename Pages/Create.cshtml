@@ -256,6 +256,91 @@
     </div>
 </div>
 
+<!-- Modal thông báo lỗi -->
+<div id="errorModal" class="custom-modal">
+    <div class="custom-modal-dialog custom-modal-sm">
+        <div class="custom-modal-content">
+            <div class="custom-modal-header bg-danger">
+                <h5 class="custom-modal-title">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    Thông báo
+                </h5>
+                <button type="button" class="custom-close-btn" id="closeErrorModal">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>
+            <div class="custom-modal-body text-center p-4">
+                <p id="errorMessage">Đã xảy ra lỗi. Vui lòng thử lại.</p>
+            </div>
+            <div class="custom-modal-footer">
+                <button type="button" class="btn btn-secondary" id="closeErrorBtn">Đóng</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="steamAccountsHelpModal" class="custom-modal">
+    <div class="custom-modal-dialog">
+        <div class="custom-modal-content">
+            <div class="custom-modal-header bg-primary">
+                <h5 class="custom-modal-title">
+                    <i class="bi bi-question-circle-fill me-2"></i>
+                    Hướng dẫn sử dụng tài khoản từ SteamAccounts
+                </h5>
+                <button type="button" class="custom-close-btn" id="closeHelpModal">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>
+            <div class="custom-modal-body p-4">
+                <div class="guide-section mb-4">
+                    <h6 class="fw-bold mb-3">
+                        <i class="bi bi-1-circle me-2 text-primary"></i>
+                        Tính năng tự động chọn tài khoản
+                    </h6>
+                    <p>Khi bạn sử dụng tính năng <strong>"Sử dụng tài khoản từ SteamAccounts"</strong>, hệ thống sẽ tự động:</p>
+                    <ul class="mb-4">
+                        <li class="mb-2">Kiểm tra AppID của game bạn đang tạo profile.</li>
+                        <li class="mb-2">Tìm kiếm trong danh sách tài khoản đã lưu trên trang SteamAccounts.</li>
+                        <li class="mb-2">Chọn tài khoản phù hợp cho AppID đó (một tài khoản có thể được cấu hình cho nhiều game).</li>
+                        <li class="mb-2">Sử dụng tài khoản này khi vận hành game mà không cần nhập lại thông tin đăng nhập.</li>
+                    </ul>
+                    
+                    <h6 class="fw-bold mb-3">
+                        <i class="bi bi-2-circle me-2 text-primary"></i>
+                        Cách thiết lập
+                    </h6>
+                    <ol class="mb-4">
+                        <li class="mb-2">Truy cập trang <strong>SteamAccounts</strong> từ menu chính.</li>
+                        <li class="mb-2">Thêm tài khoản Steam của bạn với thông tin đăng nhập.</li>
+                        <li class="mb-2">Nhập <strong>AppID</strong> của các game trong mục "App IDs" (cách nhau bởi dấu phẩy, ví dụ: 570,730,440).</li>
+                        <li class="mb-2">Hệ thống sẽ tự động xác định tên game tương ứng với các AppID.</li>
+                        <li class="mb-2">Lưu lại cấu hình tài khoản.</li>
+                    </ol>
+                    
+                    <h6 class="fw-bold mb-3">
+                        <i class="bi bi-3-circle me-2 text-primary"></i>
+                        Lợi ích khi sử dụng
+                    </h6>
+                    <ul class="mb-4">
+                        <li class="mb-2">Một tài khoản có thể được sử dụng cho nhiều game khác nhau.</li>
+                        <li class="mb-2">Tự động chọn tài khoản phù hợp mỗi khi bạn tạo profile mới.</li>
+                        <li class="mb-2">Giảm thiểu việc phải nhập lại thông tin đăng nhập nhiều lần.</li>
+                        <li class="mb-2">Bảo mật thông tin đăng nhập của bạn (mật khẩu được mã hóa trước khi lưu).</li>
+                    </ul>
+                    
+                    <div class="alert alert-info">
+                        <i class="bi bi-lightbulb-fill me-2"></i>
+                        <strong>Mẹo:</strong> Nếu bạn có nhiều tài khoản cho cùng một game, hệ thống sẽ sử dụng tài khoản đầu tiên tìm thấy. Bạn cũng có thể tạo tài khoản "Default" hoặc "Auto" để sử dụng cho tất cả các game mới thêm vào.
+                    </div>
+                </div>
+            </div>
+            <div class="custom-modal-footer">
+                <button type="button" class="btn btn-primary" id="closeHelpBtn">Đã hiểu</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <!-- Select2 CSS and JS -->
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
@@ -280,6 +365,21 @@
                     return new bootstrap.Tooltip(tooltipTriggerEl);
                 });
             }
+
+            // Hiển thị modal thông báo lỗi tùy chỉnh
+            function showErrorModal(message) {
+                document.getElementById('errorMessage').textContent = message;
+                showModal('errorModal');
+            }
+            
+            // Xử lý nút đóng modal thông báo lỗi
+            document.getElementById('closeErrorModal').addEventListener('click', function() {
+                hideModal('errorModal');
+            });
+            
+            document.getElementById('closeErrorBtn').addEventListener('click', function() {
+                hideModal('errorModal');
+            });
             
             // Kiểm tra trùng lặp AppID khi nhập
             $('#Profile_AppID').on('blur', function() {
@@ -294,7 +394,7 @@
                     success: function(response) {
                         if (response && response.exists) {
                             // Hiển thị cảnh báo nếu AppID đã tồn tại
-                            alert(`AppID ${appId} đã tồn tại trong profile '${response.profileName}'. Không thể tạo profile trùng lặp.`);
+                            showErrorModal(`AppID ${appId} đã tồn tại trong profile '${response.profileName}'. Không thể tạo profile trùng lặp.`);
                             $('#Profile_AppID').addClass('is-invalid');
                             $('<div class="invalid-feedback">AppID này đã tồn tại trong hệ thống.</div>').insertAfter('#Profile_AppID');
                         } else {
@@ -345,66 +445,110 @@
                 $('#manualAccountInputs').show();
             }
 
-            // Initialize Select2 for server profile dropdown
-            $('#serverProfile').select2({
-                width: '100%',
-                dropdownCssClass: 'server-profile-dropdown',
-                placeholder: '-- Chọn profile từ server --',
-                allowClear: true,
-                templateResult: formatProfileOption
-            });
-            
-            // Handle existing events for serverProfile
-            $('#serverProfile').on('select2:select', function(e) {
-                var selectedProfile = $(this).val();
-                if (!selectedProfile) {
-                    // Nếu không chọn profile nào, hiển thị phần account section
-                    $('#accountSection').show();
-                    // Reset ServerProfileJson để tránh lỗi
-                    $("#ServerProfileJson").val("");
-                    return;
-                }
-                
-                // Gọi AJAX lấy profile từ server - reuse existing code
-                $.ajax({
-                    url: "?handler=ProfileDetails",
-                    type: "GET",
-                    cache: false,
-                    data: { profileName: selectedProfile },
-                    success: function(response) {
-                        if (response.success && response.profile) {
-                            // Lưu thông tin profile từ server vào hidden field
-                            $("#ServerProfileJson").val(JSON.stringify(response.profile));
-                            
-                            // Điền thông tin profile
-                            $("#Profile_Name").val(response.profile.name);
-                            $("#Profile_AppID").val(response.profile.appID);
-                            
-                            // Đảm bảo ẩn phần nhập tài khoản khi chọn profile từ server
-                            $('#accountSection').hide();
-                            
-                            // Focus vào trường tiếp theo để người dùng tiếp tục nhập
-                            $("#Profile_InstallDirectory").focus();
-                        } else {
-                            alert("Không thể lấy thông tin profile từ server.");
-                            $('#accountSection').show();
-                        }
-                    },
-                    error: function(error) {
-                        console.error("Lỗi khi lấy profile từ server:", error);
-                        alert("Đã xảy ra lỗi khi lấy thông tin profile từ server.");
+            // Initialize Select2 for server profile dropdown with cấu hình nâng cao
+                    // Cấu hình nâng cao cho Select2
+        $('#serverProfile').select2({
+            width: '100%',
+            dropdownCssClass: 'server-profile-dropdown',
+            placeholder: '-- Chọn profile từ server --',
+            allowClear: true,
+            templateResult: formatProfileOption,
+            escapeMarkup: function(markup) {
+                return markup; // Cho phép HTML trong options
+            },
+            dropdownAutoWidth: true
+        });
+
+        // Function to format dropdown options - xử lý tên dài
+        function formatProfileOption(option) {
+            if (!option.id) {
+                return option.text; // Skip placeholder
+            }
+
+            // Create a container for the option with wrapped text
+            var $container = $(
+                '<div class="select2-option-container" title="' + option.text + '">' +
+                '<span class="select2-option-text">' + option.text + '</span>' +
+                '</div>'
+            );
+
+            return $container;
+        }
+
+        // Xử lý khi select2 được khởi tạo xong
+        $('#serverProfile').on('select2:open', function() {
+            // Đảm bảo dropdown được hiển thị đúng kích thước
+            $('.select2-results__options').css('max-width', '500px');
+            $('.select2-results__options').css('word-break', 'break-word');
+        });
+
+        // Modal thông báo lỗi tùy chỉnh
+        function showErrorModal(message) {
+            document.getElementById('errorMessage').textContent = message;
+            showModal('errorModal');
+        }
+
+        // Xử lý khi chọn profile từ server
+        $('#serverProfile').on('select2:select', function(e) {
+            var selectedProfile = $(this).val();
+            if (!selectedProfile) {
+                // Nếu không chọn profile nào, hiển thị phần account section
+                $('#accountSection').show();
+                // Reset ServerProfileJson để tránh lỗi
+                $("#ServerProfileJson").val("");
+                return;
+            }
+
+            // Hiển thị modal đang quét
+            showModal('scanningModal');
+
+            // Gọi AJAX lấy profile từ server
+            $.ajax({
+                url: "?handler=ProfileDetails",
+                type: "GET",
+                cache: false,
+                data: { profileName: selectedProfile },
+                success: function(response) {
+                    // Đóng modal đang quét
+                    hideModal('scanningModal');
+
+                    if (response.success && response.profile) {
+                        // Lưu thông tin profile từ server vào hidden field
+                        $("#ServerProfileJson").val(JSON.stringify(response.profile));
+
+                        // Điền thông tin profile - đảm bảo xử lý tên dài
+                        $("#Profile_Name").val(response.profile.name.trim());
+                        $("#Profile_AppID").val(response.profile.appID);
+
+                        // Đảm bảo ẩn phần nhập tài khoản khi chọn profile từ server
+                        $('#accountSection').hide();
+
+                        // Focus vào trường tiếp theo để người dùng tiếp tục nhập
+                        $("#Profile_InstallDirectory").focus();
+                    } else {
+                        // Hiển thị lỗi thân thiện
+                        showErrorModal("Không thể lấy thông tin profile từ server.");
                         $('#accountSection').show();
                     }
-                });
+                },
+                error: function(error) {
+                    // Đóng modal đang quét
+                    hideModal('scanningModal');
+
+                    console.error("Lỗi khi lấy profile từ server:", error);
+                    showErrorModal("Đã xảy ra lỗi khi lấy thông tin profile từ server.");
+                    $('#accountSection').show();
+                }
             });
+        });
             
-            // Function to format dropdown options
+            // Function to format dropdown options - cải tiến hiển thị profile dài
             function formatProfileOption(option) {
                 if (!option.id) {
                     return option.text; // Skip placeholder
                 }
                 
-                // Create a container for the option
+                // Create a container for the option with wrapped text
                 var $container = $(
                     '<div class="select2-option-container" title="' + option.text + '">' +
                     '<span class="select2-option-text">' + option.text + '</span>' +
@@ -419,17 +563,9 @@
                 // Trigger the original change event
                 $(this).trigger('change');
             });
-        });
-    </script>
-    
-    <!-- Script xử lý quét và nhập games -->
-    <script>
-        $(document).ready(function () {
-            // Biến lưu trữ danh sách games được tìm thấy
-            let foundGames = [];
             
             // Xử lý hiển thị/ẩn modals
-            function showModal(modalId) {
+            window.showModal = function(modalId) {
                 console.log("Hiển thị modal:", modalId);
                 const modal = document.getElementById(modalId);
                 modal.style.display = 'flex';
@@ -440,7 +576,7 @@
                 modal.classList.add('show');
             }
             
-            function hideModal(modalId) {
+            window.hideModal = function(modalId) {
                 console.log("Ẩn modal:", modalId);
                 const modal = document.getElementById(modalId);
                 modal.classList.remove('show');
@@ -452,6 +588,14 @@
                     }
                 }, 300);
             }
+        });
+    </script>
+    
+    <!-- Script xử lý quét và nhập games -->
+    <script>
+        $(document).ready(function () {
+            // Biến lưu trữ danh sách games được tìm thấy
+            let foundGames = [];
             
             // Xử lý các nút đóng modal
             document.getElementById('closeGamesModal').addEventListener('click', function() {
@@ -487,13 +631,13 @@
                                 showGamesModal(foundGames);
                             }, 300);
                         } else {
-                            alert(response.message || 'Không tìm thấy game nào hoặc tất cả game đã có profile.');
+                            showErrorModal(response.message || 'Không tìm thấy game nào hoặc tất cả game đã có profile.');
                         }
                     },
                     error: function (error) {
                         hideModal('scanningModal');
                         console.error('Lỗi khi quét games:', error);
-                        alert('Đã xảy ra lỗi khi quét games. Vui lòng thử lại sau.');
+                        showErrorModal('Đã xảy ra lỗi khi quét games. Vui lòng thử lại sau.');
                     }
                 });
             });
@@ -590,10 +734,10 @@
                     const gameName = $item.data('game-name').toLowerCase();
                     const appId = $item.data('app-id').toString();
                     const installDir = $item.data('install-dir').toLowerCase();
-                    
-                    if (searchTerm === '' || 
-                        gameName.includes(searchTerm) || 
-                        appId.includes(searchTerm) || 
+
+                    if (searchTerm === '' ||
+                        gameName.includes(searchTerm) ||
+                        appId.includes(searchTerm) ||
                         installDir.includes(searchTerm)) {
                         $item.show();
                         visibleCount++;
@@ -601,7 +745,7 @@
                         $item.hide();
                     }
                 });
-                
+
                 // Cập nhật thông báo kết quả tìm kiếm
                 if (searchTerm === '') {
                     $('#searchResultText').text(`Đã tìm thấy ${foundGames.length} game đã cài đặt trên máy tính.`);
@@ -609,24 +753,24 @@
                     $('#searchResultText').text(`Tìm thấy ${visibleCount} kết quả cho "${searchTerm}"`);
                 }
             }
-            
+
             // Hàm nhập tất cả games
             function importAllGames(games) {
                 // Đóng modal games
                 hideModal('gamesModal');
-                
+
                 // Đợi một chút trước khi hiển thị modal đang xử lý
                 setTimeout(function() {
                     // Hiển thị modal đang xử lý
                     showModal('scanningModal');
-                    
+
                     // Chuẩn bị dữ liệu để gửi lên server
                     const gamesToImport = games.map(game => ({
                         AppId: game.appId,
                         Name: game.gameName,
                         InstallPath: game.installDir
                     }));
-                    
+
                     // Gọi API để nhập tất cả games
                     $.ajax({
                         url: '?handler=ImportAllGames',
@@ -638,24 +782,58 @@
                         },
                         success: function(response) {
                             hideModal('scanningModal');
-                            
+
                             if (response.success) {
-                                alert(`Đã nhập thành công ${response.importedCount} game. ${response.message}`);
-                                
-                                // Chuyển đến trang quản lý cập nhật
-                                window.location.href = '/UpdateManagement';
+                                // Sử dụng modal thông báo tùy chỉnh thay vì alert
+                                showSuccessModal(`Đã nhập thành công ${response.importedCount} game. ${response.message}`);
+
+                                // Đợi một chút trước khi chuyển trang
+                                setTimeout(function() {
+                                    // Chuyển đến trang quản lý cập nhật
+                                    window.location.href = '/UpdateManagement';
+                                }, 1500);
                             } else {
-                                alert('Lỗi khi nhập games: ' + response.message);
+                                showErrorModal('Lỗi khi nhập games: ' + response.message);
                             }
                         },
                         error: function(error) {
                             hideModal('scanningModal');
                             console.error('Lỗi khi nhập tất cả games:', error);
-                            alert('Đã xảy ra lỗi khi nhập games. Vui lòng thử lại sau.');
+                            showErrorModal('Đã xảy ra lỗi khi nhập games. Vui lòng thử lại sau.');
                         }
                     });
                 }, 300);
             }
+
+            // Hàm hiển thị thông báo thành công
+            function showSuccessModal(message) {
+                // Thêm nội dung thông báo thành công
+                $('#errorModal .custom-modal-header').removeClass('bg-danger').addClass('bg-success');
+                $('#errorModal .custom-modal-title').html('<i class="bi bi-check-circle-fill me-2"></i> Thành công');
+                $('#errorMessage').text(message);
+                showModal('errorModal');
+            }
+
+            // Hàm hiển thị thông báo lỗi
+            function showErrorModal(message) {
+                // Đảm bảo modal có đúng style lỗi
+                $('#errorModal .custom-modal-header').removeClass('bg-success').addClass('bg-danger');
+                $('#errorModal .custom-modal-title').html('<i class="bi bi-exclamation-triangle-fill me-2"></i> Thông báo');
+                $('#errorMessage').text(message);
+                showModal('errorModal');
+            }
+
+            // Thêm nút và xử lý hiển thị modal hướng dẫn
+            $('#steamAccountsMessage').append('<button id="showHelpModalBtn" class="btn btn-sm btn-link ms-2">Xem hướng dẫn chi tiết</button>');
+            
+            $('#showHelpModalBtn').click(function(e) {
+                e.preventDefault();
+                showModal('steamAccountsHelpModal');
+            });
+            
+            $('#closeHelpModal, #closeHelpBtn').click(function() {
+                hideModal('steamAccountsHelpModal');
+            });
         });
     </script>
 }

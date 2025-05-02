@@ -164,6 +164,62 @@
     Trang đang trong quá trình phát triển, một số tính năng có thể chưa hoạt động.
 </div>
 
+<!-- Hướng dẫn sử dụng tài khoản SteamAccounts -->
+<div class="card mt-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0"><i class="bi bi-question-circle me-2"></i> Hướng dẫn sử dụng</h5>
+    </div>
+    <div class="card-body">
+        <h6 class="fw-bold mb-3">Sử dụng tài khoản từ SteamAccounts</h6>
+        <p class="mb-3">
+            Tính năng <strong>SteamAccounts</strong> cho phép bạn lưu trữ các tài khoản Steam để sử dụng tự động 
+            khi tạo và chạy các profile game. Điều này giúp tiết kiệm thời gian và dễ dàng quản lý nhiều tài khoản.
+        </p>
+        
+        <div class="alert alert-success mb-3">
+            <div class="d-flex">
+                <div class="me-3">
+                    <i class="bi bi-lightbulb-fill fs-3"></i>
+                </div>
+                <div>
+                    <strong>Tính năng chính:</strong> Hệ thống sẽ tự động chọn tài khoản phù hợp dựa trên AppID của game khi 
+                    bạn tạo profile mới. Điều này giúp bạn không cần phải nhớ tài khoản nào dùng cho game nào.
+                </div>
+            </div>
+        </div>
+        
+        <h6 class="fw-bold mb-2">Các bước thiết lập và sử dụng:</h6>
+        <ol class="mb-4">
+            <li class="mb-2">
+                <strong>Thêm tài khoản:</strong> Nhấn nút "Thêm tài khoản" và điền thông tin đăng nhập Steam.
+            </li>
+            <li class="mb-2">
+                <strong>Thêm AppID:</strong> Trong mục "App IDs", nhập các AppID của game muốn sử dụng với tài khoản này, 
+                cách nhau bởi dấu phẩy (ví dụ: 570,730,440).
+            </li>
+            <li class="mb-2">
+                <strong>Lưu cấu hình:</strong> Hệ thống sẽ tự động xác định tên game tương ứng với các AppID và lưu thông tin.
+            </li>
+            <li class="mb-2">
+                <strong>Sử dụng tự động:</strong> Khi tạo profile game mới, chọn tùy chọn "Sử dụng tài khoản từ SteamAccounts" 
+                để hệ thống tự động chọn tài khoản phù hợp.
+            </li>
+        </ol>
+        
+        <div class="alert alert-info mb-3">
+            <i class="bi bi-info-circle-fill me-2"></i>
+            <strong>Lưu ý:</strong> Bạn có thể tạo một tài khoản với tên "Default" hoặc "Auto" để hệ thống sử dụng cho các 
+            game chưa có tài khoản cụ thể.
+        </div>
+        
+        <h6 class="fw-bold mb-2">Bảo mật:</h6>
+        <p>
+            Tất cả mật khẩu được mã hóa trước khi lưu trữ để bảo vệ thông tin tài khoản của bạn. 
+            Tên tài khoản được hiển thị dưới dạng đã che giấu để tăng cường bảo mật.
+        </p>
+    </div>
+</div>
+
 @section Scripts {
     <script>
         $(document).ready(function() {
