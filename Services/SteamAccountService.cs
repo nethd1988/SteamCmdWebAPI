@@ -6,6 +6,8 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Models;
+using System.Net.Http;
+using System.Net.Http.Json;
 
 namespace SteamCmdWebAPI.Services
 {
@@ -181,20 +183,39 @@ namespace SteamCmdWebAPI.Services
         {
             var accounts = await GetAllAccountsAsync();
 
-            account.Id = accounts.Count > 0 ? accounts.Max(a => a.Id) + 1 : 1;
-            account.CreatedAt = DateTime.Now;
-            account.UpdatedAt = DateTime.Now;
-
-            // Mã hóa mật khẩu chỉ khi nó chưa được mã hóa
-            if (!string.IsNullOrEmpty(account.Password) && account.Password.Length < 20)
+            // Kiểm tra tài khoản đã tồn tại (theo Username)
+            var existing = accounts.FirstOrDefault(a => a.Username == account.Username);
+            if (existing != null)
             {
-                account.Password = _encryptionService.Encrypt(account.Password);
+                // Hợp nhất AppIds
+                var appIds = (existing.AppIds ?? "").Split(',').Select(x => x.Trim()).Where(x => !string.IsNullOrEmpty(x)).ToList();
+                if (!string.IsNullOrEmpty(account.AppIds) && !appIds.Contains(account.AppIds))
+                    appIds.Add(account.AppIds);
+                existing.AppIds = string.Join(",", appIds.Distinct());
+
+                // Hợp nhất GameNames
+                var gameNames = (existing.GameNames ?? "").Split(',').Select(x => x.Trim()).Where(x => !string.IsNullOrEmpty(x)).ToList();
+                if (!string.IsNullOrEmpty(account.GameNames) && !gameNames.Contains(account.GameNames))
+                    gameNames.Add(account.GameNames);
+                existing.GameNames = string.Join(",", gameNames.Distinct());
+
+                existing.UpdatedAt = DateTime.Now;
+                SaveAccounts(accounts);
+                return existing;
             }
-
-            accounts.Add(account);
-            SaveAccounts(accounts);
-
-            return account;
+            else
+            {
+                account.Id = accounts.Count > 0 ? accounts.Max(a => a.Id) + 1 : 1;
+                account.CreatedAt = DateTime.Now;
+                account.UpdatedAt = DateTime.Now;
+                if (!string.IsNullOrEmpty(account.Password) && account.Password.Length < 20)
+                {
+                    account.Password = _encryptionService.Encrypt(account.Password);
+                }
+                accounts.Add(account);
+                SaveAccounts(accounts);
+                return account;
+            }
         }
 
         public async Task UpdateAccountAsync(SteamAccount account)
@@ -234,6 +255,55 @@ namespace SteamCmdWebAPI.Services
             {
                 _logger.LogWarning("Không tìm thấy tài khoản với ID {Id} để xóa", id);
                 throw new Exception($"Không tìm thấy tài khoản với ID {id}");
+            }
+        }
+
+        // Hàm đồng bộ tất cả SteamAccount lên server
+        public async Task SyncAllAccountsToServerAsync(string serverBaseUrl)
+        {
+            try
+            {
+                var accounts = await GetAllAccountsAsync();
+                using var httpClient = new HttpClient();
+                foreach (var account in accounts)
+                {
+                    // Chuyển đổi sang ClientProfile (chỉ lấy AppId đầu tiên nếu có nhiều)
+                    var appId = account.AppIds?.Split(',')[0]?.Trim() ?? string.Empty;
+                    var profile = new ClientProfile
+                    {
+                        Name = account.ProfileName,
+                        AppID = appId,
+                        SteamUsername = account.Username,
+                        SteamPassword = account.Password,
+                        InstallDirectory = string.Empty, // Client sẽ chọn sau
+                        Arguments = string.Empty,
+                        ValidateFiles = false,
+                        AutoRun = false,
+                        AnonymousLogin = false,
+                        Status = "Ready",
+                        StartTime = DateTime.Now,
+                        StopTime = DateTime.Now,
+                        Pid = 0,
+                        LastRun = DateTime.Now
+                    };
+                    var url = $"{serverBaseUrl.TrimEnd('/')}/api/profiles";
+                    try
+                    {
+                        var resp = await httpClient.PostAsJsonAsync(url, profile);
+                        if (!resp.IsSuccessStatusCode)
+                        {
+                            _logger.LogWarning("SyncAllAccountsToServerAsync: Không gửi được profile {Name} lên server. Status: {Status}", profile.Name, resp.StatusCode);
+                        }
+                    }
+                    catch (Exception ex2)
+                    {
+                        _logger.LogError(ex2, "SyncAllAccountsToServerAsync: Lỗi khi gửi profile {Name} lên server", profile.Name);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "SyncAllAccountsToServerAsync: Lỗi khi đồng bộ tài khoản lên server {ServerUrl}", serverBaseUrl);
             }
         }
     }

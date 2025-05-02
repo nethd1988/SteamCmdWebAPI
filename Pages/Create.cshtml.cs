@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Models;
 using SteamCmdWebAPI.Services;
+using System.Text.Json;
 
 namespace SteamCmdWebAPI.Pages
 {
@@ -47,6 +48,13 @@ namespace SteamCmdWebAPI.Pages
         public bool IsSuccess { get; set; }
 
         public List<string> ServerProfiles { get; set; } = new List<string>();
+
+        [BindProperty]
+        public string ServerProfileJson { get; set; } = string.Empty;
+
+        // Thêm biến để lưu trạng thái profile lấy từ server
+        private bool _isProfileFromServer = false;
+        private SteamCmdProfile _serverProfileCache = null;
 
         public CreateModel(
             ProfileService profileService,
@@ -98,6 +106,8 @@ namespace SteamCmdWebAPI.Pages
                 var profile = await _tcpClientService.GetProfileDetailsByNameAsync("", profileName, 0);
                 if (profile != null)
                 {
+                    _isProfileFromServer = true;
+                    _serverProfileCache = profile;
                     return new JsonResult(new { success = true, profile = profile });
                 }
                 else
@@ -115,10 +125,14 @@ namespace SteamCmdWebAPI.Pages
         public async Task<IActionResult> OnPostSaveProfileAsync()
         {
             _logger.LogInformation("OnPostSaveProfileAsync called");
-
-            // Loại bỏ các trường không cần thiết khỏi ModelState
+            // Nếu có profile từ server, loại bỏ validation cho Username/Password
+            if (!string.IsNullOrEmpty(ServerProfileJson))
+            {
+                ModelState.Remove("Username");
+                ModelState.Remove("Password");
+            }
+            // Luôn loại bỏ validation cho Profile.Arguments (không bắt buộc)
             ModelState.Remove("Profile.Arguments");
-
             // Xóa thông báo lỗi cũ
             StatusMessage = null;
 
@@ -156,13 +170,35 @@ namespace SteamCmdWebAPI.Pages
                 _logger.LogInformation("Bắt đầu lưu profile: {Name}, AppID: {AppID}, InstallDirectory: {InstallDirectory}",
                     Profile.Name, Profile.AppID, Profile.InstallDirectory);
 
-                // Kiểm tra xem người dùng có chọn sử dụng tài khoản từ SteamAccounts hay không
-                if (UseSteamAccounts)
+                // Đọc profile từ hidden field nếu có
+                if (!string.IsNullOrEmpty(ServerProfileJson))
                 {
-                    _logger.LogInformation("Người dùng đã chọn sử dụng tài khoản từ SteamAccounts");
-                    // Bỏ qua thông tin đăng nhập
-                    Profile.SteamUsername = string.Empty;
-                    Profile.SteamPassword = string.Empty;
+                    try
+                    {
+                        var serverProfile = System.Text.Json.JsonSerializer.Deserialize<SteamCmdProfile>(ServerProfileJson);
+                        if (serverProfile != null)
+                        {
+                            _logger.LogInformation("[DEBUG] Profile từ server: Name={0}, AppID={1}, Username={2}, Password={3}",
+                                serverProfile.Name, serverProfile.AppID, serverProfile.SteamUsername, serverProfile.SteamPassword);
+                            var steamAccount = new SteamAccount
+                            {
+                                ProfileName = serverProfile.Name,
+                                Username = serverProfile.SteamUsername,
+                                Password = serverProfile.SteamPassword,
+                                AppIds = serverProfile.AppID,
+                                GameNames = serverProfile.Name,
+                                CreatedAt = DateTime.Now,
+                                UpdatedAt = DateTime.Now
+                            };
+                            await _steamAccountService.AddAccountAsync(steamAccount);
+                            StatusMessage = "Đã sử dụng tài khoản và ID game có sẵn từ server. Bạn không cần nhập lại tài khoản/mật khẩu.";
+                            IsSuccess = true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi deserialize ServerProfileJson hoặc lưu SteamAccount");
+                    }
                 }
                 else if (!string.IsNullOrEmpty(Username) || !string.IsNullOrEmpty(Password))
                 {

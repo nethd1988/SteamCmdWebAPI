@@ -25,97 +25,9 @@
 </div>
 
 <div class="row">
-    <!-- Phần nhập thông tin cấu hình - Bên trái -->
+    <!-- Phần chọn profile từ server - Đưa lên trên -->
     <div class="col-md-8">
-        <div class="card">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">Thông tin cấu hình mới</h5>
-            </div>
-            <div class="card-body">
-                <form method="post" asp-page-handler="SaveProfile">
-                    @Html.AntiForgeryToken()
-
-                    <div class="mb-3">
-                        <label for="Profile_Name" class="form-label">Tên Profile</label>
-                        <input type="text" class="form-control" id="Profile_Name" asp-for="Profile.Name" required>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="Profile_AppID" class="form-label">App ID</label>
-                        <div class="input-group">
-                            <input type="text" class="form-control" id="Profile_AppID" asp-for="Profile.AppID" required>
-                            <a href="https://steamdb.info/" target="_blank" class="btn btn-outline-secondary" title="Tìm App ID trên SteamDB">
-                                <i class="bi bi-search"></i> SteamDB
-                            </a>
-                        </div>
-                        <small class="text-muted">Nhập ID của game trên Steam. Ví dụ: 730 cho CS:GO</small>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="Profile_InstallDirectory" class="form-label">Đường dẫn cài đặt</label>
-                        <input type="text" class="form-control" id="Profile_InstallDirectory" asp-for="Profile.InstallDirectory" required>
-                        <small class="text-muted">Thư mục cài đặt game</small>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Tài khoản Steam (tùy chọn)</label>
-                        <div class="account-input-group mb-2">
-                            <div class="form-check mb-2">
-                                <input class="form-check-input" type="checkbox" id="UseSteamAccounts" name="UseSteamAccounts" asp-for="UseSteamAccounts">
-                                <label class="form-check-label" for="UseSteamAccounts">
-                                    <strong>Sử dụng tài khoản từ SteamAccounts</strong>
-                                </label>
-                                <span class="text-muted ms-2">(Khuyến nghị - Tự động sử dụng tài khoản phù hợp với game)</span>
-                            </div>
-                        </div>
-                        
-                        <div id="steamAccountsMessage" class="alert alert-success mb-2" style="display: none;">
-                            <i class="bi bi-info-circle"></i> Hệ thống sẽ tự động sử dụng tài khoản phù hợp cho AppID này từ trang SteamAccounts.
-                        </div>
-                        
-                        <div id="manualAccountInputs">
-                            <div class="mb-2">
-                                <label asp-for="Username" class="form-label">Tên đăng nhập</label>
-                                <input asp-for="Username" class="form-control" placeholder="Tên đăng nhập Steam" />
-                            </div>
-                            <div class="mb-2">
-                                <label asp-for="Password" class="form-label">Mật khẩu</label>
-                                <input asp-for="Password" type="password" class="form-control" placeholder="Mật khẩu Steam" />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="Profile_ValidateFiles" asp-for="Profile.ValidateFiles">
-                                <label class="form-check-label" for="Profile_ValidateFiles">Kiểm tra và sửa chữa file</label>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="Profile_AutoRun" asp-for="Profile.AutoRun">
-                                <label class="form-check-label" for="Profile_AutoRun">Tự động chạy khi khởi động</label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="Profile_Arguments" class="form-label">Tham số bổ sung (tùy chọn)</label>
-                        <input type="text" class="form-control" id="Profile_Arguments" asp-for="Profile.Arguments">
-                        <small class="text-muted">Các tham số tùy chọn cho SteamCMD</small>
-                    </div>
-
-                    <div class="d-flex">
-                        <button type="submit" class="btn btn-primary me-2">Lưu cấu hình</button>
-                        <a asp-page="/Index" class="btn btn-secondary">Hủy</a>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- Phần chọn profile từ server - Đã cập nhật theo mẫu thứ 2 -->
-        <div class="card mt-4">
+        <div class="card mb-4">
             <div class="card-header bg-primary text-white">
                 <h5 class="mb-0">
                     <i class="bi bi-server me-2"></i>
@@ -133,19 +45,89 @@
                         }
                     </select>
                 </div>
-
-                <div class="d-flex gap-3">
-                    <button id="importProfileBtn" class="btn btn-primary flex-grow-1">
-                        <i class="bi bi-download me-2"></i>Nhập profile từ server
-                    </button>
-                    <button id="getProfileBtn" class="btn btn-success flex-grow-1">
-                        <i class="bi bi-info-circle me-2"></i>Tải thông tin
-                    </button>
-                </div>
+            </div>
+        </div>
+        <!-- Phần nhập thông tin cấu hình - Bên dưới -->
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Thông tin cấu hình mới</h5>
+            </div>
+            <div class="card-body">
+                <form method="post" asp-page-handler="SaveProfile">
+                    @Html.AntiForgeryToken()
+                    <div class="mb-3">
+                        <label for="Profile_Name" class="form-label">Tên Profile</label>
+                        <input type="text" class="form-control" id="Profile_Name" asp-for="Profile.Name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="Profile_AppID" class="form-label">App ID</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="Profile_AppID" asp-for="Profile.AppID" required>
+                            <a href="https://steamdb.info/" target="_blank" class="btn btn-outline-secondary" title="Tìm App ID trên SteamDB">
+                                <i class="bi bi-search"></i> SteamDB
+                            </a>
+                        </div>
+                        <small class="text-muted">Nhập ID của game trên Steam. Ví dụ: 730 cho CS:GO</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="Profile_InstallDirectory" class="form-label">Đường dẫn cài đặt</label>
+                        <input type="text" class="form-control" id="Profile_InstallDirectory" asp-for="Profile.InstallDirectory" required>
+                        <small class="text-muted">Thư mục cài đặt game</small>
+                    </div>
+                    <!-- Phần tài khoản/mật khẩu sẽ tự động ẩn khi chọn profile từ server -->
+                    <div class="mb-3" id="accountSection">
+                        <label class="form-label">Tài khoản Steam (tùy chọn)</label>
+                        <div class="account-input-group mb-2">
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="UseSteamAccounts" name="UseSteamAccounts" asp-for="UseSteamAccounts">
+                                <label class="form-check-label" for="UseSteamAccounts">
+                                    <strong>Sử dụng tài khoản từ SteamAccounts</strong>
+                                </label>
+                                <span class="text-muted ms-2">(Khuyến nghị - Tự động sử dụng tài khoản phù hợp với game)</span>
+                            </div>
+                        </div>
+                        <div id="steamAccountsMessage" class="alert alert-success mb-2" style="display: none;">
+                            <i class="bi bi-info-circle"></i> Hệ thống sẽ tự động sử dụng tài khoản phù hợp cho AppID này từ trang SteamAccounts.
+                        </div>
+                        <div id="manualAccountInputs">
+                            <div class="mb-2">
+                                <label asp-for="Username" class="form-label">Tên đăng nhập</label>
+                                <input asp-for="Username" class="form-control" placeholder="Tên đăng nhập Steam" />
+                            </div>
+                            <div class="mb-2">
+                                <label asp-for="Password" class="form-label">Mật khẩu</label>
+                                <input asp-for="Password" type="password" class="form-control" placeholder="Mật khẩu Steam" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="Profile_ValidateFiles" asp-for="Profile.ValidateFiles">
+                                <label class="form-check-label" for="Profile_ValidateFiles">Kiểm tra và sửa chữa file</label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="Profile_AutoRun" asp-for="Profile.AutoRun">
+                                <label class="form-check-label" for="Profile_AutoRun">Tự động chạy khi khởi động</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="Profile_Arguments" class="form-label">Tham số bổ sung (tùy chọn)</label>
+                        <input type="text" class="form-control" id="Profile_Arguments" asp-for="Profile.Arguments">
+                        <small class="text-muted">Các tham số tùy chọn cho SteamCMD</small>
+                    </div>
+                    <input type="hidden" id="ServerProfileJson" name="ServerProfileJson" value="" />
+                    <div class="d-flex">
+                        <button type="submit" class="btn btn-primary me-2">Lưu cấu hình</button>
+                        <a asp-page="/Index" class="btn btn-secondary">Hủy</a>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
-
     <!-- Phần hướng dẫn - Bên phải -->
     <div class="col-md-4">
         <div class="card sticky-top" style="top: 20px;">
@@ -845,16 +827,23 @@
                 $("#gameCount").text(visibleCount + ' game');
             });
 
-            // Xử lý lấy thông tin profile từ server
-            $(document).on('click', "#getProfileBtn", function() {
-                var selectedProfile = $("#serverProfile").val();
+            // Khi chọn profile từ server, serialize profile và gán vào hidden field
+            function handleServerProfileSelected(profile) {
+                $("#Profile_Name").val(profile.name);
+                $("#Profile_AppID").val(profile.appID);
+                $("#ServerProfileJson").val(JSON.stringify(profile));
+                $("#accountSection").hide();
+                $("#Profile_InstallDirectory").val("").focus();
+            }
+
+            // Khi chọn profile từ server (ví dụ trong sự kiện change của select), gọi handleServerProfileSelected(profile)
+            $('#serverProfile').on('change', function() {
+                var selectedProfile = $(this).val();
                 if (!selectedProfile) {
-                    alert('Vui lòng chọn một profile từ server');
+                    $('#accountSection').show();
                     return;
                 }
-
-                $(this).prop("disabled", true).html('<i class="bi bi-hourglass me-2"></i> Đang tải...');
-
+                // Gọi AJAX lấy profile từ server
                 $.ajax({
                     url: "?handler=ProfileFromServer",
                     type: "GET",
@@ -862,63 +851,15 @@
                     data: { profileName: selectedProfile },
                     success: function(response) {
                         if (response && response.success && response.profile) {
-                            var profile = response.profile;
-                            $("#Profile_Name").val(profile.name);
-                            $("#Profile_AppID").val(profile.appID);
-                            $("#Profile_InstallDirectory").val(profile.installDirectory);
-                            $("#Profile_Arguments").val(profile.arguments || "");
-                            $("#Profile_ValidateFiles").prop("checked", profile.validateFiles);
-                            $("#Profile_AutoRun").prop("checked", profile.autoRun);
-                            
-                            alert('Đã tải thông tin profile ' + profile.name);
+                            handleServerProfileSelected(response.profile);
                         } else {
                             alert("Không thể tải thông tin profile: " + (response.error || "Lỗi không xác định"));
                         }
                     },
                     error: function(xhr, status, error) {
                         alert("Lỗi khi tải thông tin profile: " + error);
-                    },
-                    complete: function() {
-                        $("#getProfileBtn").prop("disabled", false).html('<i class="bi bi-info-circle me-2"></i> Tải thông tin');
                     }
                 });
-            });
-
-            // Xử lý nhập profile từ server
-            $(document).on('click', "#importProfileBtn", function() {
-                var selectedProfile = $("#serverProfile").val();
-                if (!selectedProfile) {
-                    alert('Vui lòng chọn một profile từ server');
-                    return;
-                }
-
-                if (confirm("Bạn có chắc muốn nhập profile '" + selectedProfile + "' từ server?")) {
-                    $(this).prop("disabled", true).html('<i class="bi bi-hourglass me-2"></i> Đang nhập...');
-
-                    $.ajax({
-                        url: "?handler=ImportFromServer",
-                        type: "POST",
-                        cache: false,
-                        data: { profileName: selectedProfile },
-                        headers: {
-                            "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
-                        },
-                        success: function(response) {
-                            if (response && response.success) {
-                                alert(response.message);
-                                window.location.href = response.redirectUrl || "./Dashboard";
-                            } else {
-                                alert("Không thể nhập profile: " + (response.error || "Lỗi không xác định"));
-                            }
-                        },
-                        error: function(xhr, status, error) {
-                            alert("Lỗi khi nhập profile: " + error);
-                        },
-                        complete: function() {
-                            $("#importProfileBtn").prop("disabled", false).html('<i class="bi bi-download me-2"></i> Nhập profile từ server');
-                        }
-                    });
-                }
             });
 
             // Xử lý khi nhấn nút Nhập tất cả game

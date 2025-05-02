@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Models;
 using Microsoft.Extensions.DependencyInjection;
+using System.Net.Http;
+using System.Net.Http.Json;
 
 namespace SteamCmdWebAPI.Services
 {
@@ -666,6 +668,23 @@ namespace SteamCmdWebAPI.Services
             {
                 _logger.LogError(ex, "Lỗi khi di chuyển profiles");
                 throw;
+            }
+        }
+
+        // Thêm hàm này vào class ProfileService
+        public async Task<List<ClientProfile>> FetchProfilesFromServerAsync(string serverBaseUrl)
+        {
+            try
+            {
+                using var httpClient = new HttpClient();
+                var url = $"{serverBaseUrl.TrimEnd('/')}/api/profiles/client";
+                var profiles = await httpClient.GetFromJsonAsync<List<ClientProfile>>(url);
+                return profiles ?? new List<ClientProfile>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy danh sách profile từ server {ServerUrl}", serverBaseUrl);
+                return new List<ClientProfile>();
             }
         }
     }
