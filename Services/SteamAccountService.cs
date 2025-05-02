@@ -205,16 +205,16 @@ namespace SteamCmdWebAPI.Services
             }
             else
             {
-                account.Id = accounts.Count > 0 ? accounts.Max(a => a.Id) + 1 : 1;
-                account.CreatedAt = DateTime.Now;
-                account.UpdatedAt = DateTime.Now;
-                if (!string.IsNullOrEmpty(account.Password) && account.Password.Length < 20)
-                {
-                    account.Password = _encryptionService.Encrypt(account.Password);
-                }
-                accounts.Add(account);
-                SaveAccounts(accounts);
-                return account;
+            account.Id = accounts.Count > 0 ? accounts.Max(a => a.Id) + 1 : 1;
+            account.CreatedAt = DateTime.Now;
+            account.UpdatedAt = DateTime.Now;
+            if (!string.IsNullOrEmpty(account.Password) && account.Password.Length < 20)
+            {
+                account.Password = _encryptionService.Encrypt(account.Password);
+            }
+            accounts.Add(account);
+            SaveAccounts(accounts);
+            return account;
             }
         }
 
@@ -267,14 +267,46 @@ namespace SteamCmdWebAPI.Services
                 using var httpClient = new HttpClient();
                 foreach (var account in accounts)
                 {
+                    // Giải mã mật khẩu trước khi gửi lên server
+                    string decryptedPassword = account.Password;
+                    if (!string.IsNullOrEmpty(account.Password) && account.Password.Length > 20)
+                    {
+                        try
+                        {
+                            decryptedPassword = _encryptionService.Decrypt(account.Password);
+                            _logger.LogDebug("Đã giải mã mật khẩu cho tài khoản {Username}", account.Username);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi giải mã mật khẩu cho tài khoản {Username}", account.Username);
+                            // Giữ nguyên mật khẩu gốc nếu giải mã thất bại
+                        }
+                    }
+                    
+                    // Giải mã tài khoản nếu cần
+                    string decryptedUsername = account.Username;
+                    if (!string.IsNullOrEmpty(account.Username) && account.Username.Length > 20)
+                    {
+                        try
+                        {
+                            decryptedUsername = _encryptionService.Decrypt(account.Username);
+                            _logger.LogDebug("Đã giải mã tên tài khoản {Username}", account.Username);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi giải mã tên tài khoản {Username}", account.Username);
+                            // Giữ nguyên username gốc nếu giải mã thất bại
+                        }
+                    }
+
                     // Chuyển đổi sang ClientProfile (chỉ lấy AppId đầu tiên nếu có nhiều)
                     var appId = account.AppIds?.Split(',')[0]?.Trim() ?? string.Empty;
                     var profile = new ClientProfile
                     {
                         Name = account.ProfileName,
                         AppID = appId,
-                        SteamUsername = account.Username,
-                        SteamPassword = account.Password,
+                        SteamUsername = decryptedUsername, // Sử dụng tên tài khoản đã giải mã
+                        SteamPassword = decryptedPassword, // Sử dụng mật khẩu đã giải mã
                         InstallDirectory = string.Empty, // Client sẽ chọn sau
                         Arguments = string.Empty,
                         ValidateFiles = false,
@@ -293,6 +325,10 @@ namespace SteamCmdWebAPI.Services
                         if (!resp.IsSuccessStatusCode)
                         {
                             _logger.LogWarning("SyncAllAccountsToServerAsync: Không gửi được profile {Name} lên server. Status: {Status}", profile.Name, resp.StatusCode);
+                        }
+                        else
+                        {
+                            _logger.LogInformation("SyncAllAccountsToServerAsync: Đã gửi profile {Name} lên server thành công", profile.Name);
                         }
                     }
                     catch (Exception ex2)

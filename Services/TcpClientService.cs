@@ -21,7 +21,10 @@ namespace SteamCmdWebAPI.Services
         private const string DEFAULT_SERVER_ADDRESS = "idckz.ddnsfree.com";
         private const int DEFAULT_SERVER_PORT = 61188;
         private const string AUTH_TOKEN = "simple_auth_token";
+        private const string AUTH_TOKEN_BACKUP1 = "steamcmdweb_auth_token";
+        private const string AUTH_TOKEN_BACKUP2 = "steamcmd_token";
         private const int DEFAULT_TIMEOUT_MS = 10000; // 10 giây
+        private string _currentAuthToken = AUTH_TOKEN;
 
         public TcpClientService(ILogger<TcpClientService> logger, EncryptionService encryptionService, LicenseService licenseService)
         {
@@ -29,7 +32,8 @@ namespace SteamCmdWebAPI.Services
             _encryptionService = encryptionService ?? throw new ArgumentNullException(nameof(encryptionService));
             _licenseService = licenseService ?? throw new ArgumentNullException(nameof(licenseService));
             _clientId = GetClientIdentifier();
-            _logger.LogInformation("TcpClientService initialized with ClientID: {ClientId}", _clientId);
+            _logger.LogInformation("TcpClientService initialized with ClientID: {ClientId}, using server {Server}:{Port}, AuthToken: {AuthTokenFirstChars}...",
+                _clientId, DEFAULT_SERVER_ADDRESS, DEFAULT_SERVER_PORT, AUTH_TOKEN.Length > 3 ? AUTH_TOKEN.Substring(0, 3) + "..." : AUTH_TOKEN);
         }
 
         private string GetClientIdentifier()
@@ -70,7 +74,8 @@ namespace SteamCmdWebAPI.Services
 
             try
             {
-                _logger.LogInformation("Kiểm tra kết nối đến {ServerAddress}:{Port}", serverAddress, port);
+                _logger.LogInformation("Kiểm tra kết nối đến {ServerAddress}:{Port} với token {AuthTokenFirstChars}...", 
+                    serverAddress, port, _currentAuthToken.Length > 3 ? _currentAuthToken.Substring(0, 3) + "..." : _currentAuthToken);
 
                 using (var tcpClient = new TcpClient())
                 {
@@ -86,6 +91,73 @@ namespace SteamCmdWebAPI.Services
                     if (tcpClient.Connected)
                     {
                         _logger.LogInformation("Kết nối thành công đến {ServerAddress}:{Port}", serverAddress, port);
+                        
+                        // Thử gửi lệnh xác thực để kiểm tra token
+                        try
+                        {
+                            bool tokenAccepted = false;
+                            string[] tokens = new string[] { _currentAuthToken, AUTH_TOKEN, AUTH_TOKEN_BACKUP1, AUTH_TOKEN_BACKUP2 };
+                            
+                            foreach (var token in tokens.Distinct())
+                            {
+                                using var stream = tcpClient.GetStream();
+                                string command = $"AUTH:{token} CLIENT_ID:{_clientId} PING";
+                                byte[] commandBytes = Encoding.UTF8.GetBytes(command);
+                                byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
+
+                                await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length);
+                                await stream.WriteAsync(commandBytes, 0, commandBytes.Length);
+                                await stream.FlushAsync();
+
+                                // Đọc phản hồi
+                                byte[] responseHeaderBuffer = new byte[4];
+                                int bytesRead = await stream.ReadAsync(responseHeaderBuffer, 0, 4);
+
+                                if (bytesRead < 4)
+                                {
+                                    _logger.LogWarning("Không đọc được phản hồi xác thực từ server với token {TokenFirstChars}...", 
+                                        token.Length > 3 ? token.Substring(0, 3) + "..." : token);
+                                    continue;
+                                }
+
+                                int responseLength = BitConverter.ToInt32(responseHeaderBuffer, 0);
+                                byte[] responseBuffer = new byte[responseLength];
+                                bytesRead = await stream.ReadAsync(responseBuffer, 0, responseLength);
+                                string response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
+
+                                if (response == "INVALID_TOKEN")
+                                {
+                                    _logger.LogWarning("Token xác thực không hợp lệ: {AuthToken}", 
+                                        token.Length > 3 ? token.Substring(0, 3) + "..." : token);
+                                    continue;
+                                }
+                                else if (response.StartsWith("ERROR:"))
+                                {
+                                    _logger.LogWarning("Lỗi xác thực với token {Token}: {Error}", 
+                                        token.Length > 3 ? token.Substring(0, 3) + "..." : token, response);
+                                    continue;
+                                }
+                                
+                                // Token hoạt động, lưu lại
+                                _currentAuthToken = token;
+                                tokenAccepted = true;
+                                _logger.LogInformation("Xác thực thành công với server, token: {TokenFirstChars}..., phản hồi: {Response}", 
+                                    token.Length > 3 ? token.Substring(0, 3) + "..." : token, response);
+                                break;
+                            }
+                            
+                            if (!tokenAccepted)
+                            {
+                                _logger.LogError("Không thể xác thực với server, đã thử tất cả token");
+                                return false;
+                            }
+                        }
+                        catch (Exception authEx)
+                        {
+                            _logger.LogError(authEx, "Lỗi khi xác thực với server");
+                            return false;
+                        }
+                        
                         return true;
                     }
 
@@ -276,7 +348,7 @@ namespace SteamCmdWebAPI.Services
                     using var stream = tcpClient.GetStream();
 
                     // Gửi lệnh AUTH + CLIENT_ID + GET_PROFILES
-                    string command = $"AUTH:{AUTH_TOKEN} CLIENT_ID:{_clientId} GET_PROFILES";
+                    string command = $"AUTH:{_currentAuthToken} CLIENT_ID:{_clientId} GET_PROFILES";
                     byte[] commandBytes = Encoding.UTF8.GetBytes(command);
                     byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
 
@@ -372,10 +444,12 @@ namespace SteamCmdWebAPI.Services
                     using var stream = tcpClient.GetStream();
 
                     // Gửi lệnh
-                    string command = $"AUTH:{AUTH_TOKEN} CLIENT_ID:{_clientId} GET_PROFILE_DETAILS {profileName}";
+                    string command = $"AUTH:{_currentAuthToken} CLIENT_ID:{_clientId} GET_PROFILE_DETAILS {profileName}";
                     byte[] commandBytes = Encoding.UTF8.GetBytes(command);
                     byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
 
+                    _logger.LogDebug("Gửi lệnh: {Command}", command);
+                    
                     await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length);
                     await stream.WriteAsync(commandBytes, 0, commandBytes.Length);
                     await stream.FlushAsync();
@@ -407,6 +481,7 @@ namespace SteamCmdWebAPI.Services
                     }
 
                     string response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
+                    _logger.LogDebug("Nhận được phản hồi từ server: {ResponseLength} bytes", response.Length);
 
                     if (response == "PROFILE_NOT_FOUND")
                     {
@@ -422,12 +497,36 @@ namespace SteamCmdWebAPI.Services
 
                     try
                     {
-                        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        _logger.LogDebug("Raw JSON từ server: {Json}", response);
+                        
+                        var options = new JsonSerializerOptions { 
+                            PropertyNameCaseInsensitive = true,
+                            AllowTrailingCommas = true,
+                            ReadCommentHandling = JsonCommentHandling.Skip
+                        };
+                        
                         var profile = JsonSerializer.Deserialize<SteamCmdProfile>(response, options);
 
                         if (profile != null)
                         {
                             _logger.LogInformation("Đã nhận thông tin profile {ProfileName} từ server", profileName);
+                            
+                            // Hiển thị thông tin nhận được để debug
+                            _logger.LogDebug("Thông tin nhận được: Name={Name}, AppID={AppID}, Username={Username}, Password={HasPassword}", 
+                                profile.Name, profile.AppID, 
+                                profile.SteamUsername,
+                                !string.IsNullOrEmpty(profile.SteamPassword) ? "[HIDDEN]" : "null");
+                            
+                            if (!string.IsNullOrEmpty(profile.SteamUsername) && profile.SteamUsername.Length > 20)
+                            {
+                                _logger.LogInformation("Username có vẻ đã được mã hóa, độ dài: {Length}", profile.SteamUsername.Length);
+                            }
+                            
+                            if (!string.IsNullOrEmpty(profile.SteamPassword) && profile.SteamPassword.Length > 20)
+                            {
+                                _logger.LogInformation("Password có vẻ đã được mã hóa, độ dài: {Length}", profile.SteamPassword.Length);
+                            }
+                            
                             return profile;
                         }
                         else
@@ -438,7 +537,21 @@ namespace SteamCmdWebAPI.Services
                     }
                     catch (JsonException jsonEx)
                     {
-                        _logger.LogError(jsonEx, "Lỗi khi phân tích JSON từ server: {Response}", response);
+                        _logger.LogError(jsonEx, "Lỗi khi phân tích JSON từ server: {ResponseFirstChars}", 
+                            response.Length > 100 ? response.Substring(0, 100) + "..." : response);
+                        
+                        // Thử phân tích bằng Newtonsoft.Json
+                        try {
+                            var profileNewtonsoft = Newtonsoft.Json.JsonConvert.DeserializeObject<SteamCmdProfile>(response);
+                            if (profileNewtonsoft != null) {
+                                _logger.LogInformation("Phân tích thành công bằng Newtonsoft.Json");
+                                return profileNewtonsoft;
+                            }
+                        }
+                        catch (Exception newtonsoftEx) {
+                            _logger.LogError(newtonsoftEx, "Cũng không thể phân tích bằng Newtonsoft.Json");
+                        }
+                        
                         return null;
                     }
                 }
@@ -465,6 +578,14 @@ namespace SteamCmdWebAPI.Services
 
                 _logger.LogInformation("Đang gửi profile {ProfileName} lên server {Server}:{Port}", profile.Name, serverAddress, port);
 
+                // Test kết nối trước khi gửi (refresh token nếu cần)
+                bool isConnected = await TestConnectionAsync(serverAddress, port);
+                if (!isConnected)
+                {
+                    _logger.LogWarning("Không thể kết nối đến server {Server}:{Port}", serverAddress, port);
+                    return false;
+                }
+
                 using (var tcpClient = new TcpClient())
                 {
                     // Kết nối với timeout
@@ -484,7 +605,7 @@ namespace SteamCmdWebAPI.Services
                     using var stream = tcpClient.GetStream();
 
                     // Gửi lệnh AUTH và SEND_PROFILE
-                    string command = $"AUTH:{AUTH_TOKEN} CLIENT_ID:{_clientId} SEND_PROFILE";
+                    string command = $"AUTH:{_currentAuthToken} CLIENT_ID:{_clientId} SEND_PROFILE";
                     byte[] commandBytes = Encoding.UTF8.GetBytes(command);
                     byte[] lengthBytes = BitConverter.GetBytes(commandBytes.Length);
 
@@ -507,6 +628,12 @@ namespace SteamCmdWebAPI.Services
                     bytesRead = await stream.ReadAsync(responseBuffer, 0, responseLength);
 
                     string response = Encoding.UTF8.GetString(responseBuffer, 0, bytesRead);
+
+                    if (response == "INVALID_TOKEN")
+                    {
+                        _logger.LogWarning("Token xác thực không hợp lệ: {AuthToken}", _currentAuthToken);
+                        return false;
+                    }
 
                     if (response != "READY_TO_RECEIVE")
                     {
