@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Models;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace SteamCmdWebAPI.Services
 {
@@ -22,17 +23,20 @@ namespace SteamCmdWebAPI.Services
         private readonly string _settingsPath;
         private readonly object _lock = new object();
         private List<SteamCmdProfile> _profiles;
+        private readonly IServiceProvider _serviceProvider;
 
         public ProfileService(
             ILogger<ProfileService> logger,
             SettingsService settingsService,
             EncryptionService encryptionService,
-            LicenseService licenseService)
+            LicenseService licenseService,
+            IServiceProvider serviceProvider)
         {
             _logger = logger;
             _settingsService = settingsService;
             _encryptionService = encryptionService;
             _licenseService = licenseService;
+            _serviceProvider = serviceProvider;
             var currentDir = AppDomain.CurrentDomain.BaseDirectory;
             // Lưu file profiles.json trong thư mục data
             string dataDir = Path.Combine(currentDir, "data");
@@ -292,23 +296,69 @@ namespace SteamCmdWebAPI.Services
 
             try
             {
-                _logger.LogInformation("Bắt đầu cập nhật profile với ID {0}", updatedProfile.Id);
                 var profiles = await GetAllProfiles();
                 int index = profiles.FindIndex(p => p.Id == updatedProfile.Id);
-                if (index == -1)
+                if (index >= 0)
                 {
-                    _logger.LogWarning("Không tìm thấy profile với ID {0} để cập nhật", updatedProfile.Id);
-                    throw new Exception($"Không tìm thấy profile với ID {updatedProfile.Id} để cập nhật.");
+                    profiles[index] = updatedProfile;
+                    await SaveProfiles(profiles);
+                    _logger.LogInformation("Đã cập nhật profile: {Name} (ID: {Id})", updatedProfile.Name, updatedProfile.Id);
                 }
-
-                profiles[index] = updatedProfile;
-                await SaveProfiles(profiles);
-                _logger.LogInformation("Đã cập nhật profile thành công với ID {0}", updatedProfile.Id);
+                else
+                {
+                    _logger.LogWarning("Không tìm thấy profile với ID: {Id}", updatedProfile.Id);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi cập nhật profile với ID {0}", updatedProfile.Id);
+                _logger.LogError(ex, "Lỗi khi cập nhật profile: {Id}", updatedProfile.Id);
                 throw;
+            }
+        }
+
+        public async Task<(string Username, string Password)> GetSteamAccountForAppId(string appId)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(appId))
+                {
+                    _logger.LogWarning("GetSteamAccountForAppId: AppID trống");
+                    return (null, null);
+                }
+
+                // Kiểm tra nếu _serviceProvider không khả dụng
+                if (_serviceProvider == null)
+                {
+                    _logger.LogError("GetSteamAccountForAppId: IServiceProvider không khả dụng");
+                    return (null, null);
+                }
+
+                // Lấy dịch vụ SteamAccountService để tìm tài khoản phù hợp
+                var steamAccountService = _serviceProvider.GetService<SteamAccountService>();
+                
+                if (steamAccountService == null)
+                {
+                    _logger.LogError("GetSteamAccountForAppId: Không thể lấy SteamAccountService từ DI container");
+                    return (null, null);
+                }
+                
+                var account = await steamAccountService.GetAccountByAppIdAsync(appId);
+
+                if (account == null)
+                {
+                    _logger.LogWarning("GetSteamAccountForAppId: Không tìm thấy tài khoản Steam nào cho AppID {AppId}", appId);
+                    return (null, null);
+                }
+
+                _logger.LogInformation("GetSteamAccountForAppId: Đã tìm thấy tài khoản {Username} cho AppID {AppId}", 
+                    account.Username, appId);
+                
+                return (account.Username, account.Password);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi tìm tài khoản Steam cho AppID {AppId}", appId);
+                return (null, null);
             }
         }
 

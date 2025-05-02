@@ -746,38 +746,30 @@ namespace SteamCmdWebAPI.Services
                 }
             }
 
-            if (!Directory.Exists(localSteamappsLinkDir))
+            // Tạo thư mục cha nếu chưa tồn tại
+            Directory.CreateDirectory(Path.GetDirectoryName(localSteamappsLinkDir));
+
+            // Chỉ dùng symbolic link
+            try
             {
-                try
+                CmdHelper.RunCommand($"mklink /D \"{localSteamappsLinkDir}\" \"{steamappsTargetDir}\"", 15000);
+                await Task.Delay(2000);
+
+                if (Directory.Exists(localSteamappsLinkDir))
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(localSteamappsLinkDir));
-
-                    // Chỉ dùng symbolic link, không dùng force_install_dir
-                    CmdHelper.RunCommand($"mklink /D \"{localSteamappsLinkDir}\" \"{steamappsTargetDir}\"", 15000);
-                    await Task.Delay(2000);
-
-                    if (Directory.Exists(localSteamappsLinkDir))
-                    {
-                        return true;
-                    }
-                    else
-                    {
-                        _logger.LogError($"Không thể tạo liên kết tượng trưng đến {localSteamappsLinkDir}. Thư mục không tồn tại sau lệnh mklink.");
-                        await SafeSendLogAsync("System", "Error", $"Không thể tạo liên kết tượng trưng đến {localSteamappsLinkDir}.");
-                        return false;
-                    }
+                    return true;
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogError(ex, "Lỗi khi tạo liên kết tượng trưng");
-                    await SafeSendLogAsync("System", "Error", $"Lỗi khi tạo liên kết tượng trưng: {ex.Message}");
+                    _logger.LogError($"Không thể tạo liên kết tượng trưng đến {localSteamappsLinkDir}. Thư mục không tồn tại sau lệnh mklink.");
+                    await SafeSendLogAsync("System", "Error", $"Không thể tạo liên kết tượng trưng đến {localSteamappsLinkDir}.");
                     return false;
                 }
             }
-            else
+            catch (Exception ex)
             {
-                _logger.LogError("Thư mục/liên kết steamapps cục bộ vẫn tồn tại mặc dù đã cố gắng xóa. Bỏ qua tạo liên kết.");
-                await SafeSendLogAsync("System", "Error", "Thư mục/liên kết steamapps cục bộ vẫn tồn tại. Bỏ qua tạo liên kết.");
+                _logger.LogError(ex, "Lỗi khi tạo liên kết tượng trưng");
+                await SafeSendLogAsync("System", "Error", $"Lỗi khi tạo liên kết tượng trưng: {ex.Message}");
                 return false;
             }
         }
@@ -1524,10 +1516,23 @@ namespace SteamCmdWebAPI.Services
                         string password = _encryptionService.Decrypt(profile.SteamPassword);
                         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
                         {
-                            await LogOperationAsync(profile.Name, "Error", "Lỗi: Tên người dùng hoặc mật khẩu trống sau khi giải mã.", "Error");
-                            _lastRunHadLoginError = true;
-                            runResult.ExitCode = -98;
-                            return runResult;
+                            // Nếu không có thông tin đăng nhập trong profile, tìm tài khoản phù hợp
+                            var appIdToCheck = appIdsToUpdate.Count > 0 ? appIdsToUpdate[0] : profile.AppID;
+                            var (foundUsername, foundPassword) = await _profileService.GetSteamAccountForAppId(appIdToCheck);
+                            
+                            if (!string.IsNullOrEmpty(foundUsername) && !string.IsNullOrEmpty(foundPassword))
+                            {
+                                username = foundUsername;
+                                password = foundPassword;
+                                await SafeSendLogAsync(profile.Name, "Info", $"Đã tìm thấy tài khoản Steam phù hợp cho ứng dụng {appIdToCheck}");
+                            }
+                            else
+                            {
+                                await LogOperationAsync(profile.Name, "Error", "Lỗi: Tên người dùng hoặc mật khẩu trống sau khi giải mã, và không tìm thấy tài khoản phù hợp.", "Error");
+                                _lastRunHadLoginError = true;
+                                runResult.ExitCode = -98;
+                                return runResult;
+                            }
                         }
                         loginCommand = $"+login {username} {password}";
                     }
@@ -1541,10 +1546,22 @@ namespace SteamCmdWebAPI.Services
                 }
                 else
                 {
-                    await LogOperationAsync(profile.Name, "Error", "Lỗi: Thông tin đăng nhập Steam không được cung cấp. Profile này yêu cầu tài khoản.", "Error");
-                    _lastRunHadLoginError = true;
-                    runResult.ExitCode = -96;
-                    return runResult;
+                    // Nếu profile không có thông tin đăng nhập, tìm tài khoản phù hợp
+                    var appIdToCheck = appIdsToUpdate.Count > 0 ? appIdsToUpdate[0] : profile.AppID;
+                    var (foundUsername, foundPassword) = await _profileService.GetSteamAccountForAppId(appIdToCheck);
+                    
+                    if (!string.IsNullOrEmpty(foundUsername) && !string.IsNullOrEmpty(foundPassword))
+                    {
+                        loginCommand = $"+login {foundUsername} {foundPassword}";
+                        await SafeSendLogAsync(profile.Name, "Info", $"Đã tìm thấy tài khoản Steam phù hợp cho ứng dụng {appIdToCheck}");
+                    }
+                    else
+                    {
+                        await LogOperationAsync(profile.Name, "Error", "Lỗi: Thông tin đăng nhập Steam không được cung cấp và không tìm thấy tài khoản phù hợp. Profile này yêu cầu tài khoản.", "Error");
+                        _lastRunHadLoginError = true;
+                        runResult.ExitCode = -96;
+                        return runResult;
+                    }
                 }
 
                 // Xây dựng command line

@@ -313,6 +313,22 @@ namespace SteamCmdWebAPI.Pages
                         // Chỉ cập nhật app chính nếu có cập nhật
                         if (mainAppNeedsUpdate)
                         {
+                            // Kiểm tra xem có tài khoản phù hợp không
+                            var (foundUsername, foundPassword) = await _profileService.GetSteamAccountForAppId(profile.AppID);
+                            if (!string.IsNullOrEmpty(foundUsername))
+                            {
+                                _logger.LogInformation("Đã tìm thấy tài khoản {Username} cho AppID {AppId}", foundUsername, profile.AppID);
+                                // Nếu profile chưa có thông tin đăng nhập, cập nhật
+                                if (string.IsNullOrEmpty(profile.SteamUsername) || string.IsNullOrEmpty(profile.SteamPassword))
+                                {
+                                    profile.SteamUsername = _encryptionService.Encrypt(foundUsername);
+                                    profile.SteamPassword = _encryptionService.Encrypt(foundPassword);
+                                    await _profileService.UpdateProfile(profile);
+                                    _logger.LogInformation("Đã cập nhật thông tin đăng nhập cho profile {ProfileName} từ tài khoản Steam {Username}",
+                                        profile.Name, foundUsername);
+                                }
+                            }
+
                             await _steamCmdService.RunSpecificAppAsync(profile.Id, profile.AppID);
                         }
                     }

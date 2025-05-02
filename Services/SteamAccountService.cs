@@ -78,6 +78,22 @@ namespace SteamCmdWebAPI.Services
             return accounts.FirstOrDefault(a => a.Id == id);
         }
         
+        public async Task<SteamAccount> GetAccountByAppIdAsync(string appId)
+        {
+            if (string.IsNullOrEmpty(appId))
+            {
+                _logger.LogWarning("GetAccountByAppIdAsync: AppID trống");
+                return null;
+            }
+            
+            var accounts = await GetAllAccountsAsync();
+            
+            // Tìm tài khoản có chứa AppID
+            return accounts.FirstOrDefault(acc => 
+                !string.IsNullOrEmpty(acc.AppIds) && 
+                acc.AppIds.Split(',').Select(a => a.Trim()).Contains(appId));
+        }
+        
         public void SaveAccounts(List<SteamAccount> accounts)
         {
             lock (_fileLock)
