@@ -184,6 +184,38 @@ namespace SteamCmdWebAPI.Pages
                 _logger.LogInformation("Bắt đầu lưu profile: {Name}, AppID: {AppID}, InstallDirectory: {InstallDirectory}",
                     Profile.Name, Profile.AppID, Profile.InstallDirectory);
 
+                // Kiểm tra trùng lặp AppID trước khi lưu
+                if (!string.IsNullOrEmpty(Profile.AppID))
+                {
+                    var existingProfiles = await _profileService.GetAllProfiles();
+                    var appIds = Profile.AppID.Split(',').Select(id => id.Trim()).ToList();
+                    
+                    foreach (var appId in appIds)
+                    {
+                        var duplicateProfile = existingProfiles.FirstOrDefault(p => 
+                            !string.IsNullOrEmpty(p.AppID) && 
+                            p.AppID.Split(',').Select(id => id.Trim()).Contains(appId));
+                        
+                        if (duplicateProfile != null)
+                        {
+                            StatusMessage = $"Lỗi: AppID {appId} đã tồn tại trong profile '{duplicateProfile.Name}'. Không thể tạo profile trùng lặp.";
+                            IsSuccess = false;
+                            
+                            // Lấy lại danh sách profile từ server
+                            try
+                            {
+                                ServerProfiles = await _tcpClientService.GetProfileNamesAsync("", 0);
+                            }
+                            catch
+                            {
+                                ServerProfiles = new List<string>();
+                            }
+                            
+                            return Page();
+                        }
+                    }
+                }
+
                 // Đọc profile từ hidden field nếu có
                 if (!string.IsNullOrEmpty(ServerProfileJson))
                 {
@@ -777,6 +809,36 @@ namespace SteamCmdWebAPI.Pages
             {
                 _logger.LogError(ex, "Lỗi khi nhập tất cả game");
                 return new JsonResult(new { success = false, message = $"Lỗi: {ex.Message}" });
+            }
+        }
+
+        // Handler để kiểm tra xem AppID đã tồn tại trong hệ thống chưa
+        public async Task<IActionResult> OnGetCheckAppIdExistsAsync(string appId)
+        {
+            if (string.IsNullOrEmpty(appId))
+            {
+                return new JsonResult(new { exists = false });
+            }
+
+            try
+            {
+                var existingProfiles = await _profileService.GetAllProfiles();
+                
+                var duplicateProfile = existingProfiles.FirstOrDefault(p => 
+                    !string.IsNullOrEmpty(p.AppID) && 
+                    p.AppID.Split(',').Select(id => id.Trim()).Contains(appId));
+                
+                if (duplicateProfile != null)
+                {
+                    return new JsonResult(new { exists = true, profileName = duplicateProfile.Name });
+                }
+                
+                return new JsonResult(new { exists = false });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi kiểm tra AppID {AppId}", appId);
+                return new JsonResult(new { exists = false, error = ex.Message });
             }
         }
     }

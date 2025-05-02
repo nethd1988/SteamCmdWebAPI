@@ -43,7 +43,17 @@
                             <tr>
                                 <td>@account.Id</td>
                                 <td>@account.ProfileName</td>
-                                <td>@account.Username</td>
+                                <td>
+                                    @* Hiển thị username bị che giấu *@
+                                    @{
+                                        string maskedUsername = !string.IsNullOrEmpty(account.Username) 
+                                            ? (account.Username.Length > 3 
+                                                ? account.Username.Substring(0, 2) + new string('*', account.Username.Length - 2) 
+                                                : account.Username.Substring(0, 1) + new string('*', account.Username.Length - 1))
+                                            : "";
+                                    }
+                                    @maskedUsername
+                                </td>
                                 <td>
                                     <div>@account.GameNames</div>
                                     <small class="text-muted">@account.AppIds</small>
@@ -181,6 +191,9 @@
                     url: "/SteamAccounts?handler=AddAccount",
                     method: "POST",
                     data: formData,
+                    headers: {
+                        'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                    },
                     success: function(response) {
                         if (response.success) {
                             window.location.reload();
@@ -202,6 +215,9 @@
                     url: "/SteamAccounts?handler=UpdateAccount",
                     method: "POST",
                     data: formData,
+                    headers: {
+                        'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                    },
                     success: function(response) {
                         if (response.success) {
                             window.location.reload();
@@ -248,12 +264,13 @@
         // Xóa tài khoản
         function deleteAccount(id, name) {
             if (confirm("Bạn có chắc chắn muốn xóa tài khoản \"" + name + "\"?")) {
-                const token = $('input[name="__RequestVerificationToken"]').val();
-
                 $.ajax({
                     url: "/SteamAccounts?handler=DeleteAccount",
                     method: "POST",
-                    data: { id: id, __RequestVerificationToken: token },
+                    data: { id: id },
+                    headers: {
+                        'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                    },
                     success: function(response) {
                         if (response.success) {
                             window.location.reload();

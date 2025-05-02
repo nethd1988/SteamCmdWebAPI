@@ -46,26 +46,8 @@ namespace SteamCmdWebAPI.Pages
             {
                 Accounts = await _accountService.GetAllAccountsAsync();
                 
-                // Giải mã tên tài khoản (Username) nếu cần
-                foreach (var account in Accounts)
-                {
-                    if (!string.IsNullOrEmpty(account.Username) && account.Username.Length > 20)
-                    {
-                        try
-                        {
-                            string decryptedUsername = _encryptionService.Decrypt(account.Username);
-                            if (!string.IsNullOrEmpty(decryptedUsername))
-                            {
-                                account.Username = decryptedUsername;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Lỗi khi giải mã username cho tài khoản ID {Id}", account.Id);
-                            // Giữ nguyên username gốc nếu giải mã thất bại
-                        }
-                    }
-                }
+                // Don't decrypt usernames for display - we'll mask them in the view
+                // Leave usernames encrypted to protect sensitive information
             }
             catch (Exception ex)
             {
@@ -189,7 +171,19 @@ namespace SteamCmdWebAPI.Pages
         {
             try
             {
+                if (id <= 0)
+                {
+                    return new JsonResult(new { success = false, message = "ID tài khoản không hợp lệ" });
+                }
+
+                var account = await _accountService.GetAccountByIdAsync(id);
+                if (account == null)
+                {
+                    return new JsonResult(new { success = false, message = "Không tìm thấy tài khoản cần xóa" });
+                }
+
                 await _accountService.DeleteAccountAsync(id);
+                _logger.LogInformation("Đã xóa tài khoản ID {Id} thành công", id);
                 return new JsonResult(new { success = true });
             }
             catch (Exception ex)

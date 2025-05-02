@@ -161,3 +161,40 @@ table {
     .profile-btn.delete {
         background-color: #dc3545;
     }
+
+/* Thêm CSS tùy chỉnh cho dropdown select */
+select.form-select option {
+    white-space: normal;
+    word-wrap: break-word;
+    min-height: 30px;
+    padding: 5px;
+}
+
+/* Tùy chỉnh hiển thị tên dài trong dropdown */
+.form-select {
+    text-overflow: ellipsis;
+}
+
+/* Loại bỏ lỗi ReferenceError: bootstrap không được định nghĩa */
+@media (max-width: 768px) {
+    .dropdown-menu {
+        position: absolute;
+        z-index: 1000;
+        display: none;
+        min-width: 10rem;
+        padding: 0.5rem 0;
+        margin: 0;
+        font-size: 1rem;
+        color: #212529;
+        text-align: left;
+        list-style: none;
+        background-color: #fff;
+        background-clip: padding-box;
+        border: 1px solid rgba(0,0,0,.15);
+        border-radius: 0.25rem;
+    }
+    
+    .dropdown-menu.show {
+        display: block;
+    }
+}
