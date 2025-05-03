@@ -104,30 +104,56 @@ namespace SteamCmdWebAPI.Services
 
                     if (appIdsList.Contains(appId))
                     {
-                        _logger.LogInformation("Tìm thấy tài khoản {Username} cho AppID {AppId}", account.Username, appId);
+                        _logger.LogInformation("Tìm thấy tài khoản cho AppID {AppId}", appId);
 
-                        // Giải mã tên tài khoản nếu cần thiết
-                        try
+                        // Tạo bản sao để không ảnh hưởng đến object gốc trong bộ nhớ cache
+                        var processedAccount = new SteamAccount
                         {
-                            // Kiểm tra xem tên tài khoản có cần giải mã không
-                            if (!string.IsNullOrEmpty(account.Username) && account.Username.Length > 20)
+                            Id = account.Id,
+                            ProfileName = account.ProfileName,
+                            Username = account.Username,
+                            Password = account.Password,
+                            AppIds = account.AppIds,
+                            GameNames = account.GameNames,
+                            CreatedAt = account.CreatedAt,
+                            UpdatedAt = account.UpdatedAt
+                        };
+
+                        // Thử giải mã username
+                        if (!string.IsNullOrEmpty(processedAccount.Username))
+                        {
+                            try
                             {
-                                // Tên tài khoản có vẻ đã mã hóa, cố gắng giải mã
-                                string decryptedUsername = _encryptionService.Decrypt(account.Username);
-                                if (!string.IsNullOrEmpty(decryptedUsername))
-                                {
-                                    account.Username = decryptedUsername;
-                                }
+                                string decryptedUsername = _encryptionService.Decrypt(processedAccount.Username);
+                                _logger.LogInformation("Đã giải mã username thành công: {0}", decryptedUsername.Substring(0, Math.Min(3, decryptedUsername.Length)) + "***");
+                                // Trả về username đã giải mã
+                                processedAccount.Username = decryptedUsername;
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning("Không thể giải mã username, có thể đã mã hóa bằng khóa khác: {0}", ex.Message);
+                                // Nếu không thể giải mã, chúng ta vẫn trả về bản gốc
                             }
                         }
-                        catch (Exception ex)
+
+                        // Thử giải mã mật khẩu
+                        if (!string.IsNullOrEmpty(processedAccount.Password))
                         {
-                            _logger.LogError(ex, "Lỗi khi giải mã tên tài khoản cho tài khoản ID {Id}", account.Id);
-                            // Giữ nguyên username gốc nếu giải mã thất bại
+                            try
+                            {
+                                string decryptedPassword = _encryptionService.Decrypt(processedAccount.Password);
+                                _logger.LogInformation("Đã giải mã password thành công, độ dài: {0}", decryptedPassword.Length);
+                                // Trả về mật khẩu đã giải mã
+                                processedAccount.Password = decryptedPassword;
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning("Không thể giải mã password, có thể đã mã hóa bằng khóa khác: {0}", ex.Message);
+                                // Nếu không thể giải mã, chúng ta vẫn trả về bản gốc
+                            }
                         }
 
-                        // Không giải mã mật khẩu - giữ nguyên mật khẩu đã mã hóa để sử dụng
-                        return account;
+                        return processedAccount;
                     }
                 }
 
@@ -148,23 +174,59 @@ namespace SteamCmdWebAPI.Services
 
                 foreach (var account in accounts)
                 {
+                    string usernameToSave = account.Username;
                     string passwordToSave = account.Password;
+                    
+                    // Kiểm tra xem username có cần mã hóa không
+                    if (!string.IsNullOrEmpty(usernameToSave))
+                    {
+                        try
+                        {
+                            // Thử giải mã để kiểm tra xem đã được mã hóa chưa
+                            _encryptionService.Decrypt(usernameToSave);
+                            // Nếu không có ngoại lệ, chuỗi đã được mã hóa
+                            _logger.LogDebug("Username đã được mã hóa, giữ nguyên: {UsernameHint}***", 
+                                usernameToSave.Length > 3 ? usernameToSave.Substring(0, 3) : "***");
+                        }
+                        catch (Exception)
+                        {
+                            // Nếu có ngoại lệ, chuỗi chưa được mã hóa - mã hóa nó
+                            if (usernameToSave.Length < 30)
+                            {
+                                // Chỉ mã hóa nếu có vẻ như là chuỗi thường (không phải chuỗi đã mã hóa từ server)
+                                usernameToSave = _encryptionService.Encrypt(usernameToSave);
+                                _logger.LogDebug("Đã mã hóa username cho tài khoản {ProfileName}", account.ProfileName);
+                            }
+                        }
+                    }
 
                     // Kiểm tra xem mật khẩu có cần mã hóa không
-                    // Mật khẩu khi mã hóa thường dài và có các ký tự đặc biệt
-                    if (!string.IsNullOrEmpty(passwordToSave) &&
-                        (passwordToSave.Length < 30 || !passwordToSave.Contains("/")))
+                    if (!string.IsNullOrEmpty(passwordToSave))
                     {
-                        // Mật khẩu chưa được mã hóa
-                        passwordToSave = _encryptionService.Encrypt(passwordToSave);
-                        _logger.LogDebug("Đã mã hóa mật khẩu cho tài khoản {Username}", account.Username);
+                        try
+                        {
+                            // Thử giải mã để kiểm tra xem đã được mã hóa chưa
+                            _encryptionService.Decrypt(passwordToSave);
+                            // Nếu không có ngoại lệ, chuỗi đã được mã hóa
+                            _logger.LogDebug("Password đã được mã hóa, giữ nguyên");
+                        }
+                        catch (Exception)
+                        {
+                            // Nếu có ngoại lệ, chuỗi chưa được mã hóa - mã hóa nó
+                            if (passwordToSave.Length < 30)
+                            {
+                                // Chỉ mã hóa nếu có vẻ như là chuỗi thường (không phải chuỗi đã mã hóa từ server)
+                                passwordToSave = _encryptionService.Encrypt(passwordToSave);
+                                _logger.LogDebug("Đã mã hóa password cho tài khoản {ProfileName}", account.ProfileName);
+                            }
+                        }
                     }
 
                     accountsToSave.Add(new SteamAccount
                     {
                         Id = account.Id,
                         ProfileName = account.ProfileName,
-                        Username = account.Username,
+                        Username = usernameToSave,
                         Password = passwordToSave,
                         AppIds = account.AppIds,
                         GameNames = account.GameNames,
@@ -205,16 +267,13 @@ namespace SteamCmdWebAPI.Services
             }
             else
             {
-            account.Id = accounts.Count > 0 ? accounts.Max(a => a.Id) + 1 : 1;
-            account.CreatedAt = DateTime.Now;
-            account.UpdatedAt = DateTime.Now;
-            if (!string.IsNullOrEmpty(account.Password) && account.Password.Length < 20)
-            {
-                account.Password = _encryptionService.Encrypt(account.Password);
-            }
-            accounts.Add(account);
-            SaveAccounts(accounts);
-            return account;
+                account.Id = accounts.Count > 0 ? accounts.Max(a => a.Id) + 1 : 1;
+                account.CreatedAt = DateTime.Now;
+                account.UpdatedAt = DateTime.Now;
+                // Không mã hóa ở đây, để SaveAccounts lo việc này
+                accounts.Add(account);
+                SaveAccounts(accounts);
+                return account;
             }
         }
 
@@ -228,12 +287,7 @@ namespace SteamCmdWebAPI.Services
                 throw new Exception($"Không tìm thấy tài khoản với ID {account.Id}");
             }
 
-            // Kiểm tra xem mật khẩu có cần mã hóa không
-            if (!string.IsNullOrEmpty(account.Password) && account.Password.Length < 20)
-            {
-                account.Password = _encryptionService.Encrypt(account.Password);
-            }
-
+            // Không mã hóa ở đây, để SaveAccounts lo việc này
             account.UpdatedAt = DateTime.Now;
             accounts[index] = account;
 
@@ -267,79 +321,136 @@ namespace SteamCmdWebAPI.Services
                 using var httpClient = new HttpClient();
                 foreach (var account in accounts)
                 {
-                    // Giải mã mật khẩu trước khi gửi lên server
-                    string decryptedPassword = account.Password;
-                    if (!string.IsNullOrEmpty(account.Password) && account.Password.Length > 20)
-                    {
-                        try
-                        {
-                            decryptedPassword = _encryptionService.Decrypt(account.Password);
-                            _logger.LogDebug("Đã giải mã mật khẩu cho tài khoản {Username}", account.Username);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Lỗi khi giải mã mật khẩu cho tài khoản {Username}", account.Username);
-                            // Giữ nguyên mật khẩu gốc nếu giải mã thất bại
-                        }
-                    }
-                    
-                    // Giải mã tài khoản nếu cần
-                    string decryptedUsername = account.Username;
-                    if (!string.IsNullOrEmpty(account.Username) && account.Username.Length > 20)
-                    {
-                        try
-                        {
-                            decryptedUsername = _encryptionService.Decrypt(account.Username);
-                            _logger.LogDebug("Đã giải mã tên tài khoản {Username}", account.Username);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Lỗi khi giải mã tên tài khoản {Username}", account.Username);
-                            // Giữ nguyên username gốc nếu giải mã thất bại
-                        }
-                    }
-
-                    // Chuyển đổi sang ClientProfile (chỉ lấy AppId đầu tiên nếu có nhiều)
-                    var appId = account.AppIds?.Split(',')[0]?.Trim() ?? string.Empty;
-                    var profile = new ClientProfile
-                    {
-                        Name = account.ProfileName,
-                        AppID = appId,
-                        SteamUsername = decryptedUsername, // Sử dụng tên tài khoản đã giải mã
-                        SteamPassword = decryptedPassword, // Sử dụng mật khẩu đã giải mã
-                        InstallDirectory = string.Empty, // Client sẽ chọn sau
-                        Arguments = string.Empty,
-                        ValidateFiles = false,
-                        AutoRun = false,
-                        AnonymousLogin = false,
-                        Status = "Ready",
-                        StartTime = DateTime.Now,
-                        StopTime = DateTime.Now,
-                        Pid = 0,
-                        LastRun = DateTime.Now
-                    };
-                    var url = $"{serverBaseUrl.TrimEnd('/')}/api/profiles";
                     try
                     {
-                        var resp = await httpClient.PostAsJsonAsync(url, profile);
-                        if (!resp.IsSuccessStatusCode)
+                        // Giải mã tài khoản nếu cần
+                        var decryptedAccount = DecryptAndReencryptIfNeeded(account);
+                        
+                        if (decryptedAccount == null)
                         {
-                            _logger.LogWarning("SyncAllAccountsToServerAsync: Không gửi được profile {Name} lên server. Status: {Status}", profile.Name, resp.StatusCode);
+                            _logger.LogWarning("Không thể xử lý giải mã tài khoản {ProfileName}, bỏ qua", account.ProfileName);
+                            continue;
                         }
-                        else
+                        
+                        // Kiểm tra xem tài khoản đã được giải mã chưa
+                        bool usernameDecrypted = decryptedAccount.Username != account.Username;
+                        bool passwordDecrypted = decryptedAccount.Password != account.Password;
+                        
+                        _logger.LogDebug("Tài khoản {ProfileName}: Username {UsernameStatus}, Password {PasswordStatus}",
+                            decryptedAccount.ProfileName,
+                            usernameDecrypted ? "đã giải mã" : "chưa giải mã",
+                            passwordDecrypted ? "đã giải mã" : "chưa giải mã");
+
+                        // Chuyển đổi sang ClientProfile (chỉ lấy AppId đầu tiên nếu có nhiều)
+                        var appId = decryptedAccount.AppIds?.Split(',')[0]?.Trim() ?? string.Empty;
+                        var profile = new ClientProfile
                         {
-                            _logger.LogInformation("SyncAllAccountsToServerAsync: Đã gửi profile {Name} lên server thành công", profile.Name);
+                            Name = decryptedAccount.ProfileName,
+                            AppID = appId,
+                            SteamUsername = decryptedAccount.Username, // Sử dụng tên tài khoản đã giải mã
+                            SteamPassword = decryptedAccount.Password, // Sử dụng mật khẩu đã giải mã
+                            InstallDirectory = string.Empty, // Client sẽ chọn sau
+                            Arguments = string.Empty,
+                            ValidateFiles = false,
+                            AutoRun = false,
+                            AnonymousLogin = false,
+                            Status = "Ready",
+                            StartTime = DateTime.Now,
+                            StopTime = DateTime.Now,
+                            Pid = 0,
+                            LastRun = DateTime.Now
+                        };
+                        var url = $"{serverBaseUrl.TrimEnd('/')}/api/profiles";
+                        try
+                        {
+                            var resp = await httpClient.PostAsJsonAsync(url, profile);
+                            if (!resp.IsSuccessStatusCode)
+                            {
+                                _logger.LogWarning("SyncAllAccountsToServerAsync: Không gửi được profile {Name} lên server. Status: {Status}", profile.Name, resp.StatusCode);
+                            }
+                            else
+                            {
+                                _logger.LogInformation("SyncAllAccountsToServerAsync: Đã gửi profile {Name} lên server thành công", profile.Name);
+                            }
+                        }
+                        catch (Exception ex2)
+                        {
+                            _logger.LogError(ex2, "SyncAllAccountsToServerAsync: Lỗi khi gửi profile {Name} lên server", profile.Name);
                         }
                     }
-                    catch (Exception ex2)
+                    catch (Exception ex)
                     {
-                        _logger.LogError(ex2, "SyncAllAccountsToServerAsync: Lỗi khi gửi profile {Name} lên server", profile.Name);
+                        _logger.LogError(ex, "Lỗi khi xử lý tài khoản {ProfileName} để đồng bộ lên server", account.ProfileName);
                     }
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "SyncAllAccountsToServerAsync: Lỗi khi đồng bộ tài khoản lên server {ServerUrl}", serverBaseUrl);
+            }
+        }
+
+        // Phương thức mới để giải mã và mã hóa lại nếu cần thiết
+        public SteamAccount DecryptAndReencryptIfNeeded(SteamAccount account)
+        {
+            if (account == null) return null;
+            
+            try
+            {
+                // Tạo bản sao để không ảnh hưởng đến account gốc
+                var processedAccount = new SteamAccount
+                {
+                    Id = account.Id,
+                    ProfileName = account.ProfileName,
+                    Username = account.Username,
+                    Password = account.Password,
+                    AppIds = account.AppIds,
+                    GameNames = account.GameNames,
+                    CreatedAt = account.CreatedAt,
+                    UpdatedAt = account.UpdatedAt
+                };
+                
+                // Thử giải mã username
+                if (!string.IsNullOrEmpty(processedAccount.Username))
+                {
+                    try
+                    {
+                        string decryptedUsername = _encryptionService.Decrypt(processedAccount.Username);
+                        _logger.LogDebug("Giải mã thành công username: {OriginalLength} -> {DecryptedLength} ký tự", 
+                            processedAccount.Username.Length, decryptedUsername.Length);
+                        // Thay thế giá trị cũ bằng giá trị đã giải mã
+                        processedAccount.Username = decryptedUsername;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning("Không thể giải mã username, có thể đã mã hóa bằng khóa khác: {Message}", ex.Message);
+                        // Giữ nguyên giá trị username nếu không giải mã được
+                    }
+                }
+                
+                // Tương tự với password
+                if (!string.IsNullOrEmpty(processedAccount.Password))
+                {
+                    try
+                    {
+                        string decryptedPassword = _encryptionService.Decrypt(processedAccount.Password);
+                        _logger.LogDebug("Giải mã thành công password với độ dài {DecryptedLength} ký tự", decryptedPassword.Length);
+                        // Thay thế giá trị cũ bằng giá trị đã giải mã
+                        processedAccount.Password = decryptedPassword;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning("Không thể giải mã password, có thể đã mã hóa bằng khóa khác: {Message}", ex.Message);
+                        // Giữ nguyên giá trị password nếu không giải mã được
+                    }
+                }
+                
+                return processedAccount;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xử lý giải mã tài khoản: {ProfileName}", account.ProfileName);
+                return account; // Trả về nguyên bản nếu xảy ra lỗi
             }
         }
     }

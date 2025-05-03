@@ -523,14 +523,63 @@ namespace SteamCmdWebAPI.Pages
                     return BadRequest(new { success = false, error = $"Profile '{profileName}' đã tồn tại trong hệ thống" });
                 }
 
-                // Thêm profile mới
+                // Xử lý thông tin đăng nhập (lưu tài khoản đã mã hóa từ server)
+                if (!string.IsNullOrEmpty(serverProfile.SteamUsername) && !string.IsNullOrEmpty(serverProfile.SteamPassword))
+                {
+                    _logger.LogInformation("Xử lý thông tin đăng nhập từ server cho profile: {0}", serverProfile.Name);
+                    
+                    try
+                    {
+                        // Kiểm tra và lưu thông tin tài khoản vào SteamAccount
+                        var steamAccount = new SteamAccount
+                        {
+                            ProfileName = serverProfile.Name,
+                            Username = serverProfile.SteamUsername, // Thông tin gốc từ server
+                            Password = serverProfile.SteamPassword, // Thông tin gốc từ server
+                            AppIds = serverProfile.AppID,
+                            GameNames = serverProfile.Name,
+                            CreatedAt = DateTime.Now,
+                            UpdatedAt = DateTime.Now
+                        };
+                        
+                        // Thêm tài khoản vào SteamAccounts
+                        await _steamAccountService.AddAccountAsync(steamAccount);
+                        
+                        // Kiểm tra xem thông tin đăng nhập có thể giải mã được không
+                        // Tạo bản sao để kiểm tra
+                        var testAccount = _steamAccountService.DecryptAndReencryptIfNeeded(steamAccount);
+                        
+                        // Log thông tin kiểm tra
+                        if (testAccount != null)
+                        {
+                            bool usernameDecrypted = testAccount.Username != steamAccount.Username;
+                            bool passwordDecrypted = testAccount.Password != steamAccount.Password;
+                            
+                            _logger.LogInformation("Kết quả kiểm tra giải mã: Username {0}, Password {1}",
+                                usernameDecrypted ? "đã giải mã" : "chưa giải mã",
+                                passwordDecrypted ? "đã giải mã" : "chưa giải mã");
+                        }
+                        
+                        // Xóa thông tin nhạy cảm khỏi profile chính
+                        serverProfile.SteamUsername = string.Empty;
+                        serverProfile.SteamPassword = string.Empty;
+                        
+                        _logger.LogInformation("Đã xử lý và lưu thông tin đăng nhập cho profile {0} vào SteamAccounts", serverProfile.Name);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Không thể xử lý thông tin đăng nhập từ server, sẽ giữ nguyên thông tin gốc");
+                    }
+                }
+
+                // Thêm profile mới (đã xóa thông tin nhạy cảm)
                 await _profileService.AddProfileAsync(serverProfile);
 
                 return new JsonResult(new
                 {
                     success = true,
                     message = $"Đã nhập profile '{profileName}' từ server thành công",
-                    redirectUrl = "/Dashboard"
+                    redirectUrl = "/UpdateManagement"
                 });
             }
             catch (Exception ex)
@@ -727,103 +776,175 @@ namespace SteamCmdWebAPI.Pages
             try
             {
                 int importedCount = 0;
+                var skippedGames = new List<string>();
+                var failedGames = new List<string>();
+
+                // Log một số game đầu tiên để debug
+                foreach (var game in games.Take(3))
+                {
+                    _logger.LogInformation("Game nhập vào: Name={Name}, AppId={AppId}, InstallPath={Path}", 
+                        game.Name, game.AppId, game.InstallPath);
+                }
 
                 // Lấy tất cả tài khoản SteamAccounts để tìm kiếm tài khoản phù hợp
                 var allSteamAccounts = await _steamAccountService.GetAllAccountsAsync();
 
                 foreach (var game in games)
                 {
-                    if (string.IsNullOrEmpty(game.AppId) || string.IsNullOrEmpty(game.InstallPath))
+                    try
                     {
-                        continue;
-                    }
-
-                    // Tìm tài khoản Steam phù hợp với AppId này
-                    SteamAccount matchingAccount = null;
-                    foreach (var account in allSteamAccounts)
-                    {
-                        if (!string.IsNullOrEmpty(account.AppIds))
+                        if (string.IsNullOrEmpty(game.AppId) || string.IsNullOrEmpty(game.InstallPath))
                         {
-                            var appIds = account.AppIds.Split(',').Select(id => id.Trim()).ToList();
-                            if (appIds.Contains(game.AppId))
-                            {
-                                matchingAccount = account;
-                                break;
-                            }
+                            _logger.LogWarning("Bỏ qua game thiếu thông tin: AppId={AppId}, InstallPath={InstallPath}", 
+                                game.AppId, game.InstallPath);
+                            skippedGames.Add(game.Name);
+                            continue;
                         }
-                    }
 
-                    var profile = new SteamCmdProfile
-                    {
-                        Name = game.Name,
-                        AppID = game.AppId,
-                        InstallDirectory = game.InstallPath,
-                        Status = "Stopped",
-                        StartTime = DateTime.Now,
-                        StopTime = DateTime.Now,
-                        LastRun = DateTime.UtcNow,
-                        Pid = 0,
-                        Arguments = string.Empty,
-                        ValidateFiles = true,
-                        AutoRun = false
-                    };
-
-                    // Sử dụng thông tin đăng nhập từ tài khoản phù hợp nếu có
-                    if (matchingAccount != null)
-                    {
-                        _logger.LogInformation("Tìm thấy tài khoản Steam phù hợp cho AppID {AppId}", game.AppId);
-                        // Sử dụng trực tiếp thông tin đã mã hóa từ SteamAccounts
-                        profile.SteamUsername = matchingAccount.Username;
-                        profile.SteamPassword = matchingAccount.Password;
-                    }
-                    else
-                    {
-                        _logger.LogInformation("Không tìm thấy tài khoản Steam phù hợp cho AppID {AppId}", game.AppId);
-                        // Để trống các trường đăng nhập để sử dụng tài khoản từ SteamAccounts sau này
-                        profile.SteamUsername = string.Empty;
-                        profile.SteamPassword = string.Empty;
-                    }
-
-                    // Lưu profile mới
-                    await _profileService.AddProfileAsync(profile);
-
-                    // Nếu chưa có tài khoản phù hợp, thêm entry game này vào danh sách game cần tài khoản
-                    if (matchingAccount == null && !string.IsNullOrEmpty(game.AppId))
-                    {
-                        // Kiểm tra xem có tài khoản "default" hoặc "Auto" chưa để thêm vào
-                        var defaultAccount = allSteamAccounts.FirstOrDefault(a =>
-                            a.ProfileName.Equals("Default", StringComparison.OrdinalIgnoreCase) ||
-                            a.ProfileName.Equals("Auto", StringComparison.OrdinalIgnoreCase));
-
-                        if (defaultAccount != null)
+                        // Kiểm tra xem game đã tồn tại chưa
+                        var existingProfiles = await _profileService.GetAllProfiles();
+                        bool profileExists = existingProfiles.Any(p => 
+                            !string.IsNullOrEmpty(p.AppID) && 
+                            p.AppID.Split(',').Select(id => id.Trim()).Contains(game.AppId));
+                        
+                        if (profileExists)
                         {
-                            // Thêm AppID vào tài khoản default
-                            var appIds = defaultAccount.AppIds?.Split(',').ToList() ?? new List<string>();
-                            if (!appIds.Contains(game.AppId))
-                            {
-                                appIds.Add(game.AppId);
-                                defaultAccount.AppIds = string.Join(",", appIds);
+                            _logger.LogInformation("Game {Name} (AppId: {AppId}) đã tồn tại, bỏ qua", game.Name, game.AppId);
+                            skippedGames.Add(game.Name);
+                            continue;
+                        }
 
-                                // Thêm tên game vào danh sách
-                                var gameNames = defaultAccount.GameNames?.Split(',').ToList() ?? new List<string>();
-                                if (!gameNames.Contains(game.Name))
+                        // Tìm tài khoản Steam phù hợp với AppId này
+                        SteamAccount matchingAccount = null;
+                        foreach (var account in allSteamAccounts)
+                        {
+                            if (!string.IsNullOrEmpty(account.AppIds))
+                            {
+                                var appIds = account.AppIds.Split(',').Select(id => id.Trim()).ToList();
+                                if (appIds.Contains(game.AppId))
                                 {
-                                    gameNames.Add(game.Name);
-                                    defaultAccount.GameNames = string.Join(",", gameNames);
+                                    // Thử giải mã tài khoản nếu cần
+                                    matchingAccount = _steamAccountService.DecryptAndReencryptIfNeeded(account);
+                                    
+                                    // Log kết quả giải mã (che giấu thông tin nhạy cảm)
+                                    if (matchingAccount != null)
+                                    {
+                                        bool usernameDecrypted = matchingAccount.Username != account.Username;
+                                        bool passwordDecrypted = matchingAccount.Password != account.Password;
+                                        
+                                        _logger.LogDebug("Tài khoản: {ProfileName}, Username {UsernameStatus}, Password {PasswordStatus}",
+                                            matchingAccount.ProfileName,
+                                            usernameDecrypted ? "đã giải mã" : "chưa giải mã",
+                                            passwordDecrypted ? "đã giải mã" : "chưa giải mã");
+                                    }
+                                    
+                                    break;
                                 }
-
-                                defaultAccount.UpdatedAt = DateTime.Now;
-                                await _steamAccountService.UpdateAccountAsync(defaultAccount);
-
-                                _logger.LogInformation("Đã thêm AppID {AppId} vào tài khoản Default", game.AppId);
                             }
                         }
-                    }
 
-                    importedCount++;
+                        var profile = new SteamCmdProfile
+                        {
+                            Name = game.Name,
+                            AppID = game.AppId,
+                            InstallDirectory = game.InstallPath,
+                            Status = "Stopped",
+                            StartTime = DateTime.Now,
+                            StopTime = DateTime.Now,
+                            LastRun = DateTime.UtcNow,
+                            Pid = 0,
+                            Arguments = string.Empty,
+                            ValidateFiles = true,
+                            AutoRun = false,
+                            // Không lưu thông tin tài khoản vào profile chính
+                            SteamUsername = string.Empty,
+                            SteamPassword = string.Empty
+                        };
+
+                        // Nếu có tài khoản phù hợp, đã lưu trong SteamAccounts
+                        if (matchingAccount != null)
+                        {
+                            _logger.LogInformation("Tìm thấy tài khoản Steam phù hợp cho AppID {AppId}", game.AppId);
+                            // Kiểm tra xem có cả username và password không
+                            if (!string.IsNullOrEmpty(matchingAccount.Username) && !string.IsNullOrEmpty(matchingAccount.Password))
+                            {
+                                _logger.LogDebug("Tài khoản có đầy đủ thông tin đăng nhập: {UsernameHint}***", 
+                                    !string.IsNullOrEmpty(matchingAccount.Username) && matchingAccount.Username.Length > 3 ? 
+                                    matchingAccount.Username.Substring(0, 3) : "***");
+                            }
+                            else
+                            {
+                                _logger.LogWarning("Tài khoản thiếu thông tin đăng nhập: Username={HasUsername}, Password={HasPassword}",
+                                    !string.IsNullOrEmpty(matchingAccount.Username),
+                                    !string.IsNullOrEmpty(matchingAccount.Password));
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogInformation("Không tìm thấy tài khoản Steam phù hợp cho AppID {AppId}", game.AppId);
+                            
+                            // Nếu chưa có tài khoản phù hợp, thêm entry game này vào danh sách game cần tài khoản
+                            // Kiểm tra xem có tài khoản "default" hoặc "Auto" chưa để thêm vào
+                            var defaultAccount = allSteamAccounts.FirstOrDefault(a =>
+                                a.ProfileName.Equals("Default", StringComparison.OrdinalIgnoreCase) ||
+                                a.ProfileName.Equals("Auto", StringComparison.OrdinalIgnoreCase));
+
+                            if (defaultAccount != null)
+                            {
+                                // Thêm AppID vào tài khoản default
+                                var appIds = defaultAccount.AppIds?.Split(',').ToList() ?? new List<string>();
+                                if (!appIds.Contains(game.AppId))
+                                {
+                                    appIds.Add(game.AppId);
+                                    defaultAccount.AppIds = string.Join(",", appIds);
+
+                                    // Thêm tên game vào danh sách
+                                    var gameNames = defaultAccount.GameNames?.Split(',').ToList() ?? new List<string>();
+                                    if (!gameNames.Contains(game.Name))
+                                    {
+                                        gameNames.Add(game.Name);
+                                        defaultAccount.GameNames = string.Join(",", gameNames);
+                                    }
+
+                                    defaultAccount.UpdatedAt = DateTime.Now;
+                                    await _steamAccountService.UpdateAccountAsync(defaultAccount);
+
+                                    _logger.LogInformation("Đã thêm AppID {AppId} vào tài khoản Default", game.AppId);
+                                }
+                            }
+                        }
+
+                        // Lưu profile mới
+                        await _profileService.AddProfileAsync(profile);
+                        importedCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi nhập game {Name} (AppId: {AppId})", game.Name, game.AppId);
+                        failedGames.Add(game.Name);
+                    }
                 }
 
-                return new JsonResult(new { success = true, importedCount, message = $"Đã nhập thành công {importedCount} game" });
+                string message = $"Đã nhập thành công {importedCount} game";
+                if (skippedGames.Count > 0)
+                {
+                    message += $", bỏ qua {skippedGames.Count} game đã tồn tại";
+                }
+                if (failedGames.Count > 0)
+                {
+                    message += $", không thể nhập {failedGames.Count} game do lỗi";
+                }
+
+                _logger.LogInformation("Kết quả nhập game: {Message}", message);
+
+                return new JsonResult(new { 
+                    success = importedCount > 0, 
+                    importedCount, 
+                    skippedGames = skippedGames.Count, 
+                    failedGames = failedGames.Count,
+                    message = message,
+                    redirectUrl = "/UpdateManagement"
+                });
             }
             catch (Exception ex)
             {
