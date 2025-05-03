@@ -1,0 +1,71 @@
+@model List<string>
+
+<div class="profile-select-container">
+    <label class="profile-select-label">Profiles có sẵn trên server:</label>
+    <select class="profile-select" id="serverProfile" name="serverProfile">
+        <option value="">-- Chọn profile từ server --</option>
+        @foreach (var profileName in Model)
+        {
+            <option value="@profileName" title="@profileName">@profileName</option>
+        }
+    </select>
+
+    <div class="profile-info mt-3 @(string.IsNullOrEmpty(ViewBag.SelectedProfile) ? "d-none" : "")">
+        <div class="card">
+            <div class="card-header bg-info text-white d-flex align-items-center">
+                <i class="bi bi-info-circle me-2"></i>
+                <span>Thông tin Profile</span>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Tên:</strong> <span id="profileName">@ViewBag.SelectedProfile</span></p>
+                        <p><strong>App ID:</strong> <span id="profileAppId">@ViewBag.SelectedAppId</span></p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Tài khoản:</strong> <span id="profileAccount">@ViewBag.SelectedAccount</span></p>
+                        <p><strong>Thư mục:</strong> <span id="profileDirectory">@ViewBag.SelectedDirectory</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            // Show profile info card when a profile is selected
+            $('#serverProfile').change(function() {
+                var selectedProfile = $(this).val();
+                if(selectedProfile) {
+                    // Get profile details (would need to be implemented with AJAX)
+                    $.ajax({
+                        url: '?handler=ProfileDetails',
+                        type: 'GET',
+                        data: { profileName: selectedProfile },
+                        success: function(response) {
+                            if(response.success) {
+                                // Update profile info card
+                                $('#profileName').text(response.profile.name);
+                                $('#profileAppId').text(response.profile.appID);
+                                $('#profileAccount').text(response.profile.account || 'N/A');
+                                $('#profileDirectory').text(response.profile.installDirectory || 'N/A');
+                                
+                                // Show profile info card
+                                $('.profile-info').removeClass('d-none');
+                            }
+                        }
+                    });
+                } else {
+                    // Hide profile info card if no profile is selected
+                    $('.profile-info').addClass('d-none');
+                }
+            });
+        });
+    </script>
+}
+
+@* Register required styles and scripts *@
+<link rel="stylesheet" href="~/css/profile-selection.css" asp-append-version="true" />
+<script src="~/js/profile-selection.js" asp-append-version="true"></script> 

@@ -1,0 +1,5 @@
+{
+    "AutoRunInterval":  "hourly",
+    "AutoRunEnabled":  true,
+    "AutoRunIntervalHours":  1
+}
