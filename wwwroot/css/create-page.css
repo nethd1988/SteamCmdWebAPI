@@ -178,7 +178,7 @@ select option {
 .custom-modal-dialog {
     position: relative;
     width: auto;
-    margin: 0.5rem;
+    margin: 0.5rem auto;
     pointer-events: none;
     max-width: 800px;
     width: 100%;
@@ -188,6 +188,7 @@ select option {
 
 .custom-modal.show .custom-modal-dialog {
     transform: translateY(0);
+    pointer-events: auto;
 }
 
 .custom-modal-sm {
@@ -199,13 +200,15 @@ select option {
     display: flex;
     flex-direction: column;
     width: 100%;
-    pointer-events: auto;
     background-color: #fff;
     background-clip: padding-box;
-    border: none;
-    border-radius: 16px;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 0.5rem;
+    box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.5);
     outline: 0;
+    pointer-events: auto;
+    max-height: 90vh;
+    overflow: hidden;
 }
 
 .custom-modal-header {
@@ -392,3 +395,8 @@ select option {
         border-color: #4f46e5;
         box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
     }
+
+.custom-modal-dialog.custom-modal-sm {
+    max-width: 400px;
+    margin: 0 auto;
+}

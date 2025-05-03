@@ -1,36 +1,40 @@
 /* Profile Selection Dropdown Styling */
 .profile-select-container {
     position: relative;
-    margin-bottom: 1.5rem;
+    margin-bottom: 20px;
 }
 
 .profile-select-label {
-    font-weight: 600;
-    color: #2c3e50;
-    margin-bottom: 0.5rem;
     display: block;
+    margin-bottom: 10px;
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 16px;
 }
 
 .profile-select {
     width: 100%;
-    padding: 0.75rem 1rem;
-    font-size: 1rem;
-    line-height: 1.5;
-    border: 1px solid #e2e8f0;
+    padding: 12px 15px;
+    font-size: 16px;
+    border: 1px solid #ced4da;
     border-radius: 8px;
+    background-color: #fff;
+    color: #333;
     appearance: none;
-    background-color: #f8fafc;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%232c3e50' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E");
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%234f46e5' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
-    background-position: right 1rem center;
-    background-size: 16px 12px;
+    background-position: calc(100% - 15px) center;
+    background-size: 12px;
     transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    cursor: pointer;
 }
 
 .profile-select:focus {
-    border-color: #3b82f6;
-    outline: 0;
-    box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25);
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 0.25rem rgba(79, 70, 229, 0.25);
+    outline: none;
 }
 
 .profile-select option {
@@ -74,24 +78,30 @@
 /* Profile search box */
 .profile-search {
     position: relative;
-    margin-bottom: 0.75rem;
+    margin-bottom: 12px;
 }
 
 .profile-search-input {
     width: 100%;
-    padding: 0.625rem 1rem 0.625rem 2.5rem;
-    font-size: 0.875rem;
+    padding: 10px 16px 10px 40px;
+    border-radius: 8px;
     border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    background-color: white;
+    font-size: 15px;
+    transition: all 0.2s;
 }
 
 .profile-search-icon {
     position: absolute;
-    left: 0.75rem;
+    left: 12px;
     top: 50%;
     transform: translateY(-50%);
-    color: #94a3b8;
+    color: #64748b;
+}
+
+.profile-search-input:focus {
+    outline: none;
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
 }
 
 /* Animation effects */

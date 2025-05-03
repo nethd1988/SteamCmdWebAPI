@@ -56,8 +56,8 @@
                         }
                     </select>
                     
-                    <!-- Thông tin profile khi được chọn -->
-                    <div id="profileInfoCard" class="mt-3 d-none">
+                    <!-- Thông tin profile khi được chọn - Ẩn đi vì không cần thiết -->
+                    <div id="profileInfoCard" class="mt-3 d-none" style="display:none;">
                         <div class="card bg-light">
                             <div class="card-header bg-info text-white d-flex align-items-center">
                                 <i class="bi bi-info-circle me-2"></i>
@@ -413,15 +413,16 @@
                             // Điền thông tin profile - đảm bảo xử lý tên dài
                             $("#Profile_Name").val(response.profile.name.trim());
                             $("#Profile_AppID").val(response.profile.appID);
-
-                            // Hiển thị thông tin profile
-                            $('#profileNameDisplay').text(response.profile.name.trim());
-                            $('#profileAppIdDisplay').text(response.profile.appID);
-                            $('#profileDirectoryDisplay').text(response.profile.installDirectory || 'Chưa cấu hình');
-                            $('#profileInfoCard').removeClass('d-none');
+                            // Điền đường dẫn cài đặt nếu có
+                            if (response.profile.installDirectory) {
+                                $("#Profile_InstallDirectory").val(response.profile.installDirectory);
+                            }
 
                             // Đảm bảo ẩn phần nhập tài khoản khi chọn profile từ server
                             $('#accountSection').hide();
+
+                            // Không hiển thị thẻ thông tin profile
+                            $('#profileInfoCard').addClass('d-none');
 
                             // Focus vào trường tiếp theo để người dùng tiếp tục nhập
                             $("#Profile_InstallDirectory").focus();
@@ -438,6 +439,185 @@
                     }
                 });
             });
+
+            // Xử lý quét game khi nhấn nút Scan
+            $('#scanGamesBtn').on('click', function() {
+                // Hiển thị modal đang quét
+                showModal('scanningModal');
+                
+                // Gọi API quét game
+                $.ajax({
+                    url: "?handler=ScanGames",
+                    type: "GET",
+                    cache: false,
+                    success: function(response) {
+                        // Đóng modal đang quét
+                        hideModal('scanningModal');
+                        
+                        if (response.success) {
+                            // Cập nhật số lượng game tìm thấy
+                            const games = response.games || [];
+                            $('#gameCount').text(games.length + ' game');
+                            $('#searchResultText').text('Đã tìm thấy ' + games.length + ' game đã cài đặt trên máy tính.');
+                            
+                            // Xóa danh sách game cũ
+                            const gamesList = $('#gamesList');
+                            gamesList.empty();
+                            
+                            // Thêm game vào danh sách
+                            games.forEach(function(game) {
+                                const gameItem = $('<div class="game-item">')
+                                    .attr('data-appid', game.appId)
+                                    .attr('data-name', game.gameName)
+                                    .attr('data-path', game.installDir);
+                                
+                                const gameIcon = $('<div class="game-icon"><i class="bi bi-controller"></i></div>');
+                                
+                                const gameInfo = $('<div class="game-info">');
+                                const gameName = $('<h4 class="game-title">').text(game.gameName);
+                                const gameAppId = $('<div class="game-details">').html('<span class="label-id">AppID:</span> ' + game.appId);
+                                const gamePath = $('<div class="game-path">').text(game.installDir);
+                                
+                                gameInfo.append(gameName, gameAppId, gamePath);
+                                gameItem.append(gameIcon, gameInfo);
+                                gamesList.append(gameItem);
+                            });
+                            
+                            // Thêm xử lý khi click vào game
+                            $('.game-item').on('click', function() {
+                                const appId = $(this).data('appid');
+                                const name = $(this).data('name');
+                                const path = $(this).data('path');
+                                
+                                // Điền thông tin vào form
+                                $('#Profile_Name').val(name);
+                                $('#Profile_AppID').val(appId);
+                                $('#Profile_InstallDirectory').val(path);
+                                
+                                // Ẩn modal game
+                                hideModal('gamesModal');
+                            });
+                            
+                            // Hiển thị modal danh sách game
+                            showModal('gamesModal');
+                            
+                            // Xử lý tìm kiếm game
+                            $('#gameSearchInput').on('keyup', function() {
+                                const searchText = $(this).val().toLowerCase();
+                                $('.game-item').each(function() {
+                                    const gameTitle = $(this).find('.game-title').text().toLowerCase();
+                                    const gameId = $(this).data('appid').toString();
+                                    
+                                    if (gameTitle.includes(searchText) || gameId.includes(searchText)) {
+                                        $(this).show();
+                                    } else {
+                                        $(this).hide();
+                                    }
+                                });
+                            });
+                        } else {
+                            // Hiển thị thông báo lỗi
+                            $('#errorMessage').text(response.message || 'Không tìm thấy game nào hoặc tất cả game đã có profile');
+                            showModal('errorModal');
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        // Đóng modal đang quét
+                        hideModal('scanningModal');
+                        
+                        // Hiển thị thông báo lỗi
+                        $('#errorMessage').text('Đã xảy ra lỗi khi quét game: ' + (error || 'Không thể kết nối đến server'));
+                        showModal('errorModal');
+                    }
+                });
+            });
+            
+            // Xử lý nút đóng modal game
+            $('#closeGamesModal, #cancelGamesModal').on('click', function() {
+                hideModal('gamesModal');
+            });
+            
+            // Xử lý nút đóng modal lỗi
+            $('#closeErrorModal, #closeErrorBtn').on('click', function() {
+                hideModal('errorModal');
+            });
+            
+            // Xử lý nút nhập tất cả game
+            $('#importAllGamesBtn').on('click', function() {
+                // Collect all game data
+                const games = [];
+                $('.game-item').each(function() {
+                    games.push({
+                        appId: $(this).data('appid'),
+                        name: $(this).data('name'),
+                        installPath: $(this).data('path')
+                    });
+                });
+                
+                // Hiển thị modal đang quét
+                hideModal('gamesModal');
+                showModal('scanningModal');
+                
+                // Gọi API nhập tất cả game
+                $.ajax({
+                    url: "?handler=ImportAllGames",
+                    type: "POST",
+                    contentType: "application/json",
+                    data: JSON.stringify(games),
+                    headers: {
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function(response) {
+                        hideModal('scanningModal');
+                        
+                        if (response.success) {
+                            // Chuyển về trang UpdateManagement nếu import thành công
+                            window.location.href = response.redirectUrl || '/UpdateManagement';
+                        } else {
+                            // Hiển thị thông báo lỗi
+                            $('#errorMessage').text(response.message || 'Không thể nhập game');
+                            showModal('errorModal');
+                        }
+                    },
+                    error: function() {
+                        hideModal('scanningModal');
+                        $('#errorMessage').text('Đã xảy ra lỗi khi nhập game');
+                        showModal('errorModal');
+                    }
+                });
+            });
+
+            // Hàm hiển thị modal
+            function showModal(modalId) {
+                const modal = document.getElementById(modalId);
+                if (!modal) return;
+                
+                // Ensure the modal is properly centered by setting display flex first
+                modal.style.display = 'flex';
+                modal.style.alignItems = 'center';
+                modal.style.justifyContent = 'center';
+                
+                setTimeout(() => {
+                    modal.classList.add('show');
+                }, 10);
+            }
+            
+            // Hàm ẩn modal
+            function hideModal(modalId) {
+                const modal = document.getElementById(modalId);
+                if (!modal) return;
+                
+                modal.classList.remove('show');
+                setTimeout(() => {
+                    modal.style.display = 'none';
+                }, 300);
+            }
+            
+            // Hàm hiển thị thông báo lỗi
+            function showErrorModal(message) {
+                $('#errorMessage').text(message);
+                showModal('errorModal');
+            }
         });
     </script>
 }

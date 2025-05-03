@@ -22,13 +22,37 @@ using System.Threading;
 using Serilog;
 using Serilog.Events;
 using Serilog.Sinks.SystemConsole.Themes;
+using System.Runtime.InteropServices;
 
 namespace SteamCmdWebAPI
 {
+    // Thêm class để tương tác với WinAPI để ẩn console
+    internal static class Native
+    {
+        [DllImport("kernel32.dll")]
+        internal static extern IntPtr GetConsoleWindow();
+
+        [DllImport("user32.dll")]
+        internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        internal const int SW_HIDE = 0;
+        internal const int SW_SHOW = 5;
+    }
+
     public class Program
     {
         public static async Task Main(string[] args)
         {
+            // Kiểm tra tham số --quiet để ẩn console
+            bool quietMode = args.Contains("--quiet");
+            
+            if (quietMode)
+            {
+                // Ẩn console window khi chạy ở chế độ quiet
+                var handle = Native.GetConsoleWindow();
+                Native.ShowWindow(handle, Native.SW_HIDE);
+            }
+            
             // Thiết lập đường dẫn gốc của ứng dụng
             var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
             Directory.SetCurrentDirectory(baseDirectory);
@@ -51,6 +75,15 @@ namespace SteamCmdWebAPI
             var licenseService = tempProvider.GetRequiredService<Services.LicenseService>();
             var licenseResult = await licenseService.ValidateLicenseAsync();
 
+            // Thêm biến toàn cục để kiểm soát trạng thái license
+            var isLicenseValid = licenseResult.IsValid || licenseResult.UsingCache;
+            builder.Services.AddSingleton<LicenseStateService>(new LicenseStateService 
+            { 
+                IsLicenseValid = isLicenseValid,
+                LicenseMessage = licenseResult.Message,
+                UsingCache = licenseResult.UsingCache
+            });
+
             if (!licenseResult.IsValid)
             {
                 // Log lỗi license
@@ -71,9 +104,9 @@ namespace SteamCmdWebAPI
                 }
                 else
                 {
-                    // Thay vì dừng ứng dụng, chỉ khóa chức năng
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("Ứng dụng sẽ bị khóa do không có giấy phép hợp lệ.");
+                    // Không dừng ứng dụng, chỉ ghi log thông báo
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("Ứng dụng đang chạy với chức năng bị hạn chế do không có giấy phép hợp lệ.");
                     Console.WriteLine("Vui lòng kiểm tra lại giấy phép hoặc liên hệ nhà cung cấp.");
                     Console.ResetColor();
                     
@@ -83,7 +116,8 @@ namespace SteamCmdWebAPI
                                       $"Lỗi: {licenseResult.Message}\n" +
                                       $"Trạng thái: Không có giấy phép hợp lệ\n" +
                                       $"Cache: Không có\n" +
-                                      $"API: Không kết nối được";
+                                      $"API: Không kết nối được\n" +
+                                      $"Ghi chú: Service vẫn chạy với chức năng bị hạn chế";
                     await File.WriteAllTextAsync(detailedErrorPath, errorDetails);
                 }
             }
@@ -113,7 +147,7 @@ namespace SteamCmdWebAPI
             // Đăng ký model mới
             builder.Services.Configure<Models.UpdateCheckSettings>(builder.Configuration.GetSection("UpdateCheckSettings"));
 
-            // Đăng ký dịch vụ Worker
+            // Đăng ký dịch vụ Worker - luôn chạy kể cả khi license không hợp lệ
             builder.Services.AddHostedService<Worker>();
 
             // Đăng ký HeartbeatService với cấu hình đặc biệt
@@ -329,7 +363,7 @@ namespace SteamCmdWebAPI
             app.UseFirstUserSetup();
 
             // Thêm middleware kiểm tra license
-            app.UseMiddleware<LicenseCheckMiddleware>();
+            app.UseLicenseCheck();
 
             // Endpoint routing
             app.MapRazorPages();
@@ -367,9 +401,25 @@ namespace SteamCmdWebAPI
             Console.WriteLine("Địa chỉ truy cập:");
             Console.WriteLine($"HTTP: http://0.0.0.0:5288");
 
+            // Log thông tin license
+            if (!licenseResult.IsValid)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("LƯU Ý: Service đang chạy với chức năng bị hạn chế do không có giấy phép hợp lệ.");
+                Console.ResetColor();
+            }
+
             // Chạy ứng dụng
             await app.RunAsync();
         }
+    }
+
+    // Dịch vụ lưu trữ trạng thái license
+    public class LicenseStateService
+    {
+        public bool IsLicenseValid { get; set; }
+        public string LicenseMessage { get; set; }
+        public bool UsingCache { get; set; }
     }
 
     // Dịch vụ kiểm tra license trong nền
@@ -377,12 +427,14 @@ namespace SteamCmdWebAPI
     {
         private readonly ILogger<LicenseValidationService> _logger;
         private readonly Services.LicenseService _licenseService;
+        private readonly LicenseStateService _licenseStateService;
         private readonly TimeSpan _checkInterval = TimeSpan.FromHours(6); // Kiểm tra mỗi 6 giờ
 
-        public LicenseValidationService(ILogger<LicenseValidationService> logger, Services.LicenseService licenseService)
+        public LicenseValidationService(ILogger<LicenseValidationService> logger, Services.LicenseService licenseService, LicenseStateService licenseStateService)
         {
             _logger = logger;
             _licenseService = licenseService;
+            _licenseStateService = licenseStateService;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -399,6 +451,11 @@ namespace SteamCmdWebAPI
                     _logger.LogInformation("Đang thực hiện kiểm tra license định kỳ");
                     var licenseResult = await _licenseService.ValidateLicenseAsync();
 
+                    // Cập nhật trạng thái license
+                    _licenseStateService.IsLicenseValid = licenseResult.IsValid || licenseResult.UsingCache;
+                    _licenseStateService.LicenseMessage = licenseResult.Message;
+                    _licenseStateService.UsingCache = licenseResult.UsingCache;
+
                     if (licenseResult.IsValid)
                     {
                         _logger.LogInformation("Kiểm tra license định kỳ thành công: {Message}", licenseResult.Message);
@@ -410,6 +467,10 @@ namespace SteamCmdWebAPI
                         if (licenseResult.UsingCache)
                         {
                             _logger.LogWarning("Đang sử dụng license cache. Ứng dụng vẫn hoạt động trong thời gian grace period.");
+                        }
+                        else
+                        {
+                            _logger.LogInformation("Service vẫn chạy nhưng với chức năng bị hạn chế.");
                         }
                     }
                 }
