@@ -16,12 +16,17 @@ namespace SteamCmdWebAPI.Services
         private readonly ILogger<SteamAccountService> _logger;
         private readonly string _accountsFilePath;
         private readonly EncryptionService _encryptionService;
+        private readonly SteamAppInfoService _steamAppInfoService;
         private readonly object _fileLock = new object();
         
-        public SteamAccountService(ILogger<SteamAccountService> logger, EncryptionService encryptionService)
+        public SteamAccountService(
+            ILogger<SteamAccountService> logger, 
+            EncryptionService encryptionService,
+            SteamAppInfoService steamAppInfoService)
         {
             _logger = logger;
             _encryptionService = encryptionService;
+            _steamAppInfoService = steamAppInfoService;
             
             var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
             string dataDir = Path.Combine(baseDirectory, "data");
@@ -245,20 +250,76 @@ namespace SteamCmdWebAPI.Services
         {
             var accounts = await GetAllAccountsAsync();
 
+            // Nếu có AppId, tự động lấy thông tin tên game
+            if (!string.IsNullOrEmpty(account.AppIds))
+            {
+                try
+                {
+                    _logger.LogInformation("Tự động lấy thông tin game từ AppID: {0}", account.AppIds);
+                    var appIds = account.AppIds.Split(',').Select(id => id.Trim()).Where(id => !string.IsNullOrEmpty(id)).ToList();
+                    var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(appIds);
+                    
+                    // Nếu có kết quả, cập nhật lại AppIds và GameNames
+                    if (gameInfos.Count > 0)
+                    {
+                        var validAppIds = new List<string>();
+                        var gameNames = new List<string>();
+                        
+                        foreach (var (appId, gameName) in gameInfos)
+                        {
+                            if (!string.IsNullOrEmpty(appId))
+                            {
+                                validAppIds.Add(appId);
+                                
+                                if (!string.IsNullOrEmpty(gameName))
+                                {
+                                    gameNames.Add(gameName);
+                                    _logger.LogInformation("Đã lấy được thông tin game: AppID {0} -> {1}", appId, gameName);
+                                }
+                            }
+                        }
+                        
+                        account.AppIds = string.Join(",", validAppIds);
+                        if (gameNames.Count > 0)
+                        {
+                            account.GameNames = string.Join(",", gameNames);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi tự động lấy thông tin game từ AppID: {0}", account.AppIds);
+                }
+            }
+
             // Kiểm tra tài khoản đã tồn tại (theo Username)
             var existing = accounts.FirstOrDefault(a => a.Username == account.Username);
             if (existing != null)
             {
                 // Hợp nhất AppIds
                 var appIds = (existing.AppIds ?? "").Split(',').Select(x => x.Trim()).Where(x => !string.IsNullOrEmpty(x)).ToList();
-                if (!string.IsNullOrEmpty(account.AppIds) && !appIds.Contains(account.AppIds))
-                    appIds.Add(account.AppIds);
+                if (!string.IsNullOrEmpty(account.AppIds))
+                {
+                    var newAppIds = account.AppIds.Split(',').Select(x => x.Trim()).Where(x => !string.IsNullOrEmpty(x));
+                    foreach (var newAppId in newAppIds)
+                    {
+                        if (!appIds.Contains(newAppId))
+                            appIds.Add(newAppId);
+                    }
+                }
                 existing.AppIds = string.Join(",", appIds.Distinct());
 
                 // Hợp nhất GameNames
                 var gameNames = (existing.GameNames ?? "").Split(',').Select(x => x.Trim()).Where(x => !string.IsNullOrEmpty(x)).ToList();
-                if (!string.IsNullOrEmpty(account.GameNames) && !gameNames.Contains(account.GameNames))
-                    gameNames.Add(account.GameNames);
+                if (!string.IsNullOrEmpty(account.GameNames))
+                {
+                    var newGameNames = account.GameNames.Split(',').Select(x => x.Trim()).Where(x => !string.IsNullOrEmpty(x));
+                    foreach (var newGameName in newGameNames)
+                    {
+                        if (!gameNames.Contains(newGameName))
+                            gameNames.Add(newGameName);
+                    }
+                }
                 existing.GameNames = string.Join(",", gameNames.Distinct());
 
                 existing.UpdatedAt = DateTime.Now;
@@ -285,6 +346,52 @@ namespace SteamCmdWebAPI.Services
             if (index == -1)
             {
                 throw new Exception($"Không tìm thấy tài khoản với ID {account.Id}");
+            }
+
+            // Nếu có AppId mới, tự động lấy thông tin tên game
+            if (!string.IsNullOrEmpty(account.AppIds))
+            {
+                try
+                {
+                    // Chỉ xử lý các AppId chưa có trong GameNames
+                    var existingAccountAppIds = (accounts[index].AppIds ?? "").Split(',').Select(id => id.Trim()).Where(id => !string.IsNullOrEmpty(id)).ToList();
+                    var existingGameNames = (accounts[index].GameNames ?? "").Split(',').Select(name => name.Trim()).Where(name => !string.IsNullOrEmpty(name)).ToList();
+                    
+                    var currentAppIds = account.AppIds.Split(',').Select(id => id.Trim()).Where(id => !string.IsNullOrEmpty(id)).ToList();
+                    
+                    // Tìm các AppId mới cần lấy thông tin
+                    var newAppIds = currentAppIds.Except(existingAccountAppIds).ToList();
+                    
+                    if (newAppIds.Count > 0)
+                    {
+                        _logger.LogInformation("Tự động lấy thông tin cho {0} AppID mới: {1}", newAppIds.Count, string.Join(", ", newAppIds));
+                        var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(newAppIds);
+                        
+                        if (gameInfos.Count > 0)
+                        {
+                            var gameNames = new List<string>(existingGameNames);
+                            
+                            foreach (var (appId, gameName) in gameInfos)
+                            {
+                                if (!string.IsNullOrEmpty(gameName) && !gameNames.Contains(gameName))
+                                {
+                                    gameNames.Add(gameName);
+                                    _logger.LogInformation("Đã lấy được thông tin game: AppID {0} -> {1}", appId, gameName);
+                                }
+                            }
+                            
+                            account.GameNames = string.Join(",", gameNames.Distinct());
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Không có AppID mới cần lấy thông tin game");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi tự động lấy thông tin game từ AppID: {0}", account.AppIds);
+                }
             }
 
             // Không mã hóa ở đây, để SaveAccounts lo việc này
@@ -451,6 +558,90 @@ namespace SteamCmdWebAPI.Services
             {
                 _logger.LogError(ex, "Lỗi khi xử lý giải mã tài khoản: {ProfileName}", account.ProfileName);
                 return account; // Trả về nguyên bản nếu xảy ra lỗi
+            }
+        }
+
+        // Phương thức mới để tự động cập nhật thông tin game cho tất cả tài khoản
+        public async Task UpdateAllGamesInfoAsync()
+        {
+            try
+            {
+                _logger.LogInformation("Bắt đầu cập nhật thông tin game cho tất cả tài khoản");
+                var accounts = await GetAllAccountsAsync();
+                int totalAccounts = accounts.Count;
+                int processedAccounts = 0;
+                int updatedAccounts = 0;
+
+                foreach (var account in accounts)
+                {
+                    try
+                    {
+                        processedAccounts++;
+                        _logger.LogInformation("Đang xử lý tài khoản {Current}/{Total}: {Username}",
+                            processedAccounts, totalAccounts, account.ProfileName);
+
+                        if (string.IsNullOrEmpty(account.AppIds))
+                        {
+                            _logger.LogInformation("Tài khoản {Username} không có AppId, bỏ qua", account.ProfileName);
+                            continue;
+                        }
+
+                        // Lấy danh sách AppIds
+                        var appIds = account.AppIds.Split(',')
+                            .Select(id => id.Trim())
+                            .Where(id => !string.IsNullOrEmpty(id))
+                            .ToList();
+
+                        // Lấy danh sách GameNames hiện tại
+                        var existingGameNames = !string.IsNullOrEmpty(account.GameNames)
+                            ? account.GameNames.Split(',')
+                                .Select(name => name.Trim())
+                                .Where(name => !string.IsNullOrEmpty(name))
+                                .ToList()
+                            : new List<string>();
+
+                        // Nếu số lượng game names bằng số lượng appids, có thể bỏ qua
+                        if (existingGameNames.Count == appIds.Count)
+                        {
+                            _logger.LogInformation("Tài khoản {Username} đã có đủ thông tin game ({Count}), bỏ qua",
+                                account.ProfileName, existingGameNames.Count);
+                            continue;
+                        }
+
+                        // Lấy thông tin game từ Steam
+                        var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(appIds);
+                        var gameNames = new List<string>();
+
+                        foreach (var (appId, gameName) in gameInfos)
+                        {
+                            if (!string.IsNullOrEmpty(gameName))
+                            {
+                                gameNames.Add(gameName);
+                                _logger.LogInformation("Đã lấy được thông tin game: AppID {0} -> {1}", appId, gameName);
+                            }
+                        }
+
+                        // Cập nhật account nếu có thông tin game mới
+                        if (gameNames.Count > existingGameNames.Count)
+                        {
+                            account.GameNames = string.Join(",", gameNames);
+                            await UpdateAccountAsync(account);
+                            updatedAccounts++;
+                            _logger.LogInformation("Đã cập nhật thông tin game cho tài khoản {Username}", account.ProfileName);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi cập nhật thông tin game cho tài khoản {Username}", account.ProfileName);
+                    }
+                }
+
+                _logger.LogInformation("Hoàn thành cập nhật thông tin game: Đã xử lý {Processed}/{Total} tài khoản, cập nhật {Updated} tài khoản",
+                    processedAccounts, totalAccounts, updatedAccounts);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi cập nhật thông tin game cho tất cả tài khoản");
             }
         }
     }

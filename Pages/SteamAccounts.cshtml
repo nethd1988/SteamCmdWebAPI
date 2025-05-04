@@ -105,9 +105,19 @@
                     <input type="password" class="form-control" id="password" name="Account.Password" required>
                 </div>
                 <div class="mb-3">
-                    <label for="appIds" class="form-label">App IDs (cách nhau bởi dấu phẩy)</label>
-                    <textarea class="form-control" id="appIds" name="Account.AppIds" rows="3"></textarea>
-                    <small class="form-text text-muted">Ví dụ: 570,730,440</small>
+                    <label for="appIds" class="form-label">App IDs & Game Names</label>
+                    <div class="d-flex gap-2 mb-2">
+                        <button type="button" class="btn btn-success btn-sm flex-grow-1" id="btnScanSteamAccount">
+                            <i class="bi bi-steam"></i> Tự động quét danh sách game từ tài khoản
+                        </button>
+                        <button type="button" class="btn btn-info btn-sm" id="btnScanAppIds" title="Quét thông tin game theo App IDs">
+                            <i class="bi bi-search"></i> Scan AppIDs
+                        </button>
+                    </div>
+                    <div class="input-group">
+                        <textarea class="form-control" id="appIds" name="Account.AppIds" rows="3" placeholder="Hệ thống sẽ tự động điền sau khi quét hoặc bạn có thể nhập thủ công (cách nhau bởi dấu phẩy)"></textarea>
+                    </div>
+                    <small class="form-text text-muted">Ví dụ nhập thủ công: 570,730,440</small>
                 </div>
                 <div class="d-flex justify-content-end gap-2">
                     <button type="button" class="btn btn-secondary" id="btnCancelAdd">Đóng</button>
@@ -139,11 +149,22 @@
                 <div class="mb-3">
                     <label for="editPassword" class="form-label">Mật khẩu</label>
                     <input type="password" class="form-control" id="editPassword" name="Account.Password" placeholder="Để trống nếu không thay đổi">
+                    <small class="form-text text-muted">Để trống nếu không thay đổi. Khi quét game, hệ thống sẽ tự động sử dụng mật khẩu đã lưu.</small>
                 </div>
                 <div class="mb-3">
-                    <label for="editAppIds" class="form-label">App IDs (cách nhau bởi dấu phẩy)</label>
-                    <textarea class="form-control" id="editAppIds" name="Account.AppIds" rows="3"></textarea>
-                    <small class="form-text text-muted">Ví dụ: 570,730,440</small>
+                    <label for="editAppIds" class="form-label">App IDs & Game Names</label>
+                    <div class="d-flex gap-2 mb-2">
+                        <button type="button" class="btn btn-success btn-sm flex-grow-1" id="btnScanEditSteamAccount">
+                            <i class="bi bi-steam"></i> Tự động quét danh sách game từ tài khoản
+                        </button>
+                        <button type="button" class="btn btn-info btn-sm" id="btnScanEditAppIds" title="Quét thông tin game theo App IDs">
+                            <i class="bi bi-search"></i> Scan AppIDs
+                        </button>
+                    </div>
+                    <div class="input-group">
+                        <textarea class="form-control" id="editAppIds" name="Account.AppIds" rows="3" placeholder="Hệ thống sẽ tự động điền sau khi quét hoặc bạn có thể nhập thủ công (cách nhau bởi dấu phẩy)"></textarea>
+                    </div>
+                    <small class="form-text text-muted">Ví dụ nhập thủ công: 570,730,440</small>
                 </div>
                 <div class="mb-3">
                     <label for="editGameNames" class="form-label">Tên game</label>
@@ -194,8 +215,8 @@
                 <strong>Thêm tài khoản:</strong> Nhấn nút "Thêm tài khoản" và điền thông tin đăng nhập Steam.
             </li>
             <li class="mb-2">
-                <strong>Thêm AppID:</strong> Trong mục "App IDs", nhập các AppID của game muốn sử dụng với tài khoản này, 
-                cách nhau bởi dấu phẩy (ví dụ: 570,730,440).
+                <strong>Quét game tự động:</strong> Nhấn nút "Tự động quét danh sách game từ tài khoản" và hệ thống sẽ
+                tự động lấy danh sách game từ tài khoản Steam của bạn và điền vào trường App IDs.
             </li>
             <li class="mb-2">
                 <strong>Lưu cấu hình:</strong> Hệ thống sẽ tự động xác định tên game tương ứng với các AppID và lưu thông tin.
@@ -207,9 +228,15 @@
         </ol>
         
         <div class="alert alert-info mb-3">
-            <i class="bi bi-info-circle-fill me-2"></i>
-            <strong>Lưu ý:</strong> Bạn có thể tạo một tài khoản với tên "Default" hoặc "Auto" để hệ thống sử dụng cho các 
-            game chưa có tài khoản cụ thể.
+            <div class="d-flex">
+                <div class="me-3">
+                    <i class="bi bi-lightbulb-fill fs-3"></i>
+                </div>
+                <div>
+                    <strong>Mẹo:</strong> Khi thêm tài khoản mới, bạn cần nhập cả tên đăng nhập và mật khẩu Steam để quét game. 
+                    Khi sửa tài khoản, bạn có thể quét game mà không cần nhập lại mật khẩu (hệ thống sẽ tự động sử dụng mật khẩu đã lưu).
+                </div>
+            </div>
         </div>
         
         <h6 class="fw-bold mb-2">Bảo mật:</h6>
@@ -220,122 +247,364 @@
     </div>
 </div>
 
+@section Styles {
+    <style>
+        .scan-result .badge {
+            font-size: 0.85em;
+        }
+        
+        .scan-overlay {
+            z-index: 1000;
+            border-radius: 0.25rem;
+        }
+        
+        .card-body {
+            position: relative;
+        }
+        
+        /* Tùy chỉnh nút scan */
+        #btnScanSteamAccount, #btnScanEditSteamAccount {
+            background-color: #1b2838;
+            border-color: #1b2838;
+        }
+        
+        #btnScanSteamAccount:hover, #btnScanEditSteamAccount:hover {
+            background-color: #66c0f4;
+            border-color: #66c0f4;
+        }
+        
+        /* Hiệu ứng hover cho badge */
+        .badge.bg-success:hover {
+            background-color: #218838 !important;
+            cursor: default;
+        }
+    </style>
+}
+
 @section Scripts {
     <script>
-        $(document).ready(function() {
-            // Hiện/ẩn form thêm mới
-            $("#btnAddAccount").click(function() {
+        $(document).ready(function () {
+            // Hiển thị form thêm tài khoản
+            $("#btnAddAccount").click(function () {
                 $("#formAddAccount").slideDown();
-                $("#formEditAccount").slideUp();
+            });
+
+            // Ẩn form thêm tài khoản
+            $("#btnCancelAdd").click(function () {
+                $("#formAddAccount").slideUp();
                 $("#addAccountForm")[0].reset();
             });
 
-            $("#btnCancelAdd").click(function() {
-                $("#formAddAccount").slideUp();
-            });
-
-            // Ẩn form sửa
-            $("#btnCancelEdit").click(function() {
+            // Ẩn form sửa tài khoản
+            $("#btnCancelEdit").click(function () {
                 $("#formEditAccount").slideUp();
+                $("#editAccountForm")[0].reset();
             });
 
-            // Lưu tài khoản mới
-            $('#btnSaveAccount').click(function() {
-                const formData = $('#addAccountForm').serialize();
+            // Thêm tài khoản
+            $("#btnSaveAccount").click(function () {
+                const form = $("#addAccountForm");
+                const formData = form.serialize();
 
                 $.ajax({
-                    url: "/SteamAccounts?handler=AddAccount",
-                    method: "POST",
+                    url: "?handler=AddAccount",
+                    type: "POST",
                     data: formData,
                     headers: {
-                        'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
                     },
-                    success: function(response) {
+                    success: function (response) {
                         if (response.success) {
-                            window.location.reload();
+                            toastr.success("Đã thêm tài khoản thành công");
+                            setTimeout(function () {
+                                window.location.reload();
+                            }, 1000);
                         } else {
-                            alert("Lỗi: " + response.message);
+                            toastr.error(response.message || "Có lỗi xảy ra khi thêm tài khoản");
                         }
                     },
-                    error: function(xhr, status, error) {
-                        alert("Lỗi khi lưu tài khoản: " + error);
+                    error: function () {
+                        toastr.error("Có lỗi xảy ra khi gửi yêu cầu");
                     }
                 });
             });
 
             // Cập nhật tài khoản
-            $('#btnUpdateAccount').click(function() {
-                const formData = $('#editAccountForm').serialize();
+            $("#btnUpdateAccount").click(function () {
+                const form = $("#editAccountForm");
+                const formData = form.serialize();
 
                 $.ajax({
-                    url: "/SteamAccounts?handler=UpdateAccount",
-                    method: "POST",
+                    url: "?handler=UpdateAccount",
+                    type: "POST",
                     data: formData,
                     headers: {
-                        'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
                     },
-                    success: function(response) {
+                    success: function (response) {
                         if (response.success) {
-                            window.location.reload();
+                            toastr.success("Đã cập nhật tài khoản thành công");
+                            setTimeout(function () {
+                                window.location.reload();
+                            }, 1000);
                         } else {
-                            alert("Lỗi: " + response.message);
+                            toastr.error(response.message || "Có lỗi xảy ra khi cập nhật tài khoản");
                         }
                     },
-                    error: function(xhr, status, error) {
-                        alert("Lỗi khi cập nhật tài khoản: " + error);
+                    error: function () {
+                        toastr.error("Có lỗi xảy ra khi gửi yêu cầu");
                     }
                 });
             });
+
+            // Nút quét từ tài khoản - form thêm mới
+            $("#btnScanSteamAccount").click(function() {
+                // Hiển thị hướng dẫn tốt hơn
+                toastr.info("Đang chuẩn bị quét tài khoản Steam của bạn. Vui lòng chờ...");
+                scanSteamAccount("#username", "#password", "#appIds", null, null);
+            });
+
+            // Nút quét từ tài khoản - form sửa
+            $("#btnScanEditSteamAccount").click(function() {
+                toastr.info("Đang chuẩn bị quét tài khoản Steam của bạn. Vui lòng chờ...");
+                const accountId = $("#editId").val();
+                scanSteamAccount("#editUsername", "#editPassword", "#editAppIds", "#editGameNames", accountId);
+            });
+
+            // Nút scan AppID - form thêm mới
+            $("#btnScanAppIds").click(function() {
+                const appIds = $("#appIds").val();
+                if (!appIds) {
+                    toastr.warning("Vui lòng nhập AppID trước khi quét thông tin game");
+                    return;
+                }
+                scanAppIds("#appIds");
+            });
+
+            // Nút scan AppID - form sửa
+            $("#btnScanEditAppIds").click(function() {
+                const appIds = $("#editAppIds").val();
+                if (!appIds) {
+                    toastr.warning("Vui lòng nhập AppID trước khi quét thông tin game");
+                    return;
+                }
+                scanAppIds("#editAppIds", "#editGameNames");
+            });
+
+            // Hàm quét danh sách game từ tài khoản Steam
+            function scanSteamAccount(usernameSelector, passwordSelector, appIdsSelector, gameNamesSelector = null, accountId = null) {
+                const username = $(usernameSelector).val();
+                const password = $(passwordSelector).val();
+                
+                if (!username) {
+                    toastr.warning("Vui lòng điền tên đăng nhập trước khi quét");
+                    return;
+                }
+                
+                // Trường hợp thêm mới: yêu cầu cung cấp mật khẩu
+                if (!accountId && !password) {
+                    toastr.warning("Vui lòng điền mật khẩu trước khi quét");
+                    return;
+                }
+
+                // Hiển thị thông báo đang quét
+                const scanBtn = $(appIdsSelector).closest(".mb-3").find("#btnScanSteamAccount, #btnScanEditSteamAccount");
+                const originalHtml = scanBtn.html();
+                scanBtn.html('<i class="bi bi-hourglass-split"></i> Đang quét game...');
+                scanBtn.prop('disabled', true);
+
+                // Thêm lớp overlay cho form
+                const formCard = $(usernameSelector).closest(".card");
+                formCard.append('<div class="position-absolute top-0 start-0 w-100 h-100 bg-dark bg-opacity-25 d-flex justify-content-center align-items-center scan-overlay"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div><div class="ms-2 text-white">Đang quét danh sách game từ Steam...</div></div>');
+                
+                // Thực hiện quét danh sách game
+                $.ajax({
+                    url: "?handler=ScanAccountGames",
+                    type: "POST",
+                    data: { 
+                        username: username,
+                        password: password,
+                        accountId: accountId
+                    },
+                    headers: {
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function (response) {
+                        // Xóa overlay
+                        formCard.find(".scan-overlay").remove();
+                        scanBtn.html(originalHtml);
+                        scanBtn.prop('disabled', false);
+
+                        if (response.success) {
+                            // Cập nhật AppIds và GameNames
+                            $(appIdsSelector).val(response.appIds);
+                            
+                            // Cập nhật tên game nếu có
+                            if (gameNamesSelector) {
+                                $(gameNamesSelector).val(response.gameNames);
+                            }
+
+                            // Hiển thị thông tin game đã quét được
+                            let resultHtml = '<div class="mt-3 mb-2 p-2 border rounded bg-light">';
+                            resultHtml += `<div class="d-flex justify-content-between align-items-center mb-2">
+                                <strong>Đã tìm thấy ${response.count} game:</strong>
+                                <span class="text-success"><i class="bi bi-check-circle-fill"></i> Đã tự động điền AppIDs</span>
+                            </div>`;
+                            resultHtml += '<div style="max-height: 200px; overflow-y: auto;">';
+                            
+                            response.results.forEach(function(result) {
+                                resultHtml += `<span class="badge bg-success me-1 mb-1">${result.appId}: ${result.gameName}</span>`;
+                            });
+                            
+                            resultHtml += '</div></div>';
+                            
+                            // Thêm hoặc cập nhật kết quả
+                            const resultElementId = `${appIdsSelector.replace('#', '')}-account-result`;
+                            if ($(`#${resultElementId}`).length) {
+                                $(`#${resultElementId}`).html(resultHtml);
+                            } else {
+                                $(appIdsSelector).parent().after(`<div id="${resultElementId}" class="scan-result">${resultHtml}</div>`);
+                            }
+
+                            if (response.message) {
+                                toastr.info(response.message);
+                            } else {
+                                toastr.success(`Đã quét thành công ${response.count} game từ tài khoản và tự động điền vào AppIDs`);
+                            }
+                        } else {
+                            toastr.error(response.message || "Có lỗi xảy ra khi quét tài khoản");
+                        }
+                    },
+                    error: function (xhr) {
+                        // Xóa overlay
+                        formCard.find(".scan-overlay").remove();
+                        scanBtn.html(originalHtml);
+                        scanBtn.prop('disabled', false);
+                        
+                        toastr.error(xhr.responseJSON?.message || "Có lỗi xảy ra khi gửi yêu cầu quét tài khoản");
+                    }
+                });
+            }
+
+            // Hàm quét AppID
+            function scanAppIds(appIdsSelector, gameNamesSelector = null) {
+                const appIds = $(appIdsSelector).val();
+                
+                if (!appIds) {
+                    toastr.warning("Vui lòng nhập AppID trước khi quét");
+                    return;
+                }
+
+                // Hiển thị thông báo đang quét
+                const scanBtn = $(appIdsSelector).siblings("button");
+                const originalHtml = scanBtn.html();
+                scanBtn.html('<i class="bi bi-hourglass-split"></i> Đang quét...');
+                scanBtn.prop('disabled', true);
+
+                $.ajax({
+                    url: "?handler=ScanAppIds",
+                    type: "POST",
+                    data: { appIds: appIds },
+                    headers: {
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function (response) {
+                        scanBtn.html(originalHtml);
+                        scanBtn.prop('disabled', false);
+
+                        if (response.success) {
+                            // Cập nhật AppIds đã được làm sạch
+                            $(appIdsSelector).val(response.appIds);
+                            
+                            // Cập nhật tên game nếu có
+                            if (gameNamesSelector) {
+                                $(gameNamesSelector).val(response.gameNames);
+                            }
+
+                            // Hiển thị thông tin game đã quét được
+                            let resultHtml = '<div class="mt-2">';
+                            response.results.forEach(function(result) {
+                                resultHtml += `<span class="badge bg-success me-1 mb-1">${result.appId}: ${result.gameName}</span>`;
+                            });
+                            resultHtml += '</div>';
+                            
+                            // Thêm hoặc cập nhật kết quả
+                            const resultElementId = `${appIdsSelector.replace('#', '')}-result`;
+                            if ($(`#${resultElementId}`).length) {
+                                $(`#${resultElementId}`).html(resultHtml);
+                            } else {
+                                $(appIdsSelector).parent().after(`<div id="${resultElementId}" class="scan-result">${resultHtml}</div>`);
+                            }
+
+                            toastr.success(`Đã quét thành công ${response.results.length} AppID`);
+                        } else {
+                            toastr.error(response.message || "Có lỗi xảy ra khi quét AppID");
+                        }
+                    },
+                    error: function () {
+                        scanBtn.html(originalHtml);
+                        scanBtn.prop('disabled', false);
+                        toastr.error("Có lỗi xảy ra khi gửi yêu cầu quét");
+                    }
+                });
+            }
         });
 
-        // Hiển thị form sửa tài khoản
+        // Hàm sửa tài khoản
         function editAccount(id) {
-            // Ẩn form thêm mới nếu đang hiển thị
-            $("#formAddAccount").slideUp();
-
             $.ajax({
-                url: "/SteamAccounts?handler=GetAccount&id=" + id,
-                method: "GET",
-                success: function(response) {
+                url: `?handler=GetAccount&id=${id}`,
+                type: "GET",
+                success: function (response) {
                     if (response.success) {
                         const account = response.account;
-                        $('#editId').val(account.id);
-                        $('#editProfileName').val(account.profileName);
-                        $('#editUsername').val(account.username);
-                        $('#editPassword').val(''); // Không hiển thị mật khẩu
-                        $('#editAppIds').val(account.appIds);
-                        $('#editGameNames').val(account.gameNames);
-
-                        $('#formEditAccount').slideDown();
+                        $("#editId").val(account.id);
+                        $("#editProfileName").val(account.profileName);
+                        $("#editUsername").val(account.username);
+                        $("#editPassword").val(''); // Để trống password
+                        $("#editAppIds").val(account.appIds);
+                        $("#editGameNames").val(account.gameNames);
+                        
+                        // Xóa kết quả scan cũ nếu có
+                        $("#editAppIds-result, #editAppIds-account-result").remove();
+                        
+                        $("#formEditAccount").slideDown();
+                        // Scroll đến form
+                        $("html, body").animate({
+                            scrollTop: $("#formEditAccount").offset().top - 100
+                        }, 500);
                     } else {
-                        alert("Lỗi: " + response.message);
+                        toastr.error(response.message || "Không thể tải thông tin tài khoản");
                     }
                 },
-                error: function(xhr, status, error) {
-                    alert("Lỗi khi lấy thông tin tài khoản: " + error);
+                error: function () {
+                    toastr.error("Có lỗi xảy ra khi gửi yêu cầu");
                 }
             });
         }
 
-        // Xóa tài khoản
-        function deleteAccount(id, name) {
-            if (confirm("Bạn có chắc chắn muốn xóa tài khoản \"" + name + "\"?")) {
+        // Hàm xóa tài khoản
+        function deleteAccount(id, profileName) {
+            if (confirm(`Bạn có chắc chắn muốn xóa tài khoản "${profileName}" không?`)) {
                 $.ajax({
-                    url: "/SteamAccounts?handler=DeleteAccount",
-                    method: "POST",
+                    url: "?handler=DeleteAccount",
+                    type: "POST",
                     data: { id: id },
                     headers: {
-                        'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
                     },
-                    success: function(response) {
+                    success: function (response) {
                         if (response.success) {
-                            window.location.reload();
+                            toastr.success("Đã xóa tài khoản thành công");
+                            setTimeout(function () {
+                                window.location.reload();
+                            }, 1000);
                         } else {
-                            alert("Lỗi: " + response.message);
+                            toastr.error(response.message || "Có lỗi xảy ra khi xóa tài khoản");
                         }
                     },
-                    error: function(xhr, status, error) {
-                        alert("Lỗi khi xóa tài khoản: " + error);
+                    error: function () {
+                        toastr.error("Có lỗi xảy ra khi gửi yêu cầu");
                     }
                 });
             }
