@@ -77,12 +77,14 @@ namespace SteamCmdWebAPI
 
             // Thêm biến toàn cục để kiểm soát trạng thái license
             var isLicenseValid = licenseResult.IsValid || licenseResult.UsingCache;
-            builder.Services.AddSingleton<LicenseStateService>(new LicenseStateService 
-            { 
+            var licenseStateService = new LicenseStateService
+            {
                 IsLicenseValid = isLicenseValid,
                 LicenseMessage = licenseResult.Message,
                 UsingCache = licenseResult.UsingCache
-            });
+            };
+            builder.Services.AddSingleton(licenseStateService);
+            licenseStateService.LogLicenseState();
 
             if (!licenseResult.IsValid)
             {
@@ -104,9 +106,10 @@ namespace SteamCmdWebAPI
                 }
                 else
                 {
-                    // Không dừng ứng dụng, chỉ ghi log thông báo
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine("Ứng dụng đang chạy với chức năng bị hạn chế do không có giấy phép hợp lệ.");
+                    // Ghi log và khóa ứng dụng
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine("CẢNH BÁO: TẤT CẢ CHỨC NĂNG CỦA ỨNG DỤNG ĐÃ BỊ KHÓA!");
+                    Console.WriteLine("Ứng dụng đang chạy với tất cả chức năng bị khóa do không có giấy phép hợp lệ.");
                     Console.WriteLine("Vui lòng kiểm tra lại giấy phép hoặc liên hệ nhà cung cấp.");
                     Console.ResetColor();
                     
@@ -117,7 +120,7 @@ namespace SteamCmdWebAPI
                                       $"Trạng thái: Không có giấy phép hợp lệ\n" +
                                       $"Cache: Không có\n" +
                                       $"API: Không kết nối được\n" +
-                                      $"Ghi chú: Service vẫn chạy với chức năng bị hạn chế";
+                                      $"Ghi chú: Service vẫn chạy nhưng tất cả chức năng đã bị khóa";
                     await File.WriteAllTextAsync(detailedErrorPath, errorDetails);
                 }
             }
@@ -298,7 +301,7 @@ namespace SteamCmdWebAPI
             // Cấu hình log levels
             builder.Logging.AddConfiguration(builder.Configuration.GetSection("Logging"));
 
-            // Thêm background service kiểm tra license định kỳ
+            // Đăng ký dịch vụ kiểm tra license định kỳ
             builder.Services.AddHostedService<LicenseValidationService>();
 
             // Đảm bảo sử dụng đúng UpdateCheckSettings từ Models namespace
@@ -368,6 +371,9 @@ namespace SteamCmdWebAPI
             // Thêm middleware kiểm tra license
             app.UseLicenseCheck();
 
+            // Khởi tạo dịch vụ license validation để kiểm tra định kỳ
+            app.UseMiddleware<Middleware.LicenseCheckMiddleware>();
+
             // Endpoint routing
             app.MapRazorPages();
             app.MapControllers();
@@ -423,6 +429,14 @@ namespace SteamCmdWebAPI
         public bool IsLicenseValid { get; set; }
         public string LicenseMessage { get; set; }
         public bool UsingCache { get; set; }
+        
+        // Thêm thuộc tính để kiểm tra có cần khóa tất cả chức năng hay không
+        public bool LockAllFunctions => !IsLicenseValid && !UsingCache;
+
+        public void LogLicenseState()
+        {
+            // Implementation for logging license state
+        }
     }
 
     // Dịch vụ kiểm tra license trong nền

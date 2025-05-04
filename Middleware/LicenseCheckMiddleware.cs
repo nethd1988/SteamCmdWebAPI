@@ -68,9 +68,10 @@ namespace SteamCmdWebAPI.Middleware
             }
 
             // Kiểm tra license từ dịch vụ trạng thái license
-            if (!_licenseStateService.IsLicenseValid)
+            // Chỉ cho phép truy cập nếu giấy phép hợp lệ HOẶC đang dùng cache trong grace period
+            if (_licenseStateService.LockAllFunctions)
             {
-                _logger.LogWarning("Khóa truy cập vào {Path} do license không hợp lệ", path);
+                _logger.LogWarning("Khóa hoàn toàn truy cập vào {Path} do license không hợp lệ và không có cache", path);
                 
                 // Phân loại loại truy cập và xử lý phù hợp
                 if (path.StartsWith("/api/"))
@@ -80,7 +81,7 @@ namespace SteamCmdWebAPI.Middleware
                     context.Response.StatusCode = 403;
                     await context.Response.WriteAsJsonAsync(new { 
                         success = false, 
-                        message = "Ứng dụng đã bị khóa do giấy phép không hợp lệ",
+                        message = "Ứng dụng đã bị khóa hoàn toàn do giấy phép không hợp lệ",
                         licenseMessage = _licenseStateService.LicenseMessage,
                         code = "LICENSE_INVALID"
                     });
@@ -95,7 +96,7 @@ namespace SteamCmdWebAPI.Middleware
                     await context.Response.WriteAsJsonAsync(new
                     {
                         success = false,
-                        message = "Ứng dụng đã bị khóa do giấy phép không hợp lệ",
+                        message = "Ứng dụng đã bị khóa hoàn toàn do giấy phép không hợp lệ",
                         redirectUrl = "/LicenseError"
                     });
                     return;
@@ -109,7 +110,7 @@ namespace SteamCmdWebAPI.Middleware
                 }
             }
 
-            // Nếu license hợp lệ, tiếp tục request
+            // Nếu license hợp lệ hoặc đang trong grace period với cache, tiếp tục request
             await _next(context);
         }
     }

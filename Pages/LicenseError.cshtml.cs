@@ -1,18 +1,26 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using SteamCmdWebAPI.Services;
+using System;
 
 namespace SteamCmdWebAPI.Pages
 {
+    [AllowAnonymous]
     public class LicenseErrorModel : PageModel
     {
-        public string ErrorMessage { get; set; } = "Giấy phép không hợp lệ hoặc đã hết hạn.";
-        public string ContactEmail { get; set; } = "support@example.com";
-
-        public void OnGet(string message = null)
+        private readonly LicenseStateService _licenseStateService;
+        
+        public string LicenseMessage { get; private set; }
+        
+        public LicenseErrorModel(LicenseStateService licenseStateService)
         {
-            if (!string.IsNullOrEmpty(message))
-            {
-                ErrorMessage = message;
-            }
+            _licenseStateService = licenseStateService;
+        }
+        
+        public void OnGet()
+        {
+            LicenseMessage = _licenseStateService.LicenseMessage ?? "Không có thông tin về lỗi giấy phép";
         }
     }
 }
