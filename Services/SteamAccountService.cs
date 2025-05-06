@@ -179,51 +179,45 @@ namespace SteamCmdWebAPI.Services
 
                 foreach (var account in accounts)
                 {
+                    // Lấy thông tin người dùng và mật khẩu từ tài khoản
                     string usernameToSave = account.Username;
                     string passwordToSave = account.Password;
                     
-                    // Kiểm tra xem username có cần mã hóa không
+                    // Luôn mã hóa username trước khi lưu - trước tiên giải mã nếu đã mã hóa để tránh mã hóa 2 lần
                     if (!string.IsNullOrEmpty(usernameToSave))
                     {
                         try
                         {
-                            // Thử giải mã để kiểm tra xem đã được mã hóa chưa
-                            _encryptionService.Decrypt(usernameToSave);
-                            // Nếu không có ngoại lệ, chuỗi đã được mã hóa
-                            _logger.LogDebug("Username đã được mã hóa, giữ nguyên: {UsernameHint}***", 
-                                usernameToSave.Length > 3 ? usernameToSave.Substring(0, 3) : "***");
+                            // Thử giải mã - nếu đã mã hóa thì sẽ thành công
+                            string tempDecrypted = _encryptionService.Decrypt(usernameToSave);
+                            // Mã hóa lại từ chuỗi đã giải mã
+                            usernameToSave = _encryptionService.Encrypt(tempDecrypted);
+                            _logger.LogDebug("Đã tái mã hóa username cho tài khoản {ProfileName}", account.ProfileName);
                         }
                         catch (Exception)
                         {
-                            // Nếu có ngoại lệ, chuỗi chưa được mã hóa - mã hóa nó
-                            if (usernameToSave.Length < 30)
-                            {
-                                // Chỉ mã hóa nếu có vẻ như là chuỗi thường (không phải chuỗi đã mã hóa từ server)
-                                usernameToSave = _encryptionService.Encrypt(usernameToSave);
-                                _logger.LogDebug("Đã mã hóa username cho tài khoản {ProfileName}", account.ProfileName);
-                            }
+                            // Nếu giải mã thất bại, chuỗi chưa mã hóa - mã hóa nó
+                            usernameToSave = _encryptionService.Encrypt(usernameToSave);
+                            _logger.LogDebug("Đã mã hóa username mới cho tài khoản {ProfileName}", account.ProfileName);
                         }
                     }
 
-                    // Kiểm tra xem mật khẩu có cần mã hóa không
+                    // Luôn mã hóa password trước khi lưu
                     if (!string.IsNullOrEmpty(passwordToSave))
                     {
-                        try
+                        try 
                         {
-                            // Thử giải mã để kiểm tra xem đã được mã hóa chưa
-                            _encryptionService.Decrypt(passwordToSave);
-                            // Nếu không có ngoại lệ, chuỗi đã được mã hóa
-                            _logger.LogDebug("Password đã được mã hóa, giữ nguyên");
+                            // Thử giải mã - nếu đã mã hóa thì sẽ thành công
+                            string tempDecrypted = _encryptionService.Decrypt(passwordToSave);
+                            // Mã hóa lại từ chuỗi đã giải mã
+                            passwordToSave = _encryptionService.Encrypt(tempDecrypted);
+                            _logger.LogDebug("Đã tái mã hóa password cho tài khoản {ProfileName}", account.ProfileName);
                         }
                         catch (Exception)
                         {
-                            // Nếu có ngoại lệ, chuỗi chưa được mã hóa - mã hóa nó
-                            if (passwordToSave.Length < 30)
-                            {
-                                // Chỉ mã hóa nếu có vẻ như là chuỗi thường (không phải chuỗi đã mã hóa từ server)
-                                passwordToSave = _encryptionService.Encrypt(passwordToSave);
-                                _logger.LogDebug("Đã mã hóa password cho tài khoản {ProfileName}", account.ProfileName);
-                            }
+                            // Nếu giải mã thất bại, chuỗi chưa mã hóa - mã hóa nó
+                            passwordToSave = _encryptionService.Encrypt(passwordToSave);
+                            _logger.LogDebug("Đã mã hóa password mới cho tài khoản {ProfileName}", account.ProfileName);
                         }
                     }
 
@@ -292,8 +286,37 @@ namespace SteamCmdWebAPI.Services
                 }
             }
 
-            // Kiểm tra tài khoản đã tồn tại (theo Username)
-            var existing = accounts.FirstOrDefault(a => a.Username == account.Username);
+            // Trước khi tìm kiếm tài khoản đã tồn tại, cần mã hóa tên người dùng và mật khẩu
+            // để so sánh với các tài khoản đã được mã hóa trong danh sách
+            string originalUsername = account.Username; // Lưu lại để dùng khi so sánh
+            string originalPassword = account.Password; // Lưu lại để dùng khi so sánh
+
+            // Mã hóa tài khoản trước khi so sánh
+            try {
+                if (!string.IsNullOrEmpty(account.Username)) {
+                    account.Username = _encryptionService.Encrypt(account.Username);
+                }
+                if (!string.IsNullOrEmpty(account.Password)) {
+                    account.Password = _encryptionService.Encrypt(account.Password);
+                }
+            }
+            catch (Exception ex) {
+                _logger.LogError(ex, "Lỗi khi mã hóa thông tin tài khoản: {0}", ex.Message);
+            }
+
+            // Kiểm tra tài khoản đã tồn tại
+            var existing = accounts.FirstOrDefault(a => {
+                try {
+                    // Giải mã username từ database để so sánh với username đầu vào
+                    string dbUsername = _encryptionService.Decrypt(a.Username);
+                    return dbUsername.Equals(originalUsername, StringComparison.OrdinalIgnoreCase);
+                }
+                catch {
+                    // Nếu không giải mã được, thử so sánh trực tiếp (trường hợp cũ)
+                    return a.Username.Equals(account.Username, StringComparison.OrdinalIgnoreCase);
+                }
+            });
+
             if (existing != null)
             {
                 // Hợp nhất AppIds
@@ -331,7 +354,6 @@ namespace SteamCmdWebAPI.Services
                 account.Id = accounts.Count > 0 ? accounts.Max(a => a.Id) + 1 : 1;
                 account.CreatedAt = DateTime.Now;
                 account.UpdatedAt = DateTime.Now;
-                // Không mã hóa ở đây, để SaveAccounts lo việc này
                 accounts.Add(account);
                 SaveAccounts(accounts);
                 return account;
@@ -394,7 +416,48 @@ namespace SteamCmdWebAPI.Services
                 }
             }
 
-            // Không mã hóa ở đây, để SaveAccounts lo việc này
+            // Mã hóa thông tin tài khoản trước khi cập nhật
+            try
+            {
+                // Mã hóa username nếu có
+                if (!string.IsNullOrEmpty(account.Username))
+                {
+                    // Thử giải mã để kiểm tra xem đã mã hóa chưa
+                    try
+                    {
+                        string decrypted = _encryptionService.Decrypt(account.Username);
+                        // Nếu giải mã thành công, mã hóa lại để đảm bảo dùng mã hóa mới nhất
+                        account.Username = _encryptionService.Encrypt(decrypted);
+                    }
+                    catch
+                    {
+                        // Nếu không giải mã được, giả sử chuỗi chưa mã hóa
+                        account.Username = _encryptionService.Encrypt(account.Username);
+                    }
+                }
+
+                // Mã hóa password nếu có
+                if (!string.IsNullOrEmpty(account.Password))
+                {
+                    // Thử giải mã để kiểm tra xem đã mã hóa chưa
+                    try
+                    {
+                        string decrypted = _encryptionService.Decrypt(account.Password);
+                        // Nếu giải mã thành công, mã hóa lại để đảm bảo dùng mã hóa mới nhất
+                        account.Password = _encryptionService.Encrypt(decrypted);
+                    }
+                    catch
+                    {
+                        // Nếu không giải mã được, giả sử chuỗi chưa mã hóa
+                        account.Password = _encryptionService.Encrypt(account.Password);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi mã hóa thông tin tài khoản để cập nhật: {0}", ex.Message);
+            }
+
             account.UpdatedAt = DateTime.Now;
             accounts[index] = account;
 
@@ -642,6 +705,90 @@ namespace SteamCmdWebAPI.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi cập nhật thông tin game cho tất cả tài khoản");
+            }
+        }
+
+        // Thêm phương thức để mã hóa lại tất cả tài khoản hiện có
+        public async Task ReencryptAllAccountsAsync()
+        {
+            try
+            {
+                _logger.LogInformation("Bắt đầu mã hóa lại tất cả tài khoản...");
+                
+                // Đọc tất cả tài khoản từ tệp
+                var accounts = await GetAllAccountsAsync();
+                int encryptedCount = 0;
+
+                // Kiểm tra và mã hóa từng tài khoản
+                foreach (var account in accounts)
+                {
+                    bool modified = false;
+
+                    // Kiểm tra và mã hóa username
+                    if (!string.IsNullOrEmpty(account.Username))
+                    {
+                        try
+                        {
+                            // Thử giải mã để kiểm tra xem đã mã hóa chưa
+                            string decrypted = _encryptionService.Decrypt(account.Username);
+                            _logger.LogDebug("Tài khoản {ProfileName}: Username đã được mã hóa, tái mã hóa", account.ProfileName);
+                            // Mã hóa lại từ chuỗi đã giải mã
+                            account.Username = _encryptionService.Encrypt(decrypted);
+                            modified = true;
+                        }
+                        catch
+                        {
+                            _logger.LogInformation("Tài khoản {ProfileName}: Username chưa mã hóa, đang mã hóa", account.ProfileName);
+                            // Nếu không giải mã được, giả sử chuỗi chưa mã hóa
+                            account.Username = _encryptionService.Encrypt(account.Username);
+                            modified = true;
+                        }
+                    }
+
+                    // Kiểm tra và mã hóa password
+                    if (!string.IsNullOrEmpty(account.Password))
+                    {
+                        try
+                        {
+                            // Thử giải mã để kiểm tra xem đã mã hóa chưa
+                            string decrypted = _encryptionService.Decrypt(account.Password);
+                            _logger.LogDebug("Tài khoản {ProfileName}: Password đã được mã hóa, tái mã hóa", account.ProfileName);
+                            // Mã hóa lại từ chuỗi đã giải mã
+                            account.Password = _encryptionService.Encrypt(decrypted);
+                            modified = true;
+                        }
+                        catch
+                        {
+                            _logger.LogInformation("Tài khoản {ProfileName}: Password chưa mã hóa, đang mã hóa", account.ProfileName);
+                            // Nếu không giải mã được, giả sử chuỗi chưa mã hóa
+                            account.Password = _encryptionService.Encrypt(account.Password);
+                            modified = true;
+                        }
+                    }
+
+                    if (modified)
+                    {
+                        encryptedCount++;
+                    }
+                }
+
+                // Lưu lại tất cả tài khoản đã được mã hóa
+                if (encryptedCount > 0)
+                {
+                    SaveAccounts(accounts);
+                    _logger.LogInformation("Đã mã hóa lại {Count} tài khoản", encryptedCount);
+                }
+                else
+                {
+                    _logger.LogInformation("Không có tài khoản nào cần mã hóa lại");
+                }
+
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi mã hóa lại tài khoản: {Message}", ex.Message);
+                throw;
             }
         }
     }

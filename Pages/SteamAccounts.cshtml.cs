@@ -69,10 +69,59 @@ namespace SteamCmdWebAPI.Pages
                     return new JsonResult(new { success = false, message = "Account not found" });
                 }
 
-                // Don't return decrypted password
-                account.Password = null;
+                // Tạo một bản sao account để tránh thay đổi dữ liệu từ database
+                var accountCopy = new SteamAccount
+                {
+                    Id = account.Id,
+                    ProfileName = account.ProfileName,
+                    Username = account.Username,
+                    AppIds = account.AppIds,
+                    GameNames = account.GameNames,
+                    CreatedAt = account.CreatedAt
+                };
 
-                return new JsonResult(new { success = true, account });
+                // Giải mã username trước khi gửi về UI
+                try {
+                    if (!string.IsNullOrEmpty(accountCopy.Username)) 
+                    {
+                        string originalUsername = accountCopy.Username;
+                        bool isLikelyEncrypted = originalUsername.Length > 20 && 
+                                                originalUsername.Contains("=") && 
+                                                !originalUsername.Contains(" ");
+                                                
+                        if (isLikelyEncrypted)
+                        {
+                            accountCopy.Username = _encryptionService.Decrypt(originalUsername);
+                            _logger.LogDebug("Đã giải mã username từ {OriginalLength} ký tự thành {DecryptedLength} ký tự",
+                                originalUsername.Length,
+                                accountCopy.Username?.Length ?? 0);
+                        }
+                        else 
+                        {
+                            _logger.LogDebug("Username '{UsernameHint}' có vẻ chưa được mã hóa, giữ nguyên giá trị",
+                                originalUsername.Length > 3 ? originalUsername.Substring(0, 3) + "***" : "***");
+                        }
+                    }
+                }
+                catch (Exception ex) {
+                    _logger.LogWarning(ex, "Không thể giải mã username cho UI: {Error}. Trả về giá trị an toàn", ex.Message);
+                    
+                    // Sử dụng username gốc (được che dấu ở client) hoặc placeholder
+                    if (!string.IsNullOrEmpty(accountCopy.Username) && accountCopy.Username.Length > 3)
+                    {
+                        // Lấy 3 ký tự đầu tiên và thay phần còn lại bằng ***
+                        accountCopy.Username = accountCopy.Username.Substring(0, 3) + "***";
+                    }
+                    else
+                    {
+                        accountCopy.Username = "<hidden>";
+                    }
+                }
+
+                // Don't return any password
+                accountCopy.Password = null;
+
+                return new JsonResult(new { success = true, account = accountCopy });
             }
             catch (Exception ex)
             {
@@ -152,6 +201,12 @@ namespace SteamCmdWebAPI.Pages
                 if (string.IsNullOrWhiteSpace(Account.Password))
                 {
                     Account.Password = existingAccount.Password;
+                }
+
+                // Keep old username if no new username
+                if (string.IsNullOrWhiteSpace(Account.Username))
+                {
+                    Account.Username = existingAccount.Username;
                 }
 
                 // Update game names if AppIds changed
@@ -281,9 +336,45 @@ namespace SteamCmdWebAPI.Pages
         {
             try
             {
+                // Nếu là edit tài khoản (có accountId) và username trống, lấy username hiện tại
+                if (accountId.HasValue && accountId.Value > 0 && string.IsNullOrWhiteSpace(username))
+                {
+                    var existingAccount = await _accountService.GetAccountByIdAsync(accountId.Value);
+                    if (existingAccount != null)
+                    {
+                        _logger.LogInformation("ScanAccountGamesAsync: Username trống, sử dụng username đã lưu cho tài khoản ID {AccountId}", accountId.Value);
+                        username = existingAccount.Username;
+                    }
+                    else
+                    {
+                        return new JsonResult(new { success = false, message = "Không tìm thấy tài khoản" });
+                    }
+                }
+                
                 if (string.IsNullOrWhiteSpace(username))
                 {
                     return new JsonResult(new { success = false, message = "Vui lòng nhập tên đăng nhập Steam" });
+                }
+
+                // Kiểm tra nhanh xem username có vẻ đã được mã hóa chưa
+                bool isUsernameLikelyEncrypted = !string.IsNullOrEmpty(username) && 
+                    username.Length > 20 && 
+                    username.Contains("=") && 
+                    !username.Contains(" ");
+                
+                _logger.LogDebug("ScanAccountGamesAsync: Username có vẻ đã mã hóa: {Encrypted}, Độ dài: {Length}", 
+                    isUsernameLikelyEncrypted, username?.Length ?? 0);
+                
+                if (isUsernameLikelyEncrypted) {
+                    // Nếu username từ form có vẻ đã mã hóa, thử giải mã nó
+                    try {
+                        string decodedUsername = _encryptionService.Decrypt(username);
+                        _logger.LogWarning("ScanAccountGamesAsync: Form đang gửi username đã mã hóa. Đã giải mã thành công.");
+                        username = decodedUsername;
+                    }
+                    catch {
+                        _logger.LogWarning("ScanAccountGamesAsync: Username có vẻ đã mã hóa nhưng không thể giải mã. Tiếp tục với giá trị ban đầu.");
+                    }
                 }
 
                 // Nếu là edit tài khoản (có accountId) và không có mật khẩu, lấy mật khẩu hiện tại
@@ -293,12 +384,68 @@ namespace SteamCmdWebAPI.Pages
                     if (existingAccount != null)
                     {
                         _logger.LogInformation("Sử dụng mật khẩu đã lưu cho tài khoản ID {AccountId}", accountId.Value);
-                        password = existingAccount.Password;
                         
-                        // Kiểm tra xem tên đăng nhập có thay đổi không (nếu đã đổi thì yêu cầu nhập lại mật khẩu)
-                        if (username != existingAccount.Username)
+                        // Cần giải mã mật khẩu trước khi sử dụng
+                        try {
+                            // Không giải mã mật khẩu ngay - sẽ để ScanAccountGames xử lý
+                            password = existingAccount.Password;
+                            _logger.LogDebug("Đã lấy mật khẩu đã mã hóa từ database, ScanAccountGames sẽ giải mã");
+                        }
+                        catch (Exception ex) {
+                            _logger.LogWarning(ex, "Không thể truy xuất mật khẩu từ database: {0}", ex.Message);
+                            return new JsonResult(new { success = false, message = "Không thể truy xuất mật khẩu từ database" });
+                        }
+                        
+                        // Kiểm tra xem tên đăng nhập có thay đổi không
+                        if (!isUsernameLikelyEncrypted) // Chỉ kiểm tra nếu username chưa bị mã hóa
                         {
-                            return new JsonResult(new { success = false, message = "Bạn đã thay đổi tên đăng nhập, vui lòng nhập mật khẩu" });
+                            // Giải mã username từ database để so sánh với username từ form
+                            try {
+                                string decryptedDbUsername = _encryptionService.Decrypt(existingAccount.Username);
+                                
+                                if (username != decryptedDbUsername)
+                                {
+                                    _logger.LogWarning("Username form khác với giá trị đã lưu trong database sau khi giải mã DB");
+                                    
+                                    // Log chi tiết để debug
+                                    _logger.LogDebug("Username từ form: {FormUsername}, Username từ DB (giải mã): {DbUsername}", 
+                                        username.Substring(0, Math.Min(5, username.Length)) + "...",
+                                        decryptedDbUsername.Substring(0, Math.Min(5, decryptedDbUsername.Length)) + "...");
+                                    
+                                    return new JsonResult(new { success = false, message = "Bạn đã thay đổi tên đăng nhập, vui lòng nhập mật khẩu" });
+                                }
+                                else
+                                {
+                                    _logger.LogDebug("Username khớp với giá trị đã lưu trong database sau khi giải mã DB");
+                                }
+                            }
+                            catch (Exception ex) {
+                                _logger.LogWarning(ex, "Lỗi khi giải mã username từ database: {0}", ex.Message);
+                                
+                                // Mã hóa username từ form để so sánh
+                                try {
+                                    string encodedFormUsername = _encryptionService.Encrypt(username);
+                                    _logger.LogDebug("Mã hóa username từ form để so sánh: {EncodedUsername}", 
+                                        encodedFormUsername.Substring(0, Math.Min(20, encodedFormUsername.Length)) + "...");
+                                    
+                                    // So sánh với username đã mã hóa từ database
+                                    if (!string.Equals(encodedFormUsername, existingAccount.Username))
+                                    {
+                                        _logger.LogWarning("Username form khác với giá trị đã lưu trong database sau khi mã hóa form");
+                                        return new JsonResult(new { success = false, message = "Bạn đã thay đổi tên đăng nhập, vui lòng nhập mật khẩu" });
+                                    }
+                                    else
+                                    {
+                                        _logger.LogDebug("Username khớp với giá trị đã lưu trong database sau khi mã hóa form");
+                                    }
+                                }
+                                catch (Exception ex2) {
+                                    _logger.LogWarning(ex2, "Lỗi khi mã hóa username form: {0}", ex2.Message);
+                                    
+                                    // Nếu không thể so sánh, hãy giả định username đã thay đổi
+                                    return new JsonResult(new { success = false, message = "Không thể xác thực tên đăng nhập, vui lòng nhập mật khẩu" });
+                                }
+                            }
                         }
                     }
                     else
@@ -313,13 +460,11 @@ namespace SteamCmdWebAPI.Pages
                     return new JsonResult(new { success = false, message = "Vui lòng nhập mật khẩu Steam" });
                 }
 
-                _logger.LogInformation("Đang quét danh sách game cho tài khoản {Username}", username);
+                string usernameHint = username.Length > 3 ? username.Substring(0, 3) + "***" : "***";
+                _logger.LogInformation("Đang quét danh sách game cho tài khoản {Username}", usernameHint);
 
-                // Phản hồi trạng thái ban đầu để người dùng biết quá trình đang tiến hành
-                // Đây là thông báo về việc đang xử lý, thực tế cần triển khai SignalR để thực sự cập nhật trạng thái theo thời gian thực
-
-                // Get the games list from the Steam account
-                var games = await _steamAppInfoService.GetOwnedGamesAsync(username, password);
+                // Sử dụng ScanAccountGames
+                var games = await _steamAppInfoService.ScanAccountGames(username, password);
 
                 if (games.Count == 0)
                 {
@@ -337,7 +482,7 @@ namespace SteamCmdWebAPI.Pages
                     gameName = g.GameName
                 }).ToList();
 
-                _logger.LogInformation("Đã lấy được {Count} game từ tài khoản {Username}", results.Count, username);
+                _logger.LogInformation("Đã lấy được {Count} game từ tài khoản {Username}", results.Count, usernameHint);
 
                 return new JsonResult(new { 
                     success = true, 
@@ -349,7 +494,10 @@ namespace SteamCmdWebAPI.Pages
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi quét danh sách game từ tài khoản {Username}: {Error}", username, ex.Message);
+                _logger.LogError(ex, "Lỗi khi quét danh sách game từ tài khoản {Username}: {Error}", 
+                    username.Length > 3 ? username.Substring(0, 3) + "***" : "***", 
+                    ex.Message);
+                    
                 string errorMessage = ex.Message;
                 
                 // Thêm thông tin chi tiết về lỗi

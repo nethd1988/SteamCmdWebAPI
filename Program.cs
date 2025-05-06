@@ -143,12 +143,12 @@ namespace SteamCmdWebAPI
             builder.Services.AddSingleton<TcpClientService>();
             builder.Services.AddSteamCmdServices();
 
-            // Đăng ký SteamAppInfoService để tự động lấy thông tin game từ AppID
-            builder.Services.AddSingleton<SteamAppInfoService>();
-
             // Đăng ký các dịch vụ mới
             builder.Services.AddSingleton<UpdateCheckService>();
             builder.Services.AddHostedService(provider => provider.GetRequiredService<UpdateCheckService>());
+
+            // Đăng ký dịch vụ mã hóa tài khoản khi khởi động
+            builder.Services.AddHostedService<AccountEncryptionService>();
 
             // Đăng ký model mới
             builder.Services.Configure<Models.UpdateCheckSettings>(builder.Configuration.GetSection("UpdateCheckSettings"));

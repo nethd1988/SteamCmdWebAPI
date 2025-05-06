@@ -156,7 +156,8 @@
                 </div>
                 <div class="mb-3">
                     <label for="editUsername" class="form-label">Tên tài khoản</label>
-                    <input type="text" class="form-control" id="editUsername" name="Account.Username" required>
+                    <input type="text" class="form-control" id="editUsername" name="Account.Username" placeholder="Để trống nếu không thay đổi">
+                    <small class="form-text text-muted">Để trống nếu không thay đổi.</small>
                 </div>
                 <div class="mb-3">
                     <label for="editPassword" class="form-label">Mật khẩu</label>
@@ -477,6 +478,21 @@
 
             // Nút quét từ tài khoản - form sửa
             $("#btnScanEditSteamAccount").click(function() {
+                const username = $("#editUsername").val();
+                const accountId = $("#editId").val();
+                
+                // Hiển thị thông báo hữu ích khi username trống
+                if (!username && accountId) {
+                    toastr.info(
+                        "Bạn đang để trống tên đăng nhập. Hệ thống sẽ tự động sử dụng tên đăng nhập đã lưu trong database.", 
+                        "Thông tin", 
+                        {
+                            "timeOut": "8000",
+                            "positionClass": "toast-top-center"
+                        }
+                    );
+                }
+                
                 toastr.info(
                     "Quá trình có thể mất vài phút và có thể bị timeout nếu có nhiều game. Vui lòng chờ...", 
                     "Đang chuẩn bị quét tài khoản Steam", 
@@ -486,7 +502,7 @@
                         "positionClass": "toast-top-center"
                     }
                 );
-                const accountId = $("#editId").val();
+                
                 scanSteamAccount("#editUsername", "#editPassword", "#editAppIds", "#editGameNames", accountId);
             });
 
@@ -519,7 +535,8 @@
                 const username = $(usernameSelector).val();
                 const password = $(passwordSelector).val();
                 
-                if (!username) {
+                // Trường hợp thêm mới (không có accountId): yêu cầu nhập username
+                if (!accountId && !username) {
                     toastr.warning("Vui lòng điền tên đăng nhập trước khi quét", "Cảnh báo", {
                         "timeOut": "8000"
                     });
@@ -532,6 +549,13 @@
                         "timeOut": "8000"
                     });
                     return;
+                }
+                
+                // Kiểm tra và hiển thị cảnh báo nếu username có vẻ đã được mã hóa
+                // Đây là mục đích kiểm tra nhanh, không phải phân tích chính xác
+                const isUsernameLikelyEncrypted = username && username.length > 20 && username.includes('=') && !username.includes(' ');
+                if (isUsernameLikelyEncrypted) {
+                    console.warn("Username có vẻ đã được mã hóa, điều này có thể dẫn đến lỗi: ", username.substring(0, 10) + "...");
                 }
 
                 // Hiển thị thông báo đang quét
@@ -723,7 +747,7 @@
                         const account = response.account;
                         $("#editId").val(account.id);
                         $("#editProfileName").val(account.profileName);
-                        $("#editUsername").val(account.username);
+                        $("#editUsername").val(''); // Để trống username
                         $("#editPassword").val(''); // Để trống password
                         $("#editAppIds").val(account.appIds);
                         $("#editGameNames").val(account.gameNames);

@@ -16,8 +16,11 @@ namespace SteamCmdWebAPI.Services
             services.AddSingleton<EncryptionService>();
             services.AddSingleton<SettingsService>();
             
-            // Đăng ký SteamAppInfoService trước SteamAccountService
-            services.AddSingleton<SteamAppInfoService>();
+            // Đăng ký SteamAppInfoService trước SteamAccountService với EncryptionService
+            services.AddSingleton<SteamAppInfoService>(sp => new SteamAppInfoService(
+                sp.GetRequiredService<ILogger<SteamAppInfoService>>(),
+                sp.GetRequiredService<EncryptionService>()
+            ));
             
             // Đăng ký SteamAccountService trước ProfileService
             services.AddSingleton<SteamAccountService>(sp => new SteamAccountService(

@@ -11,6 +11,7 @@ namespace SteamCmdWebAPI.Services
     public class SteamAppInfoService
     {
         private readonly ILogger<SteamAppInfoService> _logger;
+        private readonly EncryptionService _encryptionService;
         private SteamClient _steamClient;
         private SteamUser _steamUser;
         private SteamApps _steamApps;
@@ -45,9 +46,10 @@ namespace SteamCmdWebAPI.Services
         private readonly int _maxConnectionRetries = 3;
         private readonly int _maxLoginRetries = 2;
 
-        public SteamAppInfoService(ILogger<SteamAppInfoService> logger)
+        public SteamAppInfoService(ILogger<SteamAppInfoService> logger, EncryptionService encryptionService)
         {
             _logger = logger;
+            _encryptionService = encryptionService;
             _appInfoCache = new Dictionary<uint, SteamApps.PICSProductInfoCallback.PICSProductInfo>();
             _licenses = new List<SteamApps.LicenseListCallback.License>();
             _ownedAppIds = new HashSet<uint>();
@@ -145,7 +147,45 @@ namespace SteamCmdWebAPI.Services
             // Nếu chưa đăng nhập nhưng có thông tin đăng nhập, thực hiện đăng nhập
             if (!_isLoggedIn && !string.IsNullOrEmpty(_currentUsername) && !string.IsNullOrEmpty(_currentPassword))
             {
-                Task.Run(() => PerformLogin(_currentUsername, _currentPassword, _authCode, _twoFactorCode));
+                // Giải mã thông tin đăng nhập trước khi sử dụng
+                string decryptedUsername;
+                string decryptedPassword;
+                
+                try
+                {
+                    decryptedUsername = _encryptionService.Decrypt(_currentUsername);
+                    _logger.LogDebug("OnConnected: Đã giải mã username thành công");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "OnConnected: Không thể giải mã username - có thể đã không được mã hóa");
+                    // Nếu không giải mã được, giả sử đó là văn bản thuần
+                    decryptedUsername = _currentUsername;
+                }
+                
+                try
+                {
+                    decryptedPassword = _encryptionService.Decrypt(_currentPassword);
+                    _logger.LogDebug("OnConnected: Đã giải mã password thành công");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "OnConnected: Không thể giải mã password - có thể đã không được mã hóa");
+                    // Nếu không giải mã được, giả sử đó là văn bản thuần
+                    decryptedPassword = _currentPassword;
+                }
+                
+                // Kiểm tra tính hợp lệ trước khi thử đăng nhập
+                if (string.IsNullOrEmpty(decryptedUsername) || string.IsNullOrEmpty(decryptedPassword))
+                {
+                    _logger.LogError("OnConnected: Username hoặc password sau khi giải mã là rỗng, không thể đăng nhập");
+                    return;
+                }
+                
+                _logger.LogInformation("OnConnected: Đang tự động đăng nhập với username: {UsernameHint}***", 
+                    decryptedUsername.Length > 3 ? decryptedUsername.Substring(0, 3) : "***");
+                
+                Task.Run(() => PerformLogin(decryptedUsername, decryptedPassword, _authCode, _twoFactorCode));
             }
         }
 
@@ -626,14 +666,43 @@ potentialAppId, packageId);
                         Thread.Sleep(500 * retryCount);
                     }
 
-                    _currentUsername = username;
-                    _currentPassword = password;
+                    // Chỉ lưu trữ thông tin đăng nhập sau khi đã mã hóa
+                    // Kiểm tra xem thông tin đăng nhập đã được mã hóa chưa
+                    bool isUsernameEncrypted = false;
+                    bool isPasswordEncrypted = false;
+
+                    try
+                    {
+                        // Thử giải mã để kiểm tra xem đã mã hóa chưa
+                        _encryptionService.Decrypt(username);
+                        // Nếu giải mã thành công mà không có lỗi, nghĩa là chuỗi đã được mã hóa
+                        isUsernameEncrypted = true;
+                    }
+                    catch
+                    {
+                        // Không giải mã được, tức là chưa mã hóa
+                        isUsernameEncrypted = false;
+                    }
+
+                    try
+                    {
+                        _encryptionService.Decrypt(password);
+                        isPasswordEncrypted = true;
+                    }
+                    catch
+                    {
+                        isPasswordEncrypted = false;
+                    }
+
+                    // Lưu thông tin đang nhập đã mã hóa để sử dụng sau này
+                    _currentUsername = isUsernameEncrypted ? username : _encryptionService.Encrypt(username);
+                    _currentPassword = isPasswordEncrypted ? password : _encryptionService.Encrypt(password);
                     _authCode = authCode;
                     _twoFactorCode = twoFactorCode;
 
                     var loginDetails = new SteamUser.LogOnDetails
                     {
-                        Username = username,
+                        Username = username, // Sử dụng thông tin đăng nhập chưa mã hóa
                         Password = password,
                         ShouldRememberPassword = true // Thêm flag này để giảm số lần đăng nhập trong tương lai
                     };
@@ -648,7 +717,8 @@ potentialAppId, packageId);
                         loginDetails.TwoFactorCode = twoFactorCode;
                     }
 
-                    _logger.LogInformation("Đang đăng nhập vào Steam với tài khoản {Username}...", username);
+                    string usernameHint = username.Length > 3 ? username.Substring(0, 3) + "***" : "***";
+                    _logger.LogInformation("Đang đăng nhập vào Steam với tài khoản {Username}...", usernameHint);
                     _logonEvent.Reset();
                     _steamUser.LogOn(loginDetails);
 
@@ -874,12 +944,99 @@ potentialAppId, packageId);
             // Đơn giản hóa - gọi thẳng đến hàm xử lý chính
             try
             {
-                _logger.LogInformation("Đang quét danh sách game cho tài khoản {0}...", username);
-                return await GetOwnedGamesAsync(username, password);
+                string usernameHint = !string.IsNullOrEmpty(username) && username.Length > 3 ? 
+                    username.Substring(0, 3) + "***" : "***";
+                _logger.LogInformation("Đang quét danh sách game cho tài khoản {UsernameHint}...", usernameHint);
+                
+                // Kiểm tra xem username và password có được mã hóa không, nếu có thì giải mã
+                string decodedUsername = username;
+                string decodedPassword = password;
+                bool usernameDecrypted = false;
+                bool passwordDecrypted = false;
+                
+                // Log chi tiết về dữ liệu đầu vào để debug
+                _logger.LogDebug("ScanAccountGames: Độ dài username: {UsernameLength}, Độ dài password: {PasswordLength}", 
+                    username?.Length ?? 0, password?.Length ?? 0);
+                
+                // Log giá trị hash của chuỗi đầu vào để debug (không log giá trị thực)
+                if (!string.IsNullOrEmpty(username))
+                {
+                    _logger.LogDebug("ScanAccountGames: Username hash: {Hash}", 
+                        Convert.ToBase64String(System.Security.Cryptography.MD5.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes(username))));
+                }
+                
+                // Thử phát hiện chuỗi đã mã hóa dựa vào các đặc điểm như độ dài, ký tự đặc biệt, v.v.
+                bool isUsernameLikelyEncrypted = !string.IsNullOrEmpty(username) && 
+                    username.Length > 20 && 
+                    username.Contains("=") && 
+                    !username.Contains(" ");
+                    
+                bool isPasswordLikelyEncrypted = !string.IsNullOrEmpty(password) && 
+                    password.Length > 20 && 
+                    password.Contains("=") && 
+                    !password.Contains(" ");
+                
+                _logger.LogDebug("ScanAccountGames: Phát hiện sơ bộ - Username có vẻ đã mã hóa: {Encrypted}, Password có vẻ đã mã hóa: {Encrypted}", 
+                    isUsernameLikelyEncrypted, isPasswordLikelyEncrypted);
+                
+                // Thử giải mã username
+                if (!string.IsNullOrEmpty(username))
+                {
+                    try
+                    {
+                        string originalUsername = username;
+                        decodedUsername = _encryptionService.Decrypt(username);
+                        usernameDecrypted = true;
+                        string decryptedHint = decodedUsername.Length > 3 ? 
+                            decodedUsername.Substring(0, 3) + "***" : "***";
+                            
+                        _logger.LogDebug("ScanAccountGames: Đã giải mã username thành công: hash={Original} -> hash={Decrypted}", 
+                            Convert.ToBase64String(System.Security.Cryptography.MD5.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes(originalUsername))), 
+                            Convert.ToBase64String(System.Security.Cryptography.MD5.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes(decodedUsername))));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug("ScanAccountGames: Username không cần giải mã hoặc không thể giải mã: {Error}", ex.Message);
+                        // Giữ nguyên username gốc nếu không thể giải mã
+                    }
+                }
+                
+                // Thử giải mã password
+                if (!string.IsNullOrEmpty(password))
+                {
+                    try
+                    {
+                        decodedPassword = _encryptionService.Decrypt(password);
+                        passwordDecrypted = true;
+                        _logger.LogDebug("ScanAccountGames: Đã giải mã password thành công");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug("ScanAccountGames: Password không cần giải mã hoặc không thể giải mã: {Error}", ex.Message);
+                        // Giữ nguyên password gốc nếu không thể giải mã
+                    }
+                }
+                
+                _logger.LogInformation("ScanAccountGames: Trạng thái giải mã - Username: {UsernameDecrypted}, Password: {PasswordDecrypted}, Có vẻ đã mã hóa: Username={UsernameEncrypted}, Password={PasswordEncrypted}", 
+                    usernameDecrypted, passwordDecrypted, isUsernameLikelyEncrypted, isPasswordLikelyEncrypted);
+                
+                // Kiểm tra tính hợp lệ trước khi thử đăng nhập
+                if (string.IsNullOrEmpty(decodedUsername) || string.IsNullOrEmpty(decodedPassword))
+                {
+                    _logger.LogError("ScanAccountGames: Username hoặc password sau khi giải mã là rỗng, không thể đăng nhập");
+                    throw new Exception("Thông tin đăng nhập không hợp lệ sau khi giải mã");
+                }
+                
+                string decodedUsernameHint = decodedUsername.Length > 3 ? 
+                    decodedUsername.Substring(0, 3) + "***" : "***";
+                _logger.LogInformation("ScanAccountGames: Đang gọi GetOwnedGamesAsync với username: {UsernameHint}", 
+                    decodedUsernameHint);
+                
+                return await GetOwnedGamesAsync(decodedUsername, decodedPassword);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi quét game từ tài khoản: {0}", ex.Message);
+                _logger.LogError(ex, "Lỗi khi quét game từ tài khoản: {Error}", ex.Message);
                 throw;
             }
         }
