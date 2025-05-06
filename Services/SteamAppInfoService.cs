@@ -305,18 +305,51 @@ namespace SteamCmdWebAPI.Services
                     return;
                 }
 
+                // Thực hiện phân tích trực tiếp license trước khi gửi yêu cầu PICS
+                // Đây là bước bổ sung để bảo đảm có nhiều cơ hội tìm ra AppID
+                ExtractAppIdsFromLicenses();
+
+                // Cache để theo dõi các package đã xử lý
+                HashSet<uint> processedPackages = new HashSet<uint>();
+                
                 // Chia thành các batch nhỏ (tối đa 50 package mỗi lần)
                 int batchSize = 50;
-                foreach (var batch in BatchItems(validPackages, batchSize))
+                
+                // Sử dụng vòng lặp for thay vì foreach với BatchItems
+                for (int i = 0; i < validPackages.Count; i += batchSize)
                 {
-                    _logger.LogInformation("Gửi yêu cầu cho batch {0} package...", batch.Count);
-                    var packageRequests = batch.Select(id => new SteamApps.PICSRequest(id)).ToList();
+                    var batch = validPackages.Skip(i).Take(batchSize).ToList();
+                    
+                    // Bỏ qua các package đã xử lý
+                    var unprocessedBatch = new List<uint>();
+                    foreach (var packageId in batch)
+                    {
+                        if (!processedPackages.Contains(packageId))
+                        {
+                            unprocessedBatch.Add(packageId);
+                        }
+                    }
+                    
+                    if (unprocessedBatch.Count == 0)
+                    {
+                        _logger.LogDebug("Bỏ qua batch toàn package đã xử lý");
+                        continue;
+                    }
+                    
+                    _logger.LogInformation("Gửi yêu cầu cho batch {0} package...", unprocessedBatch.Count);
+                    var packageRequests = unprocessedBatch.Select(id => new SteamApps.PICSRequest(id)).ToList();
 
                     // Gửi yêu cầu
                     _steamApps.PICSGetProductInfo(
                         apps: new List<SteamApps.PICSRequest>(),
                         packages: packageRequests
                     );
+                    
+                    // Đánh dấu những package này là đã xử lý
+                    foreach (var id in unprocessedBatch)
+                    {
+                        processedPackages.Add(id);
+                    }
 
                     // Đợi một chút để tránh rate limit
                     Thread.Sleep(300);
@@ -344,6 +377,121 @@ namespace SteamCmdWebAPI.Services
                 _isProcessingPackages = false;
                 _licenseListEvent.Set();
             }
+        }
+        
+        // Phương thức mới để trích xuất AppID trực tiếp từ đối tượng License
+        private void ExtractAppIdsFromLicenses()
+        {
+            if (_licenses == null || _licenses.Count == 0)
+            {
+                return;
+            }
+            
+            _logger.LogInformation("Phân tích trực tiếp {0} đối tượng License...", _licenses.Count);
+            int extractedAppIds = 0;
+            
+            foreach (var license in _licenses)
+            {
+                try
+                {
+                    // Kiểm tra các trường liên quan đến AppID trong License
+                    if (license.AccessToken > 0 && license.AccessToken < 5000000)
+                    {
+                        _ownedAppIds.Add((uint)license.AccessToken);
+                        extractedAppIds++;
+                    }
+                    
+                    // Một số license chứa AppID trong PackageID hoặc có quan hệ 1:1 với AppID
+                    if (license.PackageID > 0 && license.PackageID < 5000000)
+                    {
+                        // Kiểm tra PaymentMethod thay vì sử dụng HasFlag với enum cụ thể
+                        bool isSpecialLicense = false;
+                        
+                        // Số đại diện cho FreeOnDemand thường là 10
+                        if ((int)license.PaymentMethod == 10)
+                        {
+                            isSpecialLicense = true;
+                        }
+                        
+                        // Số đại diện cho HardwarePromo thường là 13
+                        if ((int)license.PaymentMethod == 13)
+                        {
+                            isSpecialLicense = true;
+                        }
+                        
+                        if (!isSpecialLicense)
+                        {
+                            // Thử tìm AppID tương ứng với PackageID này
+                            uint potentialAppId = license.PackageID;
+                            
+                            // Một số package có AppID = PackageID, hoặc AppID = PackageID - offset
+                            for (int offset = 0; offset <= 10; offset++)
+                            {
+                                if (potentialAppId > offset)
+                                {
+                                    uint appIdCandidate = potentialAppId - (uint)offset;
+                                    if (appIdCandidate > 0 && appIdCandidate < 5000000)
+                                    {
+                                        _ownedAppIds.Add(appIdCandidate);
+                                        extractedAppIds++;
+                                        
+                                        // Nếu tìm được, không cần thử offset khác
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Kiểm tra các trường khác của license (cho các phiên bản SteamKit mới hơn)
+                    // Các trường này có thể thay đổi theo phiên bản của SteamKit
+                    var licenseType = license.GetType();
+                    var properties = licenseType.GetProperties();
+                    
+                    foreach (var prop in properties)
+                    {
+                        try
+                        {
+                            var value = prop.GetValue(license);
+                            if (value != null)
+                            {
+                                // Nếu có thuộc tính là Collection hoặc Array
+                                if (value is System.Collections.IEnumerable collection && !(value is string))
+                                {
+                                    foreach (var item in collection)
+                                    {
+                                        if (item != null && uint.TryParse(item.ToString(), out uint appId) && 
+                                            appId > 0 && appId < 5000000)
+                                        {
+                                            _ownedAppIds.Add(appId);
+                                            extractedAppIds++;
+                                        }
+                                    }
+                                }
+                                // Nếu có thuộc tính AppID
+                                else if ((prop.Name.Contains("AppID") || prop.Name.Contains("AppId")) && 
+                                      uint.TryParse(value.ToString(), out uint appId) && 
+                                      appId > 0 && appId < 5000000)
+                                {
+                                    _ownedAppIds.Add(appId);
+                                    extractedAppIds++;
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            // Bỏ qua lỗi khi truy cập thuộc tính
+                            continue;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug("Lỗi khi phân tích đối tượng License: {0}", ex.Message);
+                }
+            }
+            
+            _logger.LogInformation("Đã trích xuất {0} AppID trực tiếp từ đối tượng License", extractedAppIds);
         }
 
         private void OnPICSProductInfo(SteamApps.PICSProductInfoCallback callback)
@@ -498,7 +646,7 @@ namespace SteamCmdWebAPI.Services
                             {
                                 _ownedAppIds.Add(appIdFromName);
                                 _logger.LogDebug("Đã tìm thấy AppID {0} từ Name của node con trong package {1}",
-appIdFromName, packageId);
+                                    appIdFromName, packageId);
                             }
                             // Kiểm tra Value của node con
                             else if (child.Value != null && uint.TryParse(child.Value.ToString(), out uint appIdFromValue) && appIdFromValue > 0)
@@ -519,14 +667,104 @@ appIdFromName, packageId);
                          potentialAppId > 0 &&
                          potentialAppId < 5000000) // Giới hạn số quá lớn
                 {
-                    // Kiểm tra nếu node này có node con tên là "gamedir" hoặc "name" - dấu hiệu là AppID
-                    if (node.Children != null &&
-                        (node.Children.Any(c => c != null && c.Name != null && c.Name.Equals("gamedir", StringComparison.OrdinalIgnoreCase)) ||
-                         node.Children.Any(c => c != null && c.Name != null && c.Name.Equals("name", StringComparison.OrdinalIgnoreCase))))
+                    // Kiểm tra nếu node này có node con tên là các thuộc tính liên quan đến game
+                    bool isAppIdNode = false;
+                    
+                    if (node.Children != null)
+                    {
+                        isAppIdNode = node.Children.Any(c => c != null && c.Name != null && 
+                            (c.Name.Equals("gamedir", StringComparison.OrdinalIgnoreCase) ||
+                             c.Name.Equals("name", StringComparison.OrdinalIgnoreCase) ||
+                             c.Name.Equals("install_dir", StringComparison.OrdinalIgnoreCase) ||
+                             c.Name.Equals("executable", StringComparison.OrdinalIgnoreCase) ||
+                             c.Name.Equals("clienticon", StringComparison.OrdinalIgnoreCase) ||
+                             c.Name.Equals("clienttga", StringComparison.OrdinalIgnoreCase) ||
+                             c.Name.Equals("icon", StringComparison.OrdinalIgnoreCase)));
+                    }
+                    
+                    // SteamKit2.KeyValue không có thuộc tính Parent, nên cần tiếp cận khác
+                    // Thay vì kiểm tra qua node cha, kiểm tra qua tên node
+                    if (!isAppIdNode)
+                    {
+                        // Kiểm tra thêm dựa trên tên node và các đặc điểm khác
+                        if (potentialAppId > 100 && // AppID hợp lệ thường lớn hơn 100
+                            node.Children != null && node.Children.Count > 0)
+                        {
+                            // Các node con có tên đặc trưng của game/app
+                            var commonChildNames = new[] { "name", "type", "config", "dlc", "depots", "common" };
+                            isAppIdNode = node.Children.Any(c => c != null && c.Name != null && 
+                                commonChildNames.Contains(c.Name.ToLower()));
+                        }
+                    }
+                    
+                    if (isAppIdNode)
                     {
                         _ownedAppIds.Add(potentialAppId);
                         _logger.LogDebug("Đã tìm thấy AppID {0} là tên node trong package {1}",
-potentialAppId, packageId);
+                            potentialAppId, packageId);
+                    }
+                    
+                    // Kiểm tra thêm dựa trên đặc điểm của node và node con
+                    if (!isAppIdNode && node.Children != null && node.Children.Count > 1)
+                    {
+                        // Kiểm tra số lượng node con có cấu trúc tương tự AppID
+                        int similarChildrenCount = 0;
+                        int totalChildrenCount = 0;
+                        
+                        foreach (var child in node.Children)
+                        {
+                            if (child == null) continue;
+                            totalChildrenCount++;
+                            
+                            if (uint.TryParse(child.Name, out uint siblingId) && 
+                                siblingId > 0 && siblingId < 5000000)
+                            {
+                                similarChildrenCount++;
+                            }
+                        }
+                        
+                        // Nếu phần lớn các node con đều là số và nằm trong phạm vi AppID
+                        if (totalChildrenCount > 0 && similarChildrenCount > 0 && 
+                            ((double)similarChildrenCount / totalChildrenCount >= 0.5))
+                        {
+                            _ownedAppIds.Add(potentialAppId);
+                            _logger.LogDebug("Đã tìm thấy AppID {0} qua phân tích cấu trúc trong package {1}",
+                                potentialAppId, packageId);
+                        }
+                    }
+                }
+                
+                // Trường hợp đặc biệt: kiểm tra các node có thể chứa appid
+                if (node.Name != null && node.Children != null && 
+                    (node.Name.Equals("app", StringComparison.OrdinalIgnoreCase) ||
+                     node.Name.Equals("dlc", StringComparison.OrdinalIgnoreCase) ||
+                     node.Name.Equals("depots", StringComparison.OrdinalIgnoreCase) ||
+                     node.Name.Equals("extended", StringComparison.OrdinalIgnoreCase)))
+                {
+                    foreach (var child in node.Children)
+                    {
+                        if (child == null || child.Children == null) continue;
+                        
+                        // Kiểm tra node con có tên "appid"
+                        KeyValue appidNode = null;
+                        foreach (var subChild in child.Children)
+                        {
+                            if (subChild != null && subChild.Name != null && 
+                                subChild.Name.Equals("appid", StringComparison.OrdinalIgnoreCase))
+                            {
+                                appidNode = subChild;
+                                break;
+                            }
+                        }
+                        
+                        if (appidNode != null && appidNode.Value != null &&
+                            uint.TryParse(appidNode.Value.ToString(), out uint appId) && 
+                            appId > 0 && appId < 5000000)
+                        {
+                            _ownedAppIds.Add(appId);
+                            _logger.LogDebug("Đã tìm thấy AppID {0} từ node đặc biệt trong package {1}",
+                                appId, packageId);
+                        }
                     }
                 }
 
@@ -567,8 +805,10 @@ potentialAppId, packageId);
 
                 // Chia thành các batch nhỏ (tối đa 100 app mỗi lần)
                 int batchSize = 100;
-                foreach (var batch in BatchItems(_ownedAppIds.ToList(), batchSize))
+                var appIdsList = _ownedAppIds.ToList();
+                for (int i = 0; i < appIdsList.Count; i += batchSize)
                 {
+                    var batch = appIdsList.Skip(i).Take(batchSize).ToList();
                     _logger.LogInformation("Gửi yêu cầu cho batch {0} ứng dụng...", batch.Count);
                     var appRequests = batch.Select(id => new SteamApps.PICSRequest(id)).ToList();
 
@@ -1038,15 +1278,6 @@ potentialAppId, packageId);
             {
                 _logger.LogError(ex, "Lỗi khi quét game từ tài khoản: {Error}", ex.Message);
                 throw;
-            }
-        }
-
-        // Hàm chia danh sách thành các batch nhỏ hơn
-        private IEnumerable<List<T>> BatchItems<T>(List<T> source, int batchSize)
-        {
-            for (int i = 0; i < source.Count; i += batchSize)
-            {
-                yield return source.Skip(i).Take(batchSize).ToList();
             }
         }
     }

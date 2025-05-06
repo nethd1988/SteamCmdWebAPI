@@ -31,7 +31,6 @@
                         <th>ID</th>
                         <th>TÊN PROFILE</th>
                         <th>TỔNG GAME</th>
-                        <th>TÊN TÀI KHOẢN</th>
                         <th>APP IDS / TÊN GAME</th>
                         <th>THAO TÁC</th>
                     </tr>
@@ -53,17 +52,6 @@
                                     @gameCount
                                 </td>
                                 <td>
-                                    @* Hiển thị username bị che giấu *@
-                                    @{
-                                        string maskedUsername = !string.IsNullOrEmpty(account.Username) 
-                                            ? (account.Username.Length > 3 
-                                                ? account.Username.Substring(0, 2) + new string('*', account.Username.Length - 2) 
-                                                : account.Username.Substring(0, 1) + new string('*', account.Username.Length - 1))
-                                            : "";
-                                    }
-                                    @maskedUsername
-                                </td>
-                                <td>
                                     <div>@account.GameNames</div>
                                     <small class="text-muted">@account.AppIds</small>
                                 </td>
@@ -83,7 +71,7 @@
                     else
                     {
                         <tr>
-                            <td colspan="7" class="text-center">Chưa có tài khoản nào</td>
+                            <td colspan="5" class="text-center">Chưa có tài khoản nào</td>
                         </tr>
                     }
                 </tbody>

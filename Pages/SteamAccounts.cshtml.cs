@@ -463,11 +463,47 @@ namespace SteamCmdWebAPI.Pages
                 string usernameHint = username.Length > 3 ? username.Substring(0, 3) + "***" : "***";
                 _logger.LogInformation("Đang quét danh sách game cho tài khoản {Username}", usernameHint);
 
-                // Sử dụng ScanAccountGames
+                // Kiểm tra xem tài khoản đã có AppIDs từ trước chưa
+                List<string> existingAppIds = new List<string>();
+                string existingGameNames = string.Empty;
+                
+                if (accountId.HasValue && accountId.Value > 0)
+                {
+                    var existingAccount = await _accountService.GetAccountByIdAsync(accountId.Value);
+                    if (existingAccount != null && !string.IsNullOrWhiteSpace(existingAccount.AppIds))
+                    {
+                        existingAppIds = existingAccount.AppIds
+                            .Split(',')
+                            .Select(id => id.Trim())
+                            .Where(id => !string.IsNullOrEmpty(id))
+                            .ToList();
+                            
+                        existingGameNames = existingAccount.GameNames ?? string.Empty;
+                        _logger.LogInformation("Tài khoản đã có sẵn {Count} AppIDs", existingAppIds.Count);
+                    }
+                }
+
+                // Sử dụng ScanAccountGames với phương pháp cải tiến
                 var games = await _steamAppInfoService.ScanAccountGames(username, password);
 
                 if (games.Count == 0)
                 {
+                    if (existingAppIds.Count > 0)
+                    {
+                        // Nếu không quét được game mới nhưng tài khoản đã có sẵn các AppID
+                        return new JsonResult(new { 
+                            success = true,
+                            message = "Không tìm thấy game mới nào, giữ nguyên danh sách game hiện tại.",
+                            results = existingAppIds.Select(id => new {
+                                appId = id,
+                                gameName = "Game " + id
+                            }).ToList(),
+                            gameNames = existingGameNames,
+                            appIds = string.Join(",", existingAppIds),
+                            count = existingAppIds.Count
+                        });
+                    }
+                    
                     return new JsonResult(new { 
                         success = false, 
                         message = "Không tìm thấy game nào trong tài khoản. Vui lòng kiểm tra lại thông tin đăng nhập hoặc tài khoản có game.",
@@ -476,13 +512,69 @@ namespace SteamCmdWebAPI.Pages
                     });
                 }
 
-                // Create results
+                // Tạo danh sách kết quả từ các game đã quét được
                 var results = games.Select(g => new {
                     appId = g.AppId,
                     gameName = g.GameName
                 }).ToList();
+                
+                // Kiểm tra và kết hợp với AppIDs hiện có (chỉ với tài khoản đã tồn tại)
+                if (existingAppIds.Count > 0)
+                {
+                    // Hợp nhất danh sách game từ scan mới và AppIDs hiện tại
+                    var mergedAppIds = new HashSet<string>(existingAppIds);
+                    
+                    foreach (var game in games)
+                    {
+                        mergedAppIds.Add(game.AppId);
+                    }
+                    
+                    // Sắp xếp lại danh sách để nhất quán
+                    var sortedAppIds = mergedAppIds.OrderBy(id => id).ToList();
+                    
+                    // Thông báo về số lượng game mới phát hiện
+                    int newGamesCount = sortedAppIds.Count - existingAppIds.Count;
+                    
+                    if (newGamesCount > 0)
+                    {
+                        _logger.LogInformation("Đã phát hiện {Count} game mới từ tài khoản {Username}", 
+                            newGamesCount, usernameHint);
+                        
+                        // Lấy thông tin về tên game cho toàn bộ AppID đã hợp nhất
+                        var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(sortedAppIds);
+                        
+                        // Tạo danh sách kết quả mới với tên game cập nhật
+                        results = gameInfos.Select(g => new {
+                            appId = g.AppId,
+                            gameName = g.GameName
+                        }).ToList();
+                        
+                        return new JsonResult(new { 
+                            success = true, 
+                            message = $"Đã quét được {games.Count} game và phát hiện {newGamesCount} game mới!",
+                            results,
+                            gameNames = string.Join(", ", results.Select(r => ((dynamic)r).gameName).ToList()),
+                            appIds = string.Join(",", sortedAppIds),
+                            count = results.Count
+                        });
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Không phát hiện game mới từ tài khoản {Username}", usernameHint);
+                        
+                        // Nếu không có game mới, giữ nguyên danh sách hiện tại nhưng vẫn cập nhật lại với tên game mới nếu có
+                        return new JsonResult(new { 
+                            success = true, 
+                            message = "Không phát hiện thêm game mới trong tài khoản.",
+                            results,
+                            gameNames = string.Join(", ", results.Select(r => ((dynamic)r).gameName).ToList()),
+                            appIds = string.Join(",", existingAppIds),
+                            count = existingAppIds.Count
+                        });
+                    }
+                }
 
-                _logger.LogInformation("Đã lấy được {Count} game từ tài khoản {Username}", results.Count, usernameHint);
+                _logger.LogInformation("Đã quét được {Count} game từ tài khoản {Username}", results.Count, usernameHint);
 
                 return new JsonResult(new { 
                     success = true, 
@@ -512,6 +604,14 @@ namespace SteamCmdWebAPI.Pages
                 else if (ex.Message.Contains("timeout") || ex.Message.Contains("timed out"))
                 {
                     errorMessage = "Quá thời gian kết nối đến Steam. Vui lòng thử lại sau.";
+                }
+                else if (ex.Message.Contains("rate limit") || ex.Message.Contains("RateLimitExceeded"))
+                {
+                    errorMessage = "Giới hạn tốc độ kết nối đến Steam. Vui lòng thử lại sau ít phút.";
+                }
+                else if (ex.Message.Contains("Steam Guard") || ex.Message.Contains("2fa"))
+                {
+                    errorMessage = "Tài khoản yêu cầu xác thực Steam Guard. Không thể quét tự động.";
                 }
                 
                 return new JsonResult(new { 
