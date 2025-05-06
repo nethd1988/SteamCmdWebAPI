@@ -197,7 +197,7 @@ namespace SteamCmdWebAPI.Services
                         catch (Exception)
                         {
                             // Nếu giải mã thất bại, chuỗi chưa mã hóa - mã hóa nó
-                            usernameToSave = _encryptionService.Encrypt(usernameToSave);
+                                usernameToSave = _encryptionService.Encrypt(usernameToSave);
                             _logger.LogDebug("Đã mã hóa username mới cho tài khoản {ProfileName}", account.ProfileName);
                         }
                     }
@@ -205,7 +205,7 @@ namespace SteamCmdWebAPI.Services
                     // Luôn mã hóa password trước khi lưu
                     if (!string.IsNullOrEmpty(passwordToSave))
                     {
-                        try 
+                        try
                         {
                             // Thử giải mã - nếu đã mã hóa thì sẽ thành công
                             string tempDecrypted = _encryptionService.Decrypt(passwordToSave);
@@ -216,7 +216,7 @@ namespace SteamCmdWebAPI.Services
                         catch (Exception)
                         {
                             // Nếu giải mã thất bại, chuỗi chưa mã hóa - mã hóa nó
-                            passwordToSave = _encryptionService.Encrypt(passwordToSave);
+                                passwordToSave = _encryptionService.Encrypt(passwordToSave);
                             _logger.LogDebug("Đã mã hóa password mới cho tài khoản {ProfileName}", account.ProfileName);
                         }
                     }

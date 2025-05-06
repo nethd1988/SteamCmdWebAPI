@@ -388,7 +388,7 @@ namespace SteamCmdWebAPI.Pages
                         // Cần giải mã mật khẩu trước khi sử dụng
                         try {
                             // Không giải mã mật khẩu ngay - sẽ để ScanAccountGames xử lý
-                            password = existingAccount.Password;
+                        password = existingAccount.Password;
                             _logger.LogDebug("Đã lấy mật khẩu đã mã hóa từ database, ScanAccountGames sẽ giải mã");
                         }
                         catch (Exception ex) {
@@ -430,9 +430,9 @@ namespace SteamCmdWebAPI.Pages
                                     
                                     // So sánh với username đã mã hóa từ database
                                     if (!string.Equals(encodedFormUsername, existingAccount.Username))
-                                    {
+                        {
                                         _logger.LogWarning("Username form khác với giá trị đã lưu trong database sau khi mã hóa form");
-                                        return new JsonResult(new { success = false, message = "Bạn đã thay đổi tên đăng nhập, vui lòng nhập mật khẩu" });
+                            return new JsonResult(new { success = false, message = "Bạn đã thay đổi tên đăng nhập, vui lòng nhập mật khẩu" });
                                     }
                                     else
                                     {

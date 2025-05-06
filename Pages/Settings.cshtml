@@ -42,12 +42,11 @@
         <h6 class="mt-4">Cách cấu hình kiểm tra cập nhật tự động</h6>
         <ul>
             <li><strong>Kích hoạt kiểm tra cập nhật:</strong> Bật/tắt tính năng tự động kiểm tra xem game có bản cập nhật mới trên Steam hay không.</li>
-            <li><strong>Khoảng thời gian kiểm tra:</strong> Đặt chu kỳ hệ thống sẽ kiểm tra cập nhật mới (ví dụ: 60 phút một lần).</li>
-            <li>Khi phát hiện có cập nhật mới và tính năng "Tự động chạy khi có cập nhật" được bật trong cài đặt kiểm tra cập nhật, hệ thống sẽ tự động thêm profile tương ứng vào hàng đợi cập nhật.</li>
+            <li>Khi phát hiện có cập nhật mới và tính năng "Tự động cập nhật khi phát hiện" được bật, hệ thống sẽ tự động thêm profile tương ứng vào hàng đợi cập nhật.</li>
         </ul>
-        <div class="alert alert-info">
+        <div class="alert alert-info mb-3">
             <i class="bi bi-info-circle me-2"></i>
-            <strong>Lưu ý:</strong> Tính năng kiểm tra cập nhật tự động cần kết nối internet để truy vấn thông tin từ Sever Checker Gà Luộc.
+            <strong>Lưu ý:</strong> Hệ thống sử dụng Sever GL để tự động đăng ký nhận thông báo cập nhật game từ Valve.
         </div>
     </div>
 </div>
@@ -92,14 +91,13 @@
                 <input type="checkbox" class="form-check-input" id="updateCheckEnabled" asp-for="UpdateCheckEnabled" />
                 <label class="form-check-label" for="updateCheckEnabled">Kích hoạt kiểm tra cập nhật tự động</label>
             </div>
-            <div class="mb-3">
-                <label for="updateCheckIntervalMinutes" class="form-label">Khoảng thời gian kiểm tra (phút)</label>
-                <input type="number" class="form-control" id="updateCheckIntervalMinutes" asp-for="UpdateCheckIntervalMinutes" min="10" max="1440" step="10" />
-                <small class="form-text text-muted">Hệ thống sẽ kiểm tra cập nhật mới sau mỗi khoảng thời gian này (tối thiểu 10 phút, tối đa 1440 phút).</small>
-            </div>
             <div class="form-check mb-3">
                 <input type="checkbox" class="form-check-input" id="autoUpdateProfiles" asp-for="AutoUpdateProfiles" />
-                <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật profile khi có cập nhật mới</label>
+                <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật profile khi phát hiện có cập nhật mới</label>
+            </div>
+            <div class="alert alert-info mb-3">
+                <i class="bi bi-info-circle me-2"></i>
+                <strong>Lưu ý:</strong> Hệ thống sử dụng Sever GL để tự động đăng ký nhận thông báo cập nhật game từ Valve.
             </div>
             <button type="submit" class="btn btn-info text-white">
                 <i class="bi bi-save me-1"></i>

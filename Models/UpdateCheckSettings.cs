@@ -5,5 +5,6 @@ namespace SteamCmdWebAPI.Models
         public bool Enabled { get; set; } = true;
         public int IntervalMinutes { get; set; } = 60;
         public bool AutoUpdateProfiles { get; set; } = true;
+        public bool UseSteamKitNotifications { get; set; } = true;
     }
 }

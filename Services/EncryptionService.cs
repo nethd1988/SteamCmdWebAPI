@@ -91,7 +91,7 @@ namespace SteamCmdWebAPI.Services
                 _logger?.LogDebug("Decrypt: Đầu vào rỗng hoặc giá trị đặc biệt, trả về chuỗi rỗng");
                 return string.Empty;
             }
-            
+
             try 
             {
                 // Kiểm tra nhanh xem chuỗi có vẻ được mã hóa không
@@ -101,20 +101,20 @@ namespace SteamCmdWebAPI.Services
                     return cipherText; // Trả về nguyên trạng nếu không có vẻ là chuỗi mã hóa
                 }
 
-                // Thử giải mã theo phương pháp chuẩn 
-                string result = InternalDecrypt(cipherText);
-                
-                // Nếu giải mã thành công, trả về kết quả
-                if (!string.IsNullOrEmpty(result))
-                {
-                    return result;
-                }
-                
-                // Thử giải mã với phương pháp dự phòng
-                if (_useFallbackOnError)
-                {
+            // Thử giải mã theo phương pháp chuẩn 
+            string result = InternalDecrypt(cipherText);
+            
+            // Nếu giải mã thành công, trả về kết quả
+            if (!string.IsNullOrEmpty(result))
+            {
+                return result;
+            }
+            
+            // Thử giải mã với phương pháp dự phòng
+            if (_useFallbackOnError)
+            {
                     _logger?.LogDebug("Decrypt: Thử phương pháp giải mã dự phòng cho cipherText length: {Length}", cipherText.Length);
-                    
+                
                     // Thử các cách xử lý chuỗi khác nhau trước khi giải mã
                     // 1. Giải mã chuỗi đã được padding đúng
                     string paddedText = EnsureCorrectBase64Padding(cipherText);
@@ -122,7 +122,7 @@ namespace SteamCmdWebAPI.Services
                     {
                         string paddedResult = InternalDecrypt(paddedText);
                         if (!string.IsNullOrEmpty(paddedResult))
-                        {
+                {
                             _logger?.LogInformation("Decrypt: Giải mã thành công với chuỗi được padding lại");
                             return paddedResult;
                         }
@@ -136,7 +136,7 @@ namespace SteamCmdWebAPI.Services
                         {
                             string decryptedTwice = InternalDecrypt(decryptedOnce);
                             if (!string.IsNullOrEmpty(decryptedTwice))
-                            {
+                        {
                                 _logger?.LogInformation("Decrypt: Giải mã thành công với mã hóa hai lần");
                                 return decryptedTwice;
                             }
@@ -145,13 +145,13 @@ namespace SteamCmdWebAPI.Services
                     catch (Exception ex)
                     {
                         _logger?.LogDebug("Decrypt: Không thể áp dụng giải mã kép: {Message}", ex.Message);
-                    }
-                    
-                    // 3. Nếu vẫn không thể giải mã, trả về chuỗi gốc
-                    _logger?.LogDebug("Decrypt: Không thể giải mã, trả về chuỗi gốc");
-                    return cipherText;
                 }
                 
+                    // 3. Nếu vẫn không thể giải mã, trả về chuỗi gốc
+                    _logger?.LogDebug("Decrypt: Không thể giải mã, trả về chuỗi gốc");
+                return cipherText;
+            }
+            
                 _logger?.LogDebug("Decrypt: Giải mã thất bại, trả về chuỗi gốc vì useFallbackOnError=false");
                 return cipherText; // Trả về nguyên bản thay vì chuỗi rỗng để tránh mất dữ liệu
             }
@@ -225,29 +225,29 @@ namespace SteamCmdWebAPI.Services
                         {
                             using (var cs = new CryptoStream(ms, encryptor.CreateDecryptor(), CryptoStreamMode.Write))
                             {
-                                try
-                                {
-                                    cs.Write(cipherBytes, 0, cipherBytes.Length);
-                                    cs.FlushFinalBlock(); // Đảm bảo dữ liệu được ghi hoàn toàn
-                                }
-                                catch (CryptographicException ex)
-                                {
+                            try
+                            {
+                                cs.Write(cipherBytes, 0, cipherBytes.Length);
+                                cs.FlushFinalBlock(); // Đảm bảo dữ liệu được ghi hoàn toàn
+                            }
+                            catch (CryptographicException ex)
+                            {
                                     _logger?.LogDebug("InternalDecrypt: Lỗi giải mã CryptographicException: {Message}", ex.Message);
-                                    return string.Empty;
-                                }
+                                return string.Empty;
                             }
-                            
-                            byte[] decryptedBytes = ms.ToArray();
-                            string decryptedText = Encoding.Unicode.GetString(decryptedBytes);
-                            
-                            // Kiểm tra tính hợp lệ của kết quả giải mã
-                            if (IsValidUtf16String(decryptedBytes))
-                            {
-                                _logger?.LogDebug("InternalDecrypt: Giải mã thành công, output length: {Length}", decryptedText.Length);
-                                return decryptedText;
-                            }
-                            else
-                            {
+                        }
+                        
+                        byte[] decryptedBytes = ms.ToArray();
+                        string decryptedText = Encoding.Unicode.GetString(decryptedBytes);
+                        
+                        // Kiểm tra tính hợp lệ của kết quả giải mã
+                        if (IsValidUtf16String(decryptedBytes))
+                        {
+                            _logger?.LogDebug("InternalDecrypt: Giải mã thành công, output length: {Length}", decryptedText.Length);
+                            return decryptedText;
+                        }
+                        else
+                        {
                                 _logger?.LogDebug("InternalDecrypt: Dữ liệu giải mã không hợp lệ UTF-16");
                                 return string.Empty;
                             }

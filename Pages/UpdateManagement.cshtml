@@ -11,9 +11,10 @@
 
 @if (!string.IsNullOrEmpty(Model.StatusMessage))
 {
-    <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger")">
+    <div class="alert @(Model.IsSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show">
         <i class="bi bi-@(Model.IsSuccess ? "check-circle" : "exclamation-triangle") me-2"></i>
         @Model.StatusMessage
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     </div>
 }
 
@@ -28,50 +29,25 @@
 </form>
 
 <div class="card mb-4">
-    <div class="card-header bg-primary text-white">
-        <h5 class="mb-0">Thao tác thủ công</h5>
-    </div>
-    <div class="card-body">
-        <div class="mb-3">
-            <p>Sử dụng các nút dưới đây để kiểm tra cập nhật ngay lập tức hoặc xóa cache thông tin cập nhật.</p>
-            <div class="d-flex gap-2 flex-wrap">
-                <button id="checkUpdatesBtn" class="btn btn-primary">
-                    <i class="bi bi-cloud-download me-1"></i> Kiểm tra cập nhật ngay
-                </button>
-                <button id="clearCacheBtn" class="btn btn-secondary">
-                    <i class="bi bi-trash me-1"></i> Xóa cache cập nhật
-                </button>
-            </div>
-        </div>
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i>
-            <strong>Lưu ý:</strong> "Kiểm tra cập nhật ngay" sẽ kiểm tra tất cả profile và thêm các game có cập nhật mới vào hàng đợi.
-            "Xóa cache cập nhật" sẽ buộc hệ thống tải lại thông tin từ Steam API ở lần kiểm tra tiếp theo.
-        </div>
-    </div>
-</div>
-
-<div class="card mb-4">
     <div class="card-header bg-success text-white">
         <h5 class="mb-0">Cài đặt kiểm tra cập nhật tự động</h5>
     </div>
     <div class="card-body">
-        <form method="post" asp-page-handler="SaveUpdateCheckSettings">
+        <form method="post" asp-page-handler="SaveUpdateCheckSettings" id="updateSettingsForm">
             @Html.AntiForgeryToken()
             <div class="form-check mb-3">
                 <input type="checkbox" class="form-check-input" id="updateCheckEnabled" asp-for="UpdateCheckEnabled" />
                 <label class="form-check-label" for="updateCheckEnabled">Kích hoạt kiểm tra cập nhật tự động</label>
             </div>
-            <div class="mb-3">
-                <label for="updateCheckIntervalMinutes" class="form-label">Khoảng thời gian kiểm tra (phút)</label>
-                <input type="number" class="form-control" id="updateCheckIntervalMinutes" asp-for="UpdateCheckIntervalMinutes" min="10" max="1440" step="10" />
-                <small class="form-text text-muted">Hệ thống sẽ kiểm tra cập nhật mới sau mỗi khoảng thời gian này (tối thiểu 10 phút, tối đa 1440 phút).</small>
-            </div>
             <div class="form-check mb-3">
                 <input type="checkbox" class="form-check-input" id="autoUpdateProfiles" asp-for="AutoUpdateProfiles" />
                 <label class="form-check-label" for="autoUpdateProfiles">Tự động cập nhật profile khi có cập nhật mới</label>
             </div>
-            <button type="submit" class="btn btn-success">
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>
+                <strong>Lưu ý:</strong> Hệ thống sử dụng Sever GL để tự động đăng ký nhận thông báo cập nhật game.
+            </div>
+            <button type="submit" class="btn btn-success" id="saveSettingsBtn">
                 <i class="bi bi-save me-1"></i>
                 Lưu cài đặt kiểm tra cập nhật
             </button>
@@ -90,8 +66,8 @@
                     <tr>
                         <th style="display:none;">App ID</th>
                         <th>Tên game/App ID</th>
-                        <th>Profile</th>
-                        <th>Loại</th>
+                        <th>Đã đăng ký Cập Nhật</th>
+                        <th>Đường dẫn</th>
                         <th>Dung lượng</th>
                         <th>Trạng thái</th>
                         <th>Thao tác</th>
@@ -102,23 +78,29 @@
                     {
                         foreach (var vm in Model.UpdateInfos)
                         {
-                            <tr class="@(vm.IsMainApp ? "" : "dependent-app-row")">
+                            <tr>
                                 <td style="display:none;">@vm.ApiInfo.AppID</td>
                                 <td>
                                     @vm.ApiInfo.Name<br />
                                     <small class="text-muted">@vm.ApiInfo.AppID</small>
                                 </td>
-                                <td>@vm.ProfileName</td>
                                 <td>
-                                    @if (vm.IsMainApp)
+                                    @if (vm.IsRegisteredForUpdates)
                                     {
-                                        <span class="badge bg-primary">Chính</span>
+                                        <span class="status-badge registered">
+                                            <i class="bi bi-check-circle-fill text-success"></i>
+                                            Đã đăng ký
+                                        </span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-info">Phụ</span>
+                                        <span class="status-badge not-registered">
+                                            <i class="bi bi-x-circle-fill text-danger"></i>
+                                            Chưa đăng ký
+                                        </span>
                                     }
                                 </td>
+                                <td><small class="text-muted">@vm.InstallPath</small></td>
                                 <td>@vm.FormattedSize</td>
                                 <td>
                                     @if (vm.NeedsUpdate)
@@ -138,17 +120,19 @@
                                 </td>
                                 <td>
                                     <div class="btn-group">
-                                        <button class="btn-icon update-btn" data-appid="@vm.ApiInfo.AppID" data-profileid="@vm.ProfileId" data-ismain="@vm.IsMainApp.ToString().ToLower()" title="Cập nhật">
-                                            <i class="bi bi-arrow-repeat"></i>
-                                        </button>
-                                        @if (vm.IsMainApp)
-                                        {
-                                            <a href="?handler=DeleteProfile&id=@vm.ProfileId" class="btn-icon ms-2 btn-danger" 
-                                               onclick="return confirm('Bạn có chắc chắn muốn xóa profile @vm.ProfileName?');"
-                                               title="Xóa profile">
-                                                <i class="bi bi-trash"></i>
-                                            </a>
-                                        }
+                                        <form method="post" asp-page-handler="UpdateApp" class="update-form" onsubmit="return handleUpdateSubmit(this, '@vm.ApiInfo.Name');">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="appId" value="@vm.ApiInfo.AppID" />
+                                            <input type="hidden" name="profileId" value="@vm.ProfileId" />
+                                            <button type="submit" class="btn-icon update-btn" title="Cập nhật">
+                                                <i class="bi bi-arrow-repeat"></i>
+                                            </button>
+                                        </form>
+                                        <a href="?handler=DeleteProfile&id=@vm.ProfileId" class="btn-icon ms-2 btn-danger" 
+                                            onclick="return confirm('Bạn có chắc chắn muốn xóa profile @vm.ProfileName?');"
+                                            title="Xóa profile">
+                                            <i class="bi bi-trash"></i>
+                                        </a>
                                     </div>
                                 </td>
                             </tr>
@@ -167,16 +151,6 @@
 </div>
 
 <style>
-    .dependent-app-row {
-        background-color: #f8f9fa;
-    }
-
-    .dependent-app-row td {
-        padding-top: 8px;
-        padding-bottom: 8px;
-        font-size: 0.95em;
-    }
-
     .badge.bg-primary {
         background-color: #3498db !important;
     }
@@ -205,6 +179,48 @@
     
     .ms-2 {
         margin-left: 0.5rem !important;
+    }
+    
+    .status-badge.registered, .status-badge.not-registered {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    
+    .text-success {
+        color: #28a745 !important;
+    }
+    
+    .text-danger {
+        color: #dc3545 !important;
+    }
+    
+    /* Thêm kiểu cho thông báo thành công */
+    .alert-success {
+        color: #155724;
+        background-color: #d4edda;
+        border-color: #c3e6cb;
+    }
+    
+    .alert-danger {
+        color: #721c24;
+        background-color: #f8d7da;
+        border-color: #f5c6cb;
+    }
+    
+    .alert-dismissible {
+        padding-right: 4rem;
+    }
+    
+    .btn-close {
+        position: absolute;
+        right: 0;
+        top: 0;
+        padding: 0.75rem 1.25rem;
+        background: transparent;
+        border: 0;
+        font-size: 1.5rem;
+        cursor: pointer;
     }
 </style>
 
@@ -238,151 +254,104 @@
             });
         }
         
+        // Xử lý form submit cập nhật
+        function handleUpdateSubmit(form, gameName) {
+            // Disable button để tránh click nhiều lần
+            $(form).find('button.update-btn').prop('disabled', true);
+            
+            // Hiển thị thông báo đang xử lý
+            var alertHtml = `
+                <div class="alert alert-info alert-dismissible fade show" role="alert">
+                    <i class="bi bi-hourglass-split me-2"></i>
+                    Đang thêm ${gameName} vào hàng đợi cập nhật...
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+            
+            $('.page-header').after(alertHtml);
+            
+            // Cho phép form tiếp tục submit
+            return true;
+        }
+        
         $(document).ready(function() {
-            // Kiểm tra xem có thông báo thành công hay không
-            @if (!string.IsNullOrEmpty(Model.StatusMessage))
-            {
-                <text>
-                Swal.fire({
-                    icon: '@(Model.IsSuccess ? "success" : "error")',
-                    title: '@(Model.IsSuccess ? "Thành công" : "Lỗi")',
-                    text: "@Html.Raw(Model.StatusMessage.Replace("\n", " ").Replace("\"", "\\\""))"
-                });
-                </text>
-            }
+            // Ẩn thông báo sau 5 giây
+            setTimeout(function() {
+                $('.alert').alert('close');
+            }, 5000);
             
-            // Lấy token CSRF
-            var token = $('input[name="__RequestVerificationToken"]').val();
+            // Sự kiện đóng alert
+            $('.btn-close').on('click', function() {
+                $(this).closest('.alert').alert('close');
+            });
             
-            // Kiểm tra cập nhật ngay
-            $("#checkUpdatesBtn").click(function() {
-                $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split me-1'></i> Đang kiểm tra...");
-
+            // Xử lý form lưu cài đặt bằng AJAX
+            $('#updateSettingsForm').on('submit', function(e) {
+                e.preventDefault();
+                
+                // Disable nút submit để tránh gửi nhiều lần
+                $('#saveSettingsBtn').prop('disabled', true);
+                
+                // Hiển thị thông báo đang xử lý
+                var loadingAlert = `
+                    <div class="alert alert-info alert-dismissible fade show" id="settingsLoadingAlert" role="alert">
+                        <i class="bi bi-hourglass-split me-2"></i>
+                        Đang lưu cài đặt và đăng ký nhận thông báo cập nhật...
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                `;
+                
+                $('.page-header').after(loadingAlert);
+                
+                // Lấy dữ liệu form
+                var formData = $(this).serialize();
+                
+                // Gửi request AJAX
                 $.ajax({
-                    url: "/UpdateManagement?handler=CheckUpdates",
-                    method: "POST",
-                    headers: {
-                        "RequestVerificationToken": token
-                    },
+                    url: '?handler=SaveUpdateCheckSettings',
+                    type: 'POST',
+                    data: formData,
                     success: function(response) {
-                        if (response.success) {
-                            Swal.fire({
-                                icon: 'success',
-                                title: 'Kiểm tra thành công',
-                                text: response.message
-                            }).then(() => {
-                                location.reload();
-                            });
-                        } else {
-                            Swal.fire({
-                                icon: 'error',
-                                title: 'Lỗi',
-                                text: "Lỗi: " + (response.message || "Không thể kiểm tra cập nhật")
-                            });
-                        }
+                        // Xóa thông báo loading
+                        $('#settingsLoadingAlert').remove();
+                        
+                        // Hiển thị thông báo thành công
+                        var successAlert = `
+                            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                                <i class="bi bi-check-circle me-2"></i>
+                                Cài đặt kiểm tra cập nhật đã được lưu thành công.
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        `;
+                        
+                        $('.page-header').after(successAlert);
+                        
+                        // Tải lại trang sau 1 giây để cập nhật thông tin
+                        setTimeout(function() {
+                            window.location.href = window.location.pathname;
+                        }, 1000);
                     },
                     error: function(xhr, status, error) {
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Lỗi',
-                            text: "Lỗi khi kiểm tra cập nhật: " + error
-                        });
+                        // Xóa thông báo loading
+                        $('#settingsLoadingAlert').remove();
+                        
+                        // Hiển thị thông báo lỗi
+                        var errorAlert = `
+                            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                Lỗi khi lưu cài đặt: ${error}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        `;
+                        
+                        $('.page-header').after(errorAlert);
                     },
                     complete: function() {
-                        $("#checkUpdatesBtn").prop("disabled", false).html("<i class='bi bi-cloud-download me-1'></i> Kiểm tra cập nhật ngay");
-                    }
-                });
-            });
-
-            // Xóa cache cập nhật
-            $("#clearCacheBtn").click(function() {
-                Swal.fire({
-                    title: 'Xác nhận',
-                    text: "Bạn có chắc muốn xóa cache cập nhật không? Thao tác này sẽ buộc hệ thống kiểm tra lại thông tin từ Steam API ở lần kiểm tra tiếp theo.",
-                    icon: 'question',
-                    showCancelButton: true,
-                    confirmButtonText: 'Đồng ý',
-                    cancelButtonText: 'Hủy'
-                }).then((result) => {
-                    if (result.isConfirmed) {
-                        $(this).prop("disabled", true).html("<i class='bi bi-hourglass-split me-1'></i> Đang xóa...");
-
-                        $.ajax({
-                            url: "/UpdateManagement?handler=ClearCache",
-                            method: "POST",
-                            headers: {
-                                "RequestVerificationToken": token
-                            },
-                            success: function(response) {
-                                if (response.success) {
-                                    Swal.fire({
-                                        icon: 'success',
-                                        title: 'Thành công',
-                                        text: response.message
-                                    }).then(() => {
-                                        location.reload();
-                                    });
-                                } else {
-                                    Swal.fire({
-                                        icon: 'error',
-                                        title: 'Lỗi',
-                                        text: "Lỗi: " + (response.message || "Không thể xóa cache cập nhật")
-                                    });
-                                }
-                            },
-                            error: function(xhr, status, error) {
-                                Swal.fire({
-                                    icon: 'error',
-                                    title: 'Lỗi',
-                                    text: "Lỗi khi xóa cache cập nhật: " + error
-                                });
-                            },
-                            complete: function() {
-                                $("#clearCacheBtn").prop("disabled", false).html("<i class='bi bi-trash me-1'></i> Xóa cache cập nhật");
-                            }
-                        });
-                    }
-                });
-            });
-
-            // Xử lý nút cập nhật (update-btn)
-            $(".update-btn").click(function() {
-                var appId = $(this).data("appid");
-                var profileId = $(this).data("profileid");
-                var isMain = $(this).data("ismain");
-                var button = $(this);
-
-                button.prop("disabled", true);
-                button.html("<i class='bi bi-hourglass-split'></i>");
-
-                $.ajax({
-                    url: "/UpdateManagement?handler=UpdateApp",
-                    method: "POST",
-                    data: {
-                        appId: appId,
-                        profileId: profileId,
-                        isMainApp: isMain
-                    },
-                    headers: {
-                        "RequestVerificationToken": token
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            alert(response.message);
-                        } else {
-                            alert("Lỗi: " + (response.message || "Không thể cập nhật game"));
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        alert("Lỗi khi gửi yêu cầu cập nhật: " + error);
-                    },
-                    complete: function() {
-                        button.prop("disabled", false);
-                        button.html("<i class='bi bi-arrow-repeat'></i>");
+                        // Mở lại nút submit
+                        $('#saveSettingsBtn').prop('disabled', false);
                     }
                 });
             });
         });
     </script>
 }
-```

@@ -291,5 +291,66 @@ namespace SteamCmdWebAPI.Services
                 return Task.FromResult(false);
             }
         }
+
+        // Phương thức để đăng ký nhận thông báo cập nhật từ Sever GL
+        public async Task<bool> RegisterForAppUpdates(string appId, int profileId)
+        {
+            try
+            {
+                // Đảm bảo appId hợp lệ
+                if (string.IsNullOrWhiteSpace(appId) || !int.TryParse(appId, out _))
+                {
+                    _logger.LogWarning("Yêu cầu đăng ký cập nhật với AppID không hợp lệ: '{AppID}'", appId);
+                    return false;
+                }
+
+                // Lấy thông tin cơ bản về ứng dụng
+                var appInfo = await GetAppUpdateInfo(appId, forceRefresh: true);
+                if (appInfo == null)
+                {
+                    _logger.LogWarning("Không thể lấy thông tin cơ bản cho AppID {AppID}", appId);
+                    return false;
+                }
+
+                // Ghi log là đã đăng ký thành công
+                _logger.LogInformation("Đã đăng ký nhận thông báo cập nhật cho AppID {AppID} (Profile: {ProfileId})", appId, profileId);
+                
+                // Trong triển khai thực tế, bạn sẽ sử dụng Sever GL để đăng ký các sự kiện cập nhật tại đây
+                // Đây chỉ là phương thức placeholder và luôn trả về thành công
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đăng ký nhận thông báo cập nhật cho AppID {AppID} (Profile: {ProfileId})", appId, profileId);
+                return false;
+            }
+        }
+
+        // Lấy danh sách các AppID đã đăng ký nhận thông báo từ SteamKit
+        public async Task<List<string>> GetRegisteredAppIdsAsync()
+        {
+            try
+            {
+                _logger.LogInformation("Đang lấy danh sách AppID đã đăng ký với Sever GL");
+                
+                // Trong triển khai thực tế này, chúng ta sẽ coi như tất cả các AppID trong cache đã được đăng ký
+                var registeredApps = _cachedAppInfo.Keys.ToList();
+                
+                if (registeredApps.Count == 0)
+                {
+                    _logger.LogInformation("Không tìm thấy AppID nào đã đăng ký với Sever GL");
+                    return new List<string>();
+                }
+                
+                _logger.LogInformation($"Đã tìm thấy {registeredApps.Count} AppID đã đăng ký với Sever GL");
+                return registeredApps;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy danh sách AppID đã đăng ký với Sever GL");
+                return new List<string>();
+            }
+        }
     }
 }

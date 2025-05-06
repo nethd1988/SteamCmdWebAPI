@@ -29,9 +29,6 @@ namespace SteamCmdWebAPI.Pages
         public bool UpdateCheckEnabled { get; set; } = true; // Mặc định bật
 
         [BindProperty]
-        public int UpdateCheckIntervalMinutes { get; set; } = 10; // Mặc định 10 phút
-
-        [BindProperty]
         public bool AutoUpdateProfiles { get; set; } = true; // Mặc định bật
 
         public SettingsPageModel(
@@ -68,22 +65,14 @@ namespace SteamCmdWebAPI.Pages
             {
                 var updateCheckSettings = _updateCheckService.GetCurrentSettings();
                 UpdateCheckEnabled = updateCheckSettings?.Enabled ?? true;
-                UpdateCheckIntervalMinutes = updateCheckSettings?.IntervalMinutes > 0
-                    ? updateCheckSettings.IntervalMinutes
-                    : 10; // Mặc định 10 phút
                 AutoUpdateProfiles = updateCheckSettings?.AutoUpdateProfiles ?? true;
             }
             else
             {
                 // Giá trị mặc định khi không có dịch vụ
                 UpdateCheckEnabled = true;
-                UpdateCheckIntervalMinutes = 10;
                 AutoUpdateProfiles = true;
             }
-
-            // Giới hạn UpdateCheckIntervalMinutes trong khoảng hợp lý
-            if (UpdateCheckIntervalMinutes < 10) UpdateCheckIntervalMinutes = 10;
-            if (UpdateCheckIntervalMinutes > 1440) UpdateCheckIntervalMinutes = 1440;
 
             _logger.LogInformation("Đã tải cài đặt");
         }
@@ -133,25 +122,19 @@ namespace SteamCmdWebAPI.Pages
         {
             try
             {
-                // Validation for UpdateCheckIntervalMinutes
-                if (UpdateCheckIntervalMinutes < 10 || UpdateCheckIntervalMinutes > 1440)
-                {
-                    TempData["ErrorMessage"] = "Khoảng thời gian kiểm tra cập nhật (phút) phải từ 10 đến 1440.";
-                    return RedirectToPage();
-                }
-
                 // Kiểm tra null trước khi sử dụng UpdateCheckService
                 if (_updateCheckService != null)
                 {
-                    // Cập nhật cài đặt qua UpdateCheckService
+                    // Cập nhật cài đặt qua UpdateCheckService - luôn sử dụng Sever GL và mặc định 10 phút
                     _updateCheckService.UpdateSettings(
                         UpdateCheckEnabled,
-                        TimeSpan.FromMinutes(UpdateCheckIntervalMinutes),
-                        AutoUpdateProfiles
+                        TimeSpan.FromMinutes(10), // Mặc định 10 phút
+                        AutoUpdateProfiles,
+                        true // Luôn bật Sever GL
                     );
 
                     TempData["SuccessMessage"] = $"Cấu hình kiểm tra cập nhật tự động đã được cập nhật: {(UpdateCheckEnabled ? "Bật" : "Tắt")}, " +
-                                            $"{UpdateCheckIntervalMinutes} phút/lần, Tự động cập nhật khi phát hiện: {(AutoUpdateProfiles ? "Bật" : "Tắt")}";
+                                            $"Tự động cập nhật khi phát hiện: {(AutoUpdateProfiles ? "Bật" : "Tắt")}";
                 }
                 else
                 {

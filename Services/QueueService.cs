@@ -450,6 +450,15 @@ namespace SteamCmdWebAPI.Services
                 if (File.Exists(_queueFilePath))
                 {
                     string json = File.ReadAllText(_queueFilePath);
+                    
+                    if (string.IsNullOrWhiteSpace(json))
+                    {
+                        _logger.LogWarning("File hàng đợi rỗng, khởi tạo mới.");
+                        _queue = new List<QueueItem>();
+                        _queueHistory = new List<QueueItem>();
+                        SaveQueueToFile(); // Tạo file mới với cấu trúc đúng
+                        return;
+                    }
 
                     // Thử đọc theo định dạng mới (queue + history)
                     try
@@ -472,6 +481,35 @@ namespace SteamCmdWebAPI.Services
                         else
                         {
                             // Định dạng cũ (chỉ có queue)
+                            try
+                            {
+                                var allItems = JsonSerializer.Deserialize<List<QueueItem>>(json);
+
+                                lock (_queueLock)
+                                {
+                                    _queue = allItems?.Where(q => q.Status == "Đang chờ" || q.Status == "Đang xử lý").ToList() ?? new List<QueueItem>();
+                                    _queueHistory = allItems?.Where(q => q.Status != "Đang chờ" && q.Status != "Đang xử lý").ToList() ?? new List<QueueItem>();
+                                }
+                            }
+                            catch (Exception innerEx)
+                            {
+                                _logger.LogError(innerEx, "Lỗi khi phân tích file hàng đợi. Tạo mới file.");
+                                lock (_queueLock)
+                                {
+                                    _queue = new List<QueueItem>();
+                                    _queueHistory = new List<QueueItem>();
+                                }
+                                // Tạo file mới với cấu trúc đúng
+                                SaveQueueToFile();
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi parse JSON. Tạo mới file hàng đợi.");
+                        // Định dạng cũ (chỉ có queue)
+                        try
+                        {
                             var allItems = JsonSerializer.Deserialize<List<QueueItem>>(json);
 
                             lock (_queueLock)
@@ -480,20 +518,31 @@ namespace SteamCmdWebAPI.Services
                                 _queueHistory = allItems?.Where(q => q.Status != "Đang chờ" && q.Status != "Đang xử lý").ToList() ?? new List<QueueItem>();
                             }
                         }
-                    }
-                    catch
-                    {
-                        // Định dạng cũ (chỉ có queue)
-                        var allItems = JsonSerializer.Deserialize<List<QueueItem>>(json);
-
-                        lock (_queueLock)
+                        catch
                         {
-                            _queue = allItems?.Where(q => q.Status == "Đang chờ" || q.Status == "Đang xử lý").ToList() ?? new List<QueueItem>();
-                            _queueHistory = allItems?.Where(q => q.Status != "Đang chờ" && q.Status != "Đang xử lý").ToList() ?? new List<QueueItem>();
+                            _logger.LogError("File hàng đợi bị hỏng. Tạo mới file.");
+                            lock (_queueLock)
+                            {
+                                _queue = new List<QueueItem>();
+                                _queueHistory = new List<QueueItem>();
+                            }
+                            // Tạo file mới với cấu trúc đúng
+                            SaveQueueToFile();
                         }
                     }
 
                     _logger.LogInformation("Đã tải {0} mục đang chờ và {1} mục lịch sử", _queue.Count, _queueHistory.Count);
+                }
+                else
+                {
+                    _logger.LogInformation("Không tìm thấy file hàng đợi. Tạo file mới.");
+                    lock (_queueLock)
+                    {
+                        _queue = new List<QueueItem>();
+                        _queueHistory = new List<QueueItem>();
+                    }
+                    // Tạo file mới
+                    SaveQueueToFile();
                 }
             }
             catch (Exception ex)
@@ -503,6 +552,13 @@ namespace SteamCmdWebAPI.Services
                 {
                     _queue = new List<QueueItem>();
                     _queueHistory = new List<QueueItem>();
+                }
+                // Tạo file mới nếu có lỗi
+                try {
+                    SaveQueueToFile();
+                }
+                catch (Exception saveEx) {
+                    _logger.LogError(saveEx, "Không thể tạo file hàng đợi mới");
                 }
             }
         }
@@ -517,7 +573,7 @@ namespace SteamCmdWebAPI.Services
                     Directory.CreateDirectory(directory);
                 }
 
-                var queueData = new
+                var queueData = new QueueData
                 {
                     Queue = _queue,
                     History = _queueHistory
@@ -531,6 +587,7 @@ namespace SteamCmdWebAPI.Services
 
                 string json = JsonSerializer.Serialize(queueData, options);
                 File.WriteAllText(_queueFilePath, json);
+                _logger.LogDebug("Đã lưu hàng đợi vào file thành công");
             }
             catch (Exception ex)
             {

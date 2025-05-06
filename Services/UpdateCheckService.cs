@@ -95,17 +95,19 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        public void UpdateSettings(bool enabled, TimeSpan interval, bool autoUpdateProfiles)
+        public void UpdateSettings(bool enabled, TimeSpan interval, bool autoUpdateProfiles, bool useSteamKitNotifications)
         {
             lock (_settingsLock)
             {
                 _enabled = enabled;
                 _checkInterval = interval;
                 _autoUpdateProfiles = autoUpdateProfiles;
+                // Không sử dụng tham số này trong service vì chúng ta đã tắt logic cũ
+                // Nhưng vẫn lưu vào cài đặt để giao diện có thể truy cập
             }
 
-            _logger.LogInformation("Đã cập nhật cài đặt kiểm tra cập nhật: Enabled={0}, Interval={1} phút, AutoUpdateProfiles={2}",
-                _enabled, interval.TotalMinutes, _autoUpdateProfiles);
+            _logger.LogInformation("Đã cập nhật cài đặt kiểm tra cập nhật: Enabled={0}, Interval={1} phút, AutoUpdateProfiles={2}, UseSteamKitNotifications={3}",
+                _enabled, interval.TotalMinutes, _autoUpdateProfiles, useSteamKitNotifications);
 
             // Lưu cài đặt
             try
@@ -114,7 +116,8 @@ namespace SteamCmdWebAPI.Services
                 {
                     Enabled = enabled,
                     IntervalMinutes = (int)interval.TotalMinutes,
-                    AutoUpdateProfiles = autoUpdateProfiles
+                    AutoUpdateProfiles = autoUpdateProfiles,
+                    UseSteamKitNotifications = useSteamKitNotifications
                 };
 
                 string json = JsonConvert.SerializeObject(settings, Formatting.Indented);
@@ -135,7 +138,8 @@ namespace SteamCmdWebAPI.Services
                 {
                     Enabled = _enabled,
                     IntervalMinutes = (int)_checkInterval.TotalMinutes,
-                    AutoUpdateProfiles = _autoUpdateProfiles
+                    AutoUpdateProfiles = _autoUpdateProfiles,
+                    UseSteamKitNotifications = true // Mặc định luôn bật
                 };
             }
         }

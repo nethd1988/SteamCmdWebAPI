@@ -368,7 +368,7 @@ namespace SteamCmdWebAPI.Services
                                 continue;
                             }
 
-                            // Tìm node "appids" - có thể nằm ở nhiều vị trí khác nhau
+                                    // Tìm node "appids" - có thể nằm ở nhiều vị trí khác nhau
                             KeyValue appidsNode = packageData.KeyValues["appids"];
 
                             if (appidsNode != null && appidsNode.Children != null && appidsNode.Children.Count > 0)
@@ -453,7 +453,7 @@ namespace SteamCmdWebAPI.Services
                 // Đảm bảo các event được kích hoạt để không bị treo
                 if (callback.Packages != null && callback.Packages.Count > 0 && !callback.ResponsePending)
                 {
-                    _licenseListEvent.Set();
+                _licenseListEvent.Set();
                     _isProcessingPackages = false;
                 }
 
@@ -779,19 +779,19 @@ potentialAppId, packageId);
                 return new List<(string, string)>();
             }
 
-            // Reset các event
-            _licenseListEvent.Reset();
-            _appInfoEvent.Reset();
+                        // Reset các event
+                        _licenseListEvent.Reset();
+                        _appInfoEvent.Reset();
 
-            // Yêu cầu danh sách license
-            _logger.LogInformation("Đăng nhập thành công, đang lấy danh sách license...");
-            var licenseMsg = new ClientMsgProtobuf<SteamKit2.Internal.CMsgClientLicenseList>(EMsg.ClientLicenseList);
-            _steamClient.Send(licenseMsg);
+                        // Yêu cầu danh sách license
+                        _logger.LogInformation("Đăng nhập thành công, đang lấy danh sách license...");
+                        var licenseMsg = new ClientMsgProtobuf<SteamKit2.Internal.CMsgClientLicenseList>(EMsg.ClientLicenseList);
+                        _steamClient.Send(licenseMsg);
 
-            // Đợi xử lý license với timeout
-            bool licensesProcessed = _licenseListEvent.WaitOne((int)_licenseTimeout.TotalMilliseconds);
-            if (!licensesProcessed)
-            {
+                        // Đợi xử lý license với timeout
+                        bool licensesProcessed = _licenseListEvent.WaitOne((int)_licenseTimeout.TotalMilliseconds);
+                        if (!licensesProcessed)
+                        {
                 _logger.LogWarning("Timeout khi lấy và xử lý licenses, thử gửi lại yêu cầu...");
                 // Thử gửi lại yêu cầu
                 _licenseListEvent.Reset();
@@ -802,14 +802,14 @@ potentialAppId, packageId);
                 {
                     _logger.LogWarning("Vẫn timeout khi xử lý licenses, tiếp tục với AppID đã thu thập được");
                 }
-            }
+                        }
 
-            // Đợi xử lý thông tin app với timeout
-            bool appsProcessed = _appInfoEvent.WaitOne((int)_appInfoTimeout.TotalMilliseconds);
-            if (!appsProcessed)
-            {
-                _logger.LogWarning("Timeout khi lấy thông tin app");
-            }
+                        // Đợi xử lý thông tin app với timeout
+                        bool appsProcessed = _appInfoEvent.WaitOne((int)_appInfoTimeout.TotalMilliseconds);
+                        if (!appsProcessed)
+                        {
+                            _logger.LogWarning("Timeout khi lấy thông tin app");
+                        }
 
             // Tạo kết quả
             var results = new List<(string AppId, string GameName)>();
@@ -822,44 +822,44 @@ potentialAppId, packageId);
                     continue;
                 }
 
-                // Cố gắng lấy tên game từ cache
-                string name = "Unknown";
+                    // Cố gắng lấy tên game từ cache
+                    string name = "Unknown";
 
                 if (_appInfoCache.TryGetValue(appId, out var appInfo) &&
                     appInfo.KeyValues != null)
-                {
-                    var common = appInfo.KeyValues["common"];
-                    if (common != null)
                     {
-                        var nameNode = common["name"];
-                        if (nameNode != null && nameNode.Value != null)
+                        var common = appInfo.KeyValues["common"];
+                        if (common != null)
                         {
-                            name = nameNode.Value.ToString();
+                            var nameNode = common["name"];
+                            if (nameNode != null && nameNode.Value != null)
+                            {
+                                name = nameNode.Value.ToString();
+                            }
                         }
                     }
-                }
 
-                if (name == "Unknown")
-                {
-                    name = $"Game {appId}";
-                }
+                    if (name == "Unknown")
+                    {
+                        name = $"Game {appId}";
+                    }
 
-                // Kiểm tra nếu tên game có định dạng "Game X" thì bỏ qua
-                if (name.StartsWith("Game ") && int.TryParse(name.Substring(5), out _))
-                {
-                    continue;
-                }
+                    // Kiểm tra nếu tên game có định dạng "Game X" thì bỏ qua
+                    if (name.StartsWith("Game ") && int.TryParse(name.Substring(5), out _))
+                    {
+                        continue;
+                    }
 
-                results.Add((appId.ToString(), name));
-            }
+                    results.Add((appId.ToString(), name));
+                }
 
             _logger.LogInformation("Đã lấy được {0} game từ tài khoản Steam", results.Count);
 
             // Ngắt kết nối để giải phóng tài nguyên
-            if (_steamClient.IsConnected)
-            {
-                _steamClient.Disconnect();
-            }
+                if (_steamClient.IsConnected)
+                {
+                    _steamClient.Disconnect();
+                }
 
             return results;
         }
@@ -884,41 +884,41 @@ potentialAppId, packageId);
                 _logger.LogInformation("Đang lấy thông tin cho {0} ứng dụng", validAppIds.Count);
 
                 foreach (var appId in validAppIds)
+            {
+                if (uint.TryParse(appId, out uint id) && id > 0)
                 {
-                    if (uint.TryParse(appId, out uint id) && id > 0)
-                    {
                         // Bỏ qua các appId từ 0 đến 9 (system apps)
-                        if (id >= 0 && id <= 9)
-                        {
-                            continue;
-                        }
+                    if (id >= 0 && id <= 9)
+                    {
+                        continue;
+                    }
 
-                        // Tìm trong cache
-                        string name = "";
+                    // Tìm trong cache
+                    string name = "";
                         if (_appInfoCache.TryGetValue(id, out var appInfo) && appInfo?.KeyValues != null)
+                    {
+                        var common = appInfo.KeyValues["common"];
+                        if (common != null)
                         {
-                            var common = appInfo.KeyValues["common"];
-                            if (common != null)
+                            var nameNode = common["name"];
+                            if (nameNode != null && nameNode.Value != null)
                             {
-                                var nameNode = common["name"];
-                                if (nameNode != null && nameNode.Value != null)
-                                {
-                                    name = nameNode.Value.ToString();
-                                }
+                                name = nameNode.Value.ToString();
                             }
                         }
+                    }
 
-                        if (string.IsNullOrEmpty(name))
-                        {
+                    if (string.IsNullOrEmpty(name))
+                    {
                             name = $"Game {id}";
-                        }
+                    }
 
-                        // Kiểm tra nếu tên game có định dạng "Game X" thì bỏ qua
-                        if (name.StartsWith("Game ") && int.TryParse(name.Substring(5), out _))
-                        {
-                            continue;
-                        }
-                        
+                    // Kiểm tra nếu tên game có định dạng "Game X" thì bỏ qua
+                    if (name.StartsWith("Game ") && int.TryParse(name.Substring(5), out _))
+                    {
+                        continue;
+                    }
+
                         // Kiểm tra tên hợp lệ
                         if (name.Length < 2 || name.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
                         {
