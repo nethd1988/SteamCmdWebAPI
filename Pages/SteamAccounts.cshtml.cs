@@ -313,7 +313,10 @@ namespace SteamCmdWebAPI.Pages
                     return new JsonResult(new { success = false, message = "Vui lòng nhập mật khẩu Steam" });
                 }
 
-                _logger.LogInformation("Scanning games list for account {Username}", username);
+                _logger.LogInformation("Đang quét danh sách game cho tài khoản {Username}", username);
+
+                // Phản hồi trạng thái ban đầu để người dùng biết quá trình đang tiến hành
+                // Đây là thông báo về việc đang xử lý, thực tế cần triển khai SignalR để thực sự cập nhật trạng thái theo thời gian thực
 
                 // Get the games list from the Steam account
                 var games = await _steamAppInfoService.GetOwnedGamesAsync(username, password);
@@ -321,12 +324,10 @@ namespace SteamCmdWebAPI.Pages
                 if (games.Count == 0)
                 {
                     return new JsonResult(new { 
-                        success = true, 
-                        message = "Không tìm thấy game nào. Hiển thị danh sách game phổ biến.",
-                        results = _steamAppInfoService.GetPopularGames().Select(g => new { appId = g.AppId, gameName = g.GameName }).ToList(),
-                        gameNames = string.Join(", ", _steamAppInfoService.GetPopularGames().Select(g => g.GameName).ToList()),
-                        appIds = string.Join(",", _steamAppInfoService.GetPopularGames().Select(g => g.AppId).ToList()),
-                        count = _steamAppInfoService.GetPopularGames().Count
+                        success = false, 
+                        message = "Không tìm thấy game nào trong tài khoản. Vui lòng kiểm tra lại thông tin đăng nhập hoặc tài khoản có game.",
+                        results = new List<object>(),
+                        count = 0
                     });
                 }
 
@@ -335,6 +336,8 @@ namespace SteamCmdWebAPI.Pages
                     appId = g.AppId,
                     gameName = g.GameName
                 }).ToList();
+
+                _logger.LogInformation("Đã lấy được {Count} game từ tài khoản {Username}", results.Count, username);
 
                 return new JsonResult(new { 
                     success = true, 
@@ -346,35 +349,28 @@ namespace SteamCmdWebAPI.Pages
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error scanning games list from account {Username}: {Error}", username, ex.Message);
+                _logger.LogError(ex, "Lỗi khi quét danh sách game từ tài khoản {Username}: {Error}", username, ex.Message);
+                string errorMessage = ex.Message;
                 
-                // Return popular games as fallback when there's an error
-                var popularGames = new List<(string AppId, string GameName)>();
-                
-                // Add 10 popular games as fallback
-                popularGames.Add(("570", "Dota 2"));
-                popularGames.Add(("730", "Counter-Strike 2"));
-                popularGames.Add(("440", "Team Fortress 2"));
-                popularGames.Add(("578080", "PUBG: BATTLEGROUNDS"));
-                popularGames.Add(("252490", "Rust"));
-                popularGames.Add(("271590", "Grand Theft Auto V"));
-                popularGames.Add(("359550", "Tom Clancy's Rainbow Six Siege"));
-                popularGames.Add(("550", "Left 4 Dead 2"));
-                popularGames.Add(("4000", "Garry's Mod"));
-                popularGames.Add(("230410", "Warframe"));
-                
-                var results = popularGames.Select(g => new {
-                    appId = g.AppId,
-                    gameName = g.GameName
-                }).ToList();
+                // Thêm thông tin chi tiết về lỗi
+                if (ex.Message.Contains("InvalidPassword"))
+                {
+                    errorMessage = "Mật khẩu không đúng. Vui lòng kiểm tra lại.";
+                }
+                else if (ex.Message.Contains("InvalidName"))
+                {
+                    errorMessage = "Tên đăng nhập không đúng. Vui lòng kiểm tra lại.";
+                }
+                else if (ex.Message.Contains("timeout") || ex.Message.Contains("timed out"))
+                {
+                    errorMessage = "Quá thời gian kết nối đến Steam. Vui lòng thử lại sau.";
+                }
                 
                 return new JsonResult(new { 
-                    success = true, 
-                    message = $"Lỗi khi quét tài khoản: {ex.Message}. Hiển thị danh sách game phổ biến.",
-                    results,
-                    gameNames = string.Join(", ", results.Select(r => ((dynamic)r).gameName).ToList()),
-                    appIds = string.Join(",", results.Select(r => ((dynamic)r).appId).ToList()),
-                    count = results.Count
+                    success = false, 
+                    message = $"Lỗi khi quét tài khoản: {errorMessage}",
+                    results = new List<object>(),
+                    count = 0
                 });
             }
         }

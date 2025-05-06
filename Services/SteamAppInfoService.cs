@@ -14,50 +14,47 @@ namespace SteamCmdWebAPI.Services
         private SteamClient _steamClient;
         private SteamUser _steamUser;
         private SteamApps _steamApps;
-        private SteamUserStats _steamUserStats;
         private CallbackManager _callbackManager;
         private bool _isConnected;
         private bool _isLoggedIn;
         private string _currentUsername;
+        private string _currentPassword;
         private AutoResetEvent _connectEvent;
         private AutoResetEvent _logonEvent;
         private AutoResetEvent _appInfoEvent;
-        private AutoResetEvent _ownedGamesEvent;
+        private AutoResetEvent _licenseListEvent;
         private Dictionary<uint, SteamApps.PICSProductInfoCallback.PICSProductInfo> _appInfoCache;
-        private List<SteamKit2.KeyValue> _ownedGames;
+        private List<SteamApps.LicenseListCallback.License> _licenses;
+        private HashSet<uint> _ownedAppIds;
 
-        // Popular games cache for fallback
-        private readonly Dictionary<string, string> _popularGames = new Dictionary<string, string>()
-        {
-            { "570", "Dota 2" },
-            { "730", "Counter-Strike 2" },
-            { "440", "Team Fortress 2" },
-            { "578080", "PUBG: BATTLEGROUNDS" },
-            { "252490", "Rust" },
-            { "271590", "Grand Theft Auto V" },
-            { "359550", "Tom Clancy's Rainbow Six Siege" },
-            { "550", "Left 4 Dead 2" },
-            { "4000", "Garry's Mod" },
-            { "230410", "Warframe" },
-            { "105600", "Terraria" },
-            { "292030", "The Witcher 3: Wild Hunt" },
-            { "1245620", "Elden Ring" },
-            { "739630", "Phasmophobia" },
-            { "1938090", "Call of Duty" },
-            { "1172470", "Apex Legends" },
-            { "218620", "PAYDAY 2" },
-            { "381210", "Dead by Daylight" },
-            { "252950", "Rocket League" },
-            { "400", "Portal" },
-            { "620", "Portal 2" },
-            // More popular games omitted for brevity
-        };
+        // Thêm biến theo dõi trạng thái 2FA
+        private string _authCode;
+        private string _twoFactorCode;
+        private bool _isWaitingFor2FA;
+        private string _requiredCodeType;
+        private TaskCompletionSource<bool> _authCompletionSource;
+
+        // Timeout và retry configs
+        private readonly TimeSpan _connectionTimeout = TimeSpan.FromSeconds(10);
+        private readonly TimeSpan _loginTimeout = TimeSpan.FromSeconds(15);
+        private readonly TimeSpan _licenseTimeout = TimeSpan.FromSeconds(20);
+        private readonly TimeSpan _appInfoTimeout = TimeSpan.FromSeconds(20);
+        private readonly int _maxConnectionRetries = 3;
+        private readonly int _maxLoginRetries = 2;
 
         public SteamAppInfoService(ILogger<SteamAppInfoService> logger)
         {
             _logger = logger;
             _appInfoCache = new Dictionary<uint, SteamApps.PICSProductInfoCallback.PICSProductInfo>();
-            _ownedGames = new List<SteamKit2.KeyValue>();
+            _licenses = new List<SteamApps.LicenseListCallback.License>();
+            _ownedAppIds = new HashSet<uint>();
+
+            // Khởi tạo các AutoResetEvent
+            _connectEvent = new AutoResetEvent(false);
+            _logonEvent = new AutoResetEvent(false);
+            _appInfoEvent = new AutoResetEvent(false);
+            _licenseListEvent = new AutoResetEvent(false);
+
             InitializeSteamClient();
         }
 
@@ -67,365 +64,778 @@ namespace SteamCmdWebAPI.Services
             _callbackManager = new CallbackManager(_steamClient);
             _steamUser = _steamClient.GetHandler<SteamUser>();
             _steamApps = _steamClient.GetHandler<SteamApps>();
-            _steamUserStats = _steamClient.GetHandler<SteamUserStats>();
 
-            _connectEvent = new AutoResetEvent(false);
-            _logonEvent = new AutoResetEvent(false);
-            _appInfoEvent = new AutoResetEvent(false);
-            _ownedGamesEvent = new AutoResetEvent(false);
-
-            // Register callbacks
+            // Đăng ký các callback quan trọng
             _callbackManager.Subscribe<SteamClient.ConnectedCallback>(OnConnected);
             _callbackManager.Subscribe<SteamClient.DisconnectedCallback>(OnDisconnected);
             _callbackManager.Subscribe<SteamUser.LoggedOnCallback>(OnLoggedOn);
             _callbackManager.Subscribe<SteamUser.LoggedOffCallback>(OnLoggedOff);
-            _callbackManager.Subscribe<SteamApps.PICSProductInfoCallback>(OnAppInfoReceived);
-            
-            // Subscribe to owned games response
+            _callbackManager.Subscribe<SteamApps.PICSProductInfoCallback>(OnPICSProductInfo);
             _callbackManager.Subscribe<SteamApps.LicenseListCallback>(OnLicenseList);
+
+            // Bắt đầu thread callback
+            StartCallbackThread();
+        }
+
+        private Task _callbackTask;
+        private CancellationTokenSource _cancellationTokenSource;
+
+        private void StartCallbackThread()
+        {
+            _cancellationTokenSource = new CancellationTokenSource();
+            var token = _cancellationTokenSource.Token;
+
+            _callbackTask = Task.Run(() =>
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        // Giảm thời gian chờ giữa các lần gọi callback xuống 100ms
+                        _callbackManager.RunWaitCallbacks(TimeSpan.FromMilliseconds(100));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi trong luồng callback: {Message}", ex.Message);
+                        // Đợi một chút trước khi thử lại để tránh CPU spike
+                        Thread.Sleep(500);
+                    }
+                }
+            }, token);
+        }
+
+        public async Task DisposeAsync()
+        {
+            // Dừng thread callback
+            _cancellationTokenSource?.Cancel();
+            if (_callbackTask != null)
+            {
+                await Task.WhenAny(_callbackTask, Task.Delay(1000));
+            }
+
+            // Ngắt kết nối khỏi Steam
+            try
+            {
+                if (_steamClient != null && _steamClient.IsConnected)
+                {
+                    _steamClient.Disconnect();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi ngắt kết nối Steam trong DisposeAsync");
+            }
+
+            // Giải phóng tài nguyên
+            _connectEvent?.Dispose();
+            _logonEvent?.Dispose();
+            _appInfoEvent?.Dispose();
+            _licenseListEvent?.Dispose();
         }
 
         private void OnConnected(SteamClient.ConnectedCallback callback)
         {
-            _logger.LogInformation("Connected to Steam");
+            _logger.LogInformation("Đã kết nối đến Steam");
             _isConnected = true;
             _connectEvent.Set();
+
+            // Nếu chưa đăng nhập nhưng có thông tin đăng nhập, thực hiện đăng nhập
+            if (!_isLoggedIn && !string.IsNullOrEmpty(_currentUsername) && !string.IsNullOrEmpty(_currentPassword))
+            {
+                Task.Run(() => PerformLogin(_currentUsername, _currentPassword, _authCode, _twoFactorCode));
+            }
         }
 
         private void OnDisconnected(SteamClient.DisconnectedCallback callback)
         {
-            _logger.LogInformation("Disconnected from Steam: {0}", callback.UserInitiated ? "user initiated" : "connection lost");
+            _logger.LogInformation("Đã ngắt kết nối khỏi Steam: {Reason}",
+                callback.UserInitiated ? "ngắt kết nối chủ động" : "mất kết nối");
             _isConnected = false;
             _isLoggedIn = false;
+
+            // Tự động kết nối lại nếu không phải ngắt kết nối chủ động
+            if (!callback.UserInitiated)
+            {
+                _logger.LogInformation("Đang thử kết nối lại sau 1 giây...");
+                Task.Run(async () =>
+                {
+                    // Giảm thời gian chờ từ 3 giây xuống 1 giây
+                    await Task.Delay(1000);
+                    if (!_steamClient.IsConnected && !_isConnected)
+                    {
+                        _steamClient.Connect();
+                    }
+                });
+            }
         }
 
         private void OnLoggedOn(SteamUser.LoggedOnCallback callback)
         {
-            if (callback.Result != EResult.OK)
+            if (callback.Result == EResult.OK)
             {
-                _logger.LogError("Unable to log in: {0}", callback.Result);
-                _isLoggedIn = false;
+                _logger.LogInformation("Đăng nhập thành công vào Steam");
+                _isLoggedIn = true;
+                _isWaitingFor2FA = false;
+                _authCompletionSource?.TrySetResult(true);
+            }
+            else if (callback.Result == EResult.AccountLoginDeniedNeedTwoFactor)
+            {
+                _logger.LogWarning("Tài khoản yêu cầu mã xác thực Steam Guard Mobile");
+                _isWaitingFor2FA = true;
+                _requiredCodeType = "2fa";
+                _authCompletionSource?.TrySetResult(false);
+            }
+            else if (callback.Result == EResult.AccountLogonDenied)
+            {
+                _logger.LogWarning("Tài khoản yêu cầu mã xác thực qua email: {EmailDomain}", callback.EmailDomain);
+                _isWaitingFor2FA = true;
+                _requiredCodeType = "email";
+                _authCompletionSource?.TrySetResult(false);
             }
             else
             {
-                _logger.LogInformation("Successfully logged in as {0}", _currentUsername);
-                _isLoggedIn = true;
+                _logger.LogError("Đăng nhập thất bại: {Result}", callback.Result);
+                _isLoggedIn = false;
+                _authCompletionSource?.TrySetResult(false);
             }
-            
+
             _logonEvent.Set();
         }
 
         private void OnLoggedOff(SteamUser.LoggedOffCallback callback)
         {
-            _logger.LogInformation("Logged off from Steam: {0}", callback.Result);
+            _logger.LogInformation("Đã đăng xuất khỏi Steam: {Result}", callback.Result);
             _isLoggedIn = false;
-        }
-
-        private void OnAppInfoReceived(SteamApps.PICSProductInfoCallback callback)
-        {
-            _logger.LogInformation("Received info for {0} apps", callback.Apps.Count);
-            
-            foreach (var app in callback.Apps)
-            {
-                _appInfoCache[app.Key] = app.Value;
-            }
-            
-            _appInfoEvent.Set();
         }
 
         private void OnLicenseList(SteamApps.LicenseListCallback callback)
         {
-            _logger.LogInformation("Received license list with {0} licenses", callback.LicenseList.Count);
-            _ownedGamesEvent.Set();
-        }
-
-        private async Task<bool> ConnectAndLogin(string username, string password, bool anonymous = false)
-        {
             try
             {
-                if (_isConnected && _isLoggedIn && 
-                    !anonymous && _currentUsername == username)
+                if (callback.LicenseList != null && callback.LicenseList.Count > 0)
                 {
-                    // Already connected and logged in as the requested user
-                    return true;
-                }
+                    _logger.LogInformation("Nhận được danh sách {Count} license", callback.LicenseList.Count);
+                    _licenses = callback.LicenseList.ToList();
 
-                // Disconnect if already connected
-                if (_isConnected)
-                {
-                    _steamClient.Disconnect();
-                    _isConnected = false;
-                    _isLoggedIn = false;
-                    await Task.Delay(1000); // Wait for disconnect to complete
-                }
-
-                _currentUsername = username;
-
-                // Connect to Steam
-                _logger.LogInformation("Connecting to Steam...");
-                _steamClient.Connect();
-                
-                if (!_connectEvent.WaitOne(10000)) // Wait max 10 seconds for connection
-                {
-                    _logger.LogError("Connection to Steam timed out");
-                    return false;
-                }
-
-                // Login with credentials
-                _logger.LogInformation("Logging in to Steam{0}...", anonymous ? " anonymously" : $" as {username}");
-                
-                if (anonymous)
-                {
-                    _steamUser.LogOnAnonymous();
+                    // Xử lý ngay các license để lấy thông tin package
+                    ProcessLicenses();
                 }
                 else
                 {
-                    var logOnDetails = new SteamUser.LogOnDetails
-                    {
-                        Username = username,
-                        Password = password
-                    };
-                    _steamUser.LogOn(logOnDetails);
+                    _logger.LogWarning("Không tìm thấy license nào");
+                    _licenseListEvent.Set();
                 }
-
-                if (!_logonEvent.WaitOne(10000)) // Wait max 10 seconds for login
-                {
-                    _logger.LogError("Login to Steam timed out");
-                    return false;
-                }
-
-                return _isLoggedIn;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error connecting to Steam");
+                _logger.LogError(ex, "Lỗi khi xử lý license list: {Message}", ex.Message);
+                _licenseListEvent.Set();
+            }
+        }
+
+        private void ProcessLicenses()
+        {
+            try
+            {
+                // Lọc các PackageID hợp lệ
+                var validPackages = _licenses
+                    .Where(l => l.PackageID != 0)
+                    .Select(l => l.PackageID)
+                    .ToList();
+
+                _logger.LogInformation("Tìm thấy {Count} package hợp lệ", validPackages.Count);
+
+                if (validPackages.Count == 0)
+                {
+                    _logger.LogWarning("Không tìm thấy package hợp lệ nào");
+                    _licenseListEvent.Set();
+                    return;
+                }
+
+                // Giảm batch size để tránh rate limit và quá tải
+                int batchSize = 25;
+                var batches = BatchItems(validPackages, batchSize);
+
+                foreach (var batch in batches)
+                {
+                    var packageRequests = batch.Select(id => new SteamApps.PICSRequest(id)).ToList();
+                    _steamApps.PICSGetProductInfo(new List<SteamApps.PICSRequest>(), packageRequests);
+
+                    // Giảm thời gian chờ giữa các batch xuống 150ms
+                    Thread.Sleep(150);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xử lý licenses: {Message}", ex.Message);
+                _licenseListEvent.Set();
+            }
+        }
+
+        private void OnPICSProductInfo(SteamApps.PICSProductInfoCallback callback)
+        {
+            try
+            {
+                // Xử lý thông tin package để lấy AppID
+                if (callback.Packages != null && callback.Packages.Count > 0)
+                {
+                    _logger.LogInformation("Nhận được thông tin của {Count} package", callback.Packages.Count);
+
+                    foreach (var package in callback.Packages)
+                    {
+                        try
+                        {
+                            uint packageId = package.Key;
+                            var packageData = package.Value;
+
+                            // Thêm kiểm tra null trước khi gán vào dictionary
+                            if (packageData != null)
+                            {
+                                // Đảm bảo KeyValues không null
+                                if (packageData.KeyValues != null)
+                                {
+                                    // Tìm node "appids" - có thể nằm ở nhiều vị trí khác nhau
+                                    ExtractAppIdsFromPackage(packageData);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi xử lý package {PackageId}: {Message}", package.Key, ex.Message);
+                        }
+                    }
+
+                    // Nếu không còn response nào nữa, chuyển sang lấy thông tin game
+                    if (!callback.ResponsePending)
+                    {
+                        _licenseListEvent.Set();
+
+                        if (_ownedAppIds.Count > 0)
+                        {
+                            ProcessAppIds();
+                        }
+                    }
+                }
+
+                // Xử lý thông tin app để lấy tên game
+                if (callback.Apps != null && callback.Apps.Count > 0)
+                {
+                    foreach (var app in callback.Apps)
+                    {
+                        try
+                        {
+                            uint appId = app.Key;
+                            var appInfo = app.Value;
+
+                            // Thêm kiểm tra null trước khi gán vào dictionary
+                            if (appInfo != null)
+                            {
+                                _appInfoCache[appId] = appInfo;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi xử lý app {AppId}: {Message}", app.Key, ex.Message);
+                        }
+                    }
+
+                    if (!callback.ResponsePending)
+                    {
+                        _appInfoEvent.Set();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xử lý PICS callback: {Message}", ex.Message);
+
+                // Đảm bảo các event được kích hoạt để không bị treo
+                if (callback.Packages != null && callback.Packages.Count > 0 && !callback.ResponsePending)
+                {
+                    _licenseListEvent.Set();
+                }
+
+                if (callback.Apps != null && callback.Apps.Count > 0 && !callback.ResponsePending)
+                {
+                    _appInfoEvent.Set();
+                }
+            }
+        }
+
+        private void ExtractAppIdsFromPackage(SteamApps.PICSProductInfoCallback.PICSProductInfo packageInfo)
+        {
+            if (packageInfo == null || packageInfo.KeyValues == null)
+            {
+                return;
+            }
+
+            var kv = packageInfo.KeyValues;
+
+            // Tìm node "appids" - cách thông thường nhất
+            KeyValue appidsNode = kv["appids"];
+            bool foundAnyAppId = false;
+
+            if (appidsNode != null)
+            {
+                try
+                {
+                    if (appidsNode.Children != null && appidsNode.Children.Count > 0)
+                    {
+                        foreach (var appNode in appidsNode.Children)
+                        {
+                            if (appNode == null) continue;
+
+                            // AppID có thể là Name hoặc Value của node
+                            uint appId = 0;
+
+                            // Thử lấy từ Name
+                            if (!string.IsNullOrEmpty(appNode.Name) && uint.TryParse(appNode.Name, out appId) && appId > 0)
+                            {
+                                _ownedAppIds.Add(appId);
+                                foundAnyAppId = true;
+                                _logger.LogDebug("Đã tìm thấy AppID {AppId} từ Name node trong package {PackageId}", appId, packageInfo.ID);
+                            }
+                            // Thử lấy từ Value
+                            else if (appNode.Value != null && uint.TryParse(appNode.Value.ToString(), out appId) && appId > 0)
+                            {
+                                _ownedAppIds.Add(appId);
+                                foundAnyAppId = true;
+                                _logger.LogDebug("Đã tìm thấy AppID {AppId} từ Value node trong package {PackageId}", appId, packageInfo.ID);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi xử lý appids node trong package {PackageId}: {Message}", packageInfo.ID, ex.Message);
+                }
+            }
+
+            // Nếu không tìm thấy thông qua node appids, thử tìm kiếm đệ quy
+            if (!foundAnyAppId)
+            {
+                try
+                {
+                    FindAppIdsRecursively(kv, packageInfo.ID);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi tìm kiếm đệ quy AppIds trong package {PackageId}: {Message}", packageInfo.ID, ex.Message);
+                }
+            }
+        }
+
+        // Hàm tìm kiếm đệ quy các AppID trong KeyValues
+        private void FindAppIdsRecursively(KeyValue node, uint packageId)
+        {
+            if (node == null) return;
+
+            try
+            {
+                // Kiểm tra tên node
+                if (!string.IsNullOrEmpty(node.Name) &&
+                    (node.Name.Equals("appid", StringComparison.OrdinalIgnoreCase) ||
+                     node.Name.Equals("appids", StringComparison.OrdinalIgnoreCase)))
+                {
+                    // Nếu là node lá và có giá trị số
+                    if ((node.Children == null || node.Children.Count == 0) && node.Value != null)
+                    {
+                        if (uint.TryParse(node.Value.ToString(), out uint appId) && appId > 0)
+                        {
+                            _ownedAppIds.Add(appId);
+                            _logger.LogDebug("Đã tìm thấy AppID {AppId} từ node {NodeName} trong package {PackageId}",
+                                appId, node.Name, packageId);
+                        }
+                    }
+                    // Nếu có node con, duyệt qua từng node con
+                    else if (node.Children != null && node.Children.Count > 0)
+                    {
+                        foreach (var child in node.Children)
+                        {
+                            if (child == null) continue;
+
+                            // Kiểm tra Name của node con
+                            if (!string.IsNullOrEmpty(child.Name) && uint.TryParse(child.Name, out uint appIdFromName) && appIdFromName > 0)
+                            {
+                                _ownedAppIds.Add(appIdFromName);
+                                _logger.LogDebug("Đã tìm thấy AppID {AppId} từ Name của node con trong package {PackageId}",
+                                    appIdFromName, packageId);
+                            }
+                            // Kiểm tra Value của node con
+                            else if (child.Value != null && uint.TryParse(child.Value.ToString(), out uint appIdFromValue) && appIdFromValue > 0)
+                            {
+                                _ownedAppIds.Add(appIdFromValue);
+                                _logger.LogDebug("Đã tìm thấy AppID {AppId} từ Value của node con trong package {PackageId}",
+                                    appIdFromValue, packageId);
+                            }
+
+                            // Đệ quy tiếp với node con
+                            FindAppIdsRecursively(child, packageId);
+                        }
+                    }
+                }
+                // Trường hợp đặc biệt: nếu node có tên là số, có thể là AppID
+                else if (!string.IsNullOrEmpty(node.Name) &&
+                         uint.TryParse(node.Name, out uint potentialAppId) &&
+                         potentialAppId > 0 &&
+                         potentialAppId < 5000000)
+                {
+                    // Kiểm tra nếu node này có node con tên là "gamedir" hoặc "name" - dấu hiệu là AppID
+                    if (node.Children != null &&
+                        (node.Children.Any(c => c != null && c.Name != null && c.Name.Equals("gamedir", StringComparison.OrdinalIgnoreCase)) ||
+                         node.Children.Any(c => c != null && c.Name != null && c.Name.Equals("name", StringComparison.OrdinalIgnoreCase))))
+                    {
+                        _ownedAppIds.Add(potentialAppId);
+                        _logger.LogDebug("Đã tìm thấy AppID {AppId} là tên node trong package {PackageId}",
+                            potentialAppId, packageId);
+                    }
+                }
+
+                // Duyệt đệ quy qua tất cả node con nếu có
+                if (node.Children != null)
+                {
+                    foreach (var child in node.Children)
+                    {
+                        if (child != null)
+                        {
+                            FindAppIdsRecursively(child, packageId);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xử lý node {NodeName} trong package {PackageId}: {Message}",
+                    node.Name, packageId, ex.Message);
+            }
+        }
+
+        private void ProcessAppIds()
+        {
+            try
+            {
+                _logger.LogInformation("Đã tìm thấy tổng cộng {Count} AppID, đang lấy thông tin chi tiết...", _ownedAppIds.Count);
+
+                // Giảm batch size để tránh rate limit và quá tải
+                int batchSize = 50;
+                var batches = BatchItems(_ownedAppIds.ToList(), batchSize);
+
+                foreach (var batch in batches)
+                {
+                    var appRequests = batch.Select(id => new SteamApps.PICSRequest(id)).ToList();
+                    _steamApps.PICSGetProductInfo(appRequests, new List<SteamApps.PICSRequest>());
+
+                    // Giảm thời gian chờ giữa các batch xuống 150ms
+                    Thread.Sleep(150);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xử lý AppIDs: {Message}", ex.Message);
+            }
+        }
+
+        // Hàm chia danh sách thành các batch nhỏ hơn
+        private IEnumerable<List<T>> BatchItems<T>(List<T> source, int batchSize)
+        {
+            for (int i = 0; i < source.Count; i += batchSize)
+            {
+                yield return source.Skip(i).Take(batchSize).ToList();
+            }
+        }
+
+        private async Task<bool> ConnectAsync()
+        {
+            if (_isConnected)
+            {
+                return true;
+            }
+
+            try
+            {
+                // Thêm retry logic cho kết nối
+                for (int retryCount = 0; retryCount <= _maxConnectionRetries; retryCount++)
+                {
+                    if (retryCount > 0)
+                    {
+                        _logger.LogWarning("Thử kết nối lại lần {RetryCount}/{MaxRetries}...",
+                            retryCount, _maxConnectionRetries);
+                        // Tăng thời gian chờ theo số lần retry
+                        await Task.Delay(500 * retryCount);
+                    }
+
+                    _logger.LogInformation("Đang kết nối đến Steam...");
+                    _connectEvent.Reset();
+                    _steamClient.Connect();
+
+                    bool connected = _connectEvent.WaitOne((int)_connectionTimeout.TotalMilliseconds);
+
+                    if (connected)
+                    {
+                        return true;
+                    }
+
+                    // Ngắt kết nối trước khi thử lại
+                    if (_steamClient.IsConnected)
+                    {
+                        _steamClient.Disconnect();
+                    }
+                }
+
+                _logger.LogError("Kết nối đến Steam bị timeout sau {RetryCount} lần thử", _maxConnectionRetries + 1);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi kết nối đến Steam: {Message}", ex.Message);
                 return false;
             }
         }
 
-        public async Task<(string AppId, string GameName)> GetAppInfoAsync(string appIdStr)
+        private bool PerformLogin(string username, string password, string authCode = null, string twoFactorCode = null)
         {
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                _logger.LogError("Tên đăng nhập hoặc mật khẩu không được để trống");
+                return false;
+            }
+
             try
             {
-                if (string.IsNullOrEmpty(appIdStr))
+                // Thêm retry logic cho đăng nhập
+                for (int retryCount = 0; retryCount <= _maxLoginRetries; retryCount++)
                 {
-                    _logger.LogWarning("Empty AppID, cannot get information");
-                    return (string.Empty, string.Empty);
-                }
-                
-                if (!uint.TryParse(appIdStr, out uint appId))
-                {
-                    _logger.LogWarning("Invalid AppID: {0}", appIdStr);
-                    return (appIdStr, string.Empty);
-                }
-
-                // Try to get from popular games list first (fastest)
-                if (_popularGames.TryGetValue(appIdStr, out string popularGameName))
-                {
-                    return (appIdStr, popularGameName);
-                }
-
-                // Connect and login anonymously (sufficient for public app info)
-                bool connected = await ConnectAndLogin("", "", true);
-                if (!connected)
-                {
-                    _logger.LogError("Failed to connect to Steam");
-                    return (appIdStr, string.Empty);
-                }
-
-                // Process callbacks while waiting
-                Task.Run(() => {
-                    while (_isConnected)
+                    if (retryCount > 0)
                     {
-                        _callbackManager.RunWaitCallbacks(TimeSpan.FromMilliseconds(500));
+                        _logger.LogWarning("Thử đăng nhập lại lần {RetryCount}/{MaxRetries}...",
+                            retryCount, _maxLoginRetries);
+                        // Tăng thời gian chờ theo số lần retry
+                        Thread.Sleep(500 * retryCount);
                     }
-                });
 
-                // Check if app info is already in cache
-                if (_appInfoCache.TryGetValue(appId, out var cachedAppInfo))
-                {
-                    string gameName = GetGameNameFromAppInfo(cachedAppInfo);
-                    _logger.LogInformation("Retrieved info from cache for AppID {0}: {1}", appId, gameName);
-                    return (appIdStr, gameName);
+                    _currentUsername = username;
+                    _currentPassword = password;
+                    _authCode = authCode;
+                    _twoFactorCode = twoFactorCode;
+
+                    var loginDetails = new SteamUser.LogOnDetails
+                    {
+                        Username = username,
+                        Password = password,
+                        ShouldRememberPassword = true // Thêm flag này để giảm số lần đăng nhập trong tương lai
+                    };
+
+                    if (!string.IsNullOrEmpty(authCode))
+                    {
+                        loginDetails.AuthCode = authCode;
+                    }
+
+                    if (!string.IsNullOrEmpty(twoFactorCode))
+                    {
+                        loginDetails.TwoFactorCode = twoFactorCode;
+                    }
+
+                    _logger.LogInformation("Đang đăng nhập vào Steam với tài khoản {Username}...", username);
+                    _logonEvent.Reset();
+                    _steamUser.LogOn(loginDetails);
+
+                    bool loggedOn = _logonEvent.WaitOne((int)_loginTimeout.TotalMilliseconds);
+
+                    if (loggedOn && _isLoggedIn)
+                    {
+                        return true;
+                    }
+
+                    // Nếu đang chờ 2FA, không retry nữa
+                    if (_isWaitingFor2FA)
+                    {
+                        return false;
+                    }
                 }
 
-                // Request app info from Steam
-                var request = new SteamApps.PICSRequest(appId);
-                _steamApps.PICSGetProductInfo(new List<SteamApps.PICSRequest> { request }, null);
-                
-                // Wait for result
-                bool received = _appInfoEvent.WaitOne(10000); // Wait up to 10 seconds
-                
-                if (!received || !_appInfoCache.TryGetValue(appId, out var appInfo))
-                {
-                    _logger.LogWarning("Did not receive info for AppID {0}", appId);
-                    return (appIdStr, string.Empty);
-                }
-                
-                string name = GetGameNameFromAppInfo(appInfo);
-                _logger.LogInformation("Retrieved game name for AppID {0}: {1}", appId, name);
-                
-                return (appIdStr, name);
+                _logger.LogError("Đăng nhập vào Steam bị timeout hoặc thất bại sau {RetryCount} lần thử", _maxLoginRetries + 1);
+                return false;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving info for AppID {0}", appIdStr);
-                return (appIdStr, string.Empty);
-            }
-            finally
-            {
-                // Leave connection open for future requests
+                _logger.LogError(ex, "Lỗi khi đăng nhập vào Steam: {Message}", ex.Message);
+                return false;
             }
         }
 
-        private string GetGameNameFromAppInfo(SteamApps.PICSProductInfoCallback.PICSProductInfo appInfo)
+        public async Task<List<(string AppId, string GameName)>> GetOwnedGamesAsync(string username, string password)
         {
+            _logger.LogInformation("Đang lấy danh sách game cho tài khoản {Username}...", username);
+
+            // Reset các biến trạng thái
+            _ownedAppIds.Clear();
+            _licenses.Clear();
+            _authCompletionSource = new TaskCompletionSource<bool>();
+
+            // Kết nối đến Steam
+            bool connected = await ConnectAsync();
+            if (!connected)
+            {
+                _logger.LogError("Không thể kết nối đến Steam");
+                return new List<(string, string)>();
+            }
+
+            // Đăng nhập
+            bool loggedIn = PerformLogin(username, password);
+            if (!loggedIn)
+            {
+                // Nếu cần xác thực 2FA
+                if (_isWaitingFor2FA)
+                {
+                    _logger.LogWarning("Tài khoản yêu cầu xác thực {Type}", _requiredCodeType == "2fa" ? "Steam Guard" : "email");
+                    throw new Exception($"Cần mã xác thực từ {(_requiredCodeType == "2fa" ? "ứng dụng Steam Guard" : "email")}");
+                }
+
+                _logger.LogError("Không thể đăng nhập vào Steam");
+                return new List<(string, string)>();
+            }
+
+            // Reset các event
+            _licenseListEvent.Reset();
+            _appInfoEvent.Reset();
+
+            // Yêu cầu danh sách license
+            _logger.LogInformation("Đăng nhập thành công, đang lấy danh sách license...");
+            var licenseMsg = new ClientMsgProtobuf<SteamKit2.Internal.CMsgClientLicenseList>(EMsg.ClientLicenseList);
+            _steamClient.Send(licenseMsg);
+
+            // Đợi xử lý license với timeout
+            bool licensesProcessed = _licenseListEvent.WaitOne((int)_licenseTimeout.TotalMilliseconds);
+            if (!licensesProcessed)
+            {
+                _logger.LogWarning("Timeout khi lấy và xử lý licenses");
+            }
+
+            // Đợi xử lý thông tin app với timeout
+            bool appsProcessed = _appInfoEvent.WaitOne((int)_appInfoTimeout.TotalMilliseconds);
+            if (!appsProcessed)
+            {
+                _logger.LogWarning("Timeout khi lấy thông tin app");
+            }
+
+            // Tạo kết quả
+            var results = new List<(string AppId, string GameName)>();
+
+            foreach (var appId in _ownedAppIds)
+            {
+                // Bỏ qua các appId từ 0 đến 9 vì là component của Steam
+                if (appId >= 0 && appId <= 9)
+                {
+                    continue;
+                }
+
+                // Cố gắng lấy tên game từ cache
+                string name = "Unknown";
+
+                if (_appInfoCache.TryGetValue(appId, out var appInfo) &&
+                    appInfo.KeyValues != null)
+                {
+                    var common = appInfo.KeyValues["common"];
+                    if (common != null)
+                    {
+                        var nameNode = common["name"];
+                        if (nameNode != null && nameNode.Value != null)
+                        {
+                            name = nameNode.Value.ToString();
+                        }
+                    }
+                }
+
+                if (name == "Unknown")
+                {
+                    name = $"Game {appId}";
+                }
+
+                // Kiểm tra nếu tên game có định dạng "Game X" thì bỏ qua
+                if (name.StartsWith("Game ") && int.TryParse(name.Substring(5), out _))
+                {
+                    continue;
+                }
+
+                results.Add((appId.ToString(), name));
+            }
+
+            _logger.LogInformation("Đã lấy được {Count} game từ tài khoản Steam", results.Count);
+            return results;
+        }
+
+        public async Task<List<(string AppId, string GameName)>> ScanAccountGames(string username, string password)
+        {
+            // Đơn giản hóa - gọi thẳng đến hàm xử lý chính
             try
             {
-                var kv = appInfo.KeyValues;
-                return kv["common"]?["name"]?.AsString() ?? string.Empty;
+                return await GetOwnedGamesAsync(username, password);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error extracting game name from app info");
-                return string.Empty;
+                _logger.LogError(ex, "Lỗi khi quét game từ tài khoản: {Message}", ex.Message);
+                throw;
             }
         }
 
         public async Task<List<(string AppId, string GameName)>> GetAppInfoBatchAsync(IEnumerable<string> appIds)
         {
             var results = new List<(string AppId, string GameName)>();
-            
+
             foreach (var appId in appIds)
             {
-                var result = await GetAppInfoAsync(appId);
-                results.Add(result);
+                if (uint.TryParse(appId, out uint id) && id > 0)
+                {
+                    // Bỏ qua các appId từ 0 đến 9 theo yêu cầu
+                    if (id >= 0 && id <= 9)
+                    {
+                        continue;
+                    }
+
+                    // Tìm trong cache
+                    string name = "";
+                    if (_appInfoCache.TryGetValue(id, out var appInfo) &&
+                        appInfo.KeyValues != null)
+                    {
+                        var common = appInfo.KeyValues["common"];
+                        if (common != null)
+                        {
+                            var nameNode = common["name"];
+                            if (nameNode != null && nameNode.Value != null)
+                            {
+                                name = nameNode.Value.ToString();
+                            }
+                        }
+                    }
+
+                    if (string.IsNullOrEmpty(name))
+                    {
+                        name = $"Game {appId}";
+                    }
+
+                    // Kiểm tra nếu tên game có định dạng "Game X" thì bỏ qua
+                    if (name.StartsWith("Game ") && int.TryParse(name.Substring(5), out _))
+                    {
+                        continue;
+                    }
+
+                    results.Add((appId, name));
+                }
+                else
+                {
+                    string name = $"Game {appId}";
+
+                    // Kiểm tra nếu tên game có định dạng "Game X" thì bỏ qua
+                    if (name.StartsWith("Game ") && int.TryParse(name.Substring(5), out _))
+                    {
+                        continue;
+                    }
+
+                    results.Add((appId, name));
+                }
             }
-            
+
             return results;
         }
-
-        public void Disconnect()
-        {
-            if (_isConnected)
-            {
-                _steamClient.Disconnect();
-                _isConnected = false;
-                _isLoggedIn = false;
-            }
-        }
-
-        private async Task<List<uint>> GetOwnedAppsAsync(string username, string password)
-        {
-            var ownedApps = new List<uint>();
-            
-            try
-            {
-                bool connected = await ConnectAndLogin(username, password);
-                if (!connected)
-                {
-                    _logger.LogError("Failed to login with the provided credentials");
-                    return ownedApps;
-                }
-
-                _logger.LogInformation("Successfully logged in to Steam. Retrieving popular games list as fallback...");
-
-                // Process callbacks in a separate task
-                var callbackTask = Task.Run(() => {
-                    while (_isConnected && _isLoggedIn)
-                    {
-                        _callbackManager.RunWaitCallbacks(TimeSpan.FromMilliseconds(500));
-                    }
-                });
-
-                // Thêm thời gian chờ để đảm bảo kết nối ổn định
-                await Task.Delay(1000);
-
-                // Sử dụng danh sách game phổ biến làm fallback
-                foreach (var game in _popularGames)
-                {
-                    if (uint.TryParse(game.Key, out uint appId))
-                    {
-                        ownedApps.Add(appId);
-                    }
-                }
-                
-                _logger.LogInformation("Found {0} popular games", ownedApps.Count);
-                return ownedApps;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting owned apps");
-                
-                // Dùng danh sách fallback trong trường hợp lỗi
-                foreach (var game in _popularGames)
-                {
-                    if (uint.TryParse(game.Key, out uint appId))
-                    {
-                        ownedApps.Add(appId);
-                    }
-                }
-                
-                return ownedApps;
-            }
-        }
-
-        // Method to get owned games from a Steam account
-        public async Task<List<(string AppId, string GameName)>> GetOwnedGamesAsync(string username, string password)
-        {
-            var results = new List<(string AppId, string GameName)>();
-            
-            try
-            {
-                if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
-                {
-                    _logger.LogWarning("Username or password not provided to get owned games");
-                    return GetPopularGames(); // Fallback to popular games
-                }
-
-                _logger.LogInformation("Getting owned games for account {Username}", username);
-
-                // First attempt: Try to connect and get owned apps
-                var ownedAppIds = await GetOwnedAppsAsync(username, password);
-                
-                if (ownedAppIds.Count == 0)
-                {
-                    _logger.LogWarning("Could not retrieve owned games from Steam, using fallback method");
-                    return GetPopularGames(); // Fallback to popular games
-                }
-                
-                // Get game names for each app ID
-                foreach (var appId in ownedAppIds)
-                {
-                    var appIdStr = appId.ToString();
-                    var (_, gameName) = await GetAppInfoAsync(appIdStr);
-                    
-                    if (!string.IsNullOrEmpty(gameName))
-                    {
-                        results.Add((appIdStr, gameName));
-                    }
-                }
-                
-                return results.OrderBy(g => g.GameName).ToList();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting owned games for account {Username}", username);
-                return GetPopularGames(); // Fallback to popular games
-            }
-        }
-        
-        // Fallback method to return popular games
-        public List<(string AppId, string GameName)> GetPopularGames()
-        {
-            var games = new List<(string AppId, string GameName)>();
-            
-            foreach (var game in _popularGames)
-            {
-                games.Add((game.Key, game.Value));
-            }
-            
-            return games.OrderBy(g => g.GameName).ToList();
-        }
     }
-} 
+}
