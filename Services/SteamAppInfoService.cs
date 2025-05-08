@@ -27,6 +27,8 @@ namespace SteamCmdWebAPI.Services
         private Dictionary<uint, SteamApps.PICSProductInfoCallback.PICSProductInfo> _appInfoCache;
         private List<SteamApps.LicenseListCallback.License> _licenses;
         private HashSet<uint> _ownedAppIds;
+        private HashSet<uint> _familySharedAppIds;
+        private HashSet<uint> _hiddenAppIds;
 
         // Thêm biến theo dõi trạng thái 2FA
         private string _authCode;
@@ -53,6 +55,8 @@ namespace SteamCmdWebAPI.Services
             _appInfoCache = new Dictionary<uint, SteamApps.PICSProductInfoCallback.PICSProductInfo>();
             _licenses = new List<SteamApps.LicenseListCallback.License>();
             _ownedAppIds = new HashSet<uint>();
+            _familySharedAppIds = new HashSet<uint>();
+            _hiddenAppIds = new HashSet<uint>();
 
             // Khởi tạo các AutoResetEvent
             _connectEvent = new AutoResetEvent(false);
@@ -271,6 +275,34 @@ namespace SteamCmdWebAPI.Services
 
                     // Xử lý ngay các license để lấy thông tin package
                     ProcessLicenses();
+                    
+                    // Tìm kiếm license Family Sharing 
+                    foreach (var license in _licenses)
+                    {
+                        // Phân tích các license để tìm các game được chia sẻ từ Family Sharing
+                        // Dựa vào các thuộc tính đặc trưng thay vì dùng flag SharedLicense
+                        if ((int)license.PaymentMethod == 10 || (int)license.PaymentMethod == 0)
+                        {
+                            // Kiểm tra thêm các điều kiện khác để nhận diện Family Sharing
+                            if ((int)license.LicenseType == 1 || (int)license.LicenseType == 0)
+                            {
+                                _logger.LogDebug("Phát hiện license có thể từ Family Sharing: PackageID={0}, LicenseType={1}, PaymentMethod={2}",
+                                    license.PackageID, (int)license.LicenseType, (int)license.PaymentMethod);
+                                    
+                                // Thực hiện truy vấn PICS cho package này
+                                var packageRequest = new SteamApps.PICSRequest(license.PackageID);
+                                _steamApps.PICSGetProductInfo(
+                                    apps: new List<SteamApps.PICSRequest>(),
+                                    packages: new List<SteamApps.PICSRequest> { packageRequest }
+                                );
+                                
+                                // Đánh dấu package này là từ Family Sharing (để xử lý trong OnPICSProductInfo)
+                                _familySharedAppIds.Add(license.PackageID);
+                            }
+                        }
+                    }
+                    
+                    _logger.LogInformation("Đã xử lý license list và yêu cầu thông tin game");
                 }
                 else
                 {
@@ -516,7 +548,11 @@ namespace SteamCmdWebAPI.Services
                                 continue;
                             }
 
-                                    // Tìm node "appids" - có thể nằm ở nhiều vị trí khác nhau
+                            // Kiểm tra xem package này là từ Family Sharing hay không
+                            bool isFromFamilySharing = IsPackageFromFamilySharing(packageId);
+                            HashSet<uint> targetAppIdSet = isFromFamilySharing ? _familySharedAppIds : _ownedAppIds;
+
+                            // Tìm node "appids" - có thể nằm ở nhiều vị trí khác nhau
                             KeyValue appidsNode = packageData.KeyValues["appids"];
 
                             if (appidsNode != null && appidsNode.Children != null && appidsNode.Children.Count > 0)
@@ -530,21 +566,23 @@ namespace SteamCmdWebAPI.Services
                                     // Thử lấy từ Name
                                     if (!string.IsNullOrEmpty(appNode.Name) && uint.TryParse(appNode.Name, out appId) && appId > 0)
                                     {
-                                        _ownedAppIds.Add(appId);
-                                        _logger.LogDebug("Đã tìm thấy AppID {0} từ Name node trong package {1}", appId, packageId);
+                                        targetAppIdSet.Add(appId);
+                                        _logger.LogDebug("Đã tìm thấy AppID {0} từ Name node trong package {1}{2}", 
+                                            appId, packageId, isFromFamilySharing ? " (Family Sharing)" : "");
                                     }
                                     // Thử lấy từ Value
                                     else if (appNode.Value != null && uint.TryParse(appNode.Value.ToString(), out appId) && appId > 0)
                                     {
-                                        _ownedAppIds.Add(appId);
-                                        _logger.LogDebug("Đã tìm thấy AppID {0} từ Value node trong package {1}", appId, packageId);
+                                        targetAppIdSet.Add(appId);
+                                        _logger.LogDebug("Đã tìm thấy AppID {0} từ Value node trong package {1}{2}", 
+                                            appId, packageId, isFromFamilySharing ? " (Family Sharing)" : "");
                                     }
                                 }
                             }
                             else
                             {
                                 // Thử tìm kiếm đệ quy trong cấu trúc KeyValues
-                                FindAppIdsRecursively(packageData.KeyValues, packageId);
+                                FindAppIdsRecursively(packageData.KeyValues, packageId, isFromFamilySharing);
                             }
                         }
                         catch (Exception ex)
@@ -613,12 +651,16 @@ namespace SteamCmdWebAPI.Services
         }
 
         // Hàm tìm kiếm đệ quy các AppID trong KeyValues
-        private void FindAppIdsRecursively(KeyValue node, uint packageId)
+        private void FindAppIdsRecursively(KeyValue node, uint packageId, bool isFromFamilySharing = false)
         {
             if (node == null) return;
 
             try
             {
+                // Xác định set mục tiêu tùy thuộc vào nguồn
+                HashSet<uint> targetAppIdSet = isFromFamilySharing ? _familySharedAppIds : _ownedAppIds;
+                string sourceTag = isFromFamilySharing ? " (Family Sharing)" : "";
+
                 // Kiểm tra tên node
                 if (!string.IsNullOrEmpty(node.Name) &&
                     (node.Name.Equals("appid", StringComparison.OrdinalIgnoreCase) ||
@@ -629,9 +671,9 @@ namespace SteamCmdWebAPI.Services
                     {
                         if (uint.TryParse(node.Value.ToString(), out uint appId) && appId > 0)
                         {
-                            _ownedAppIds.Add(appId);
-                            _logger.LogDebug("Đã tìm thấy AppID {AppId} từ node {NodeName} trong package {PackageId}",
-                                appId, node.Name, packageId);
+                            targetAppIdSet.Add(appId);
+                            _logger.LogDebug("Đã tìm thấy AppID {AppId} từ node {NodeName} trong package {PackageId}{Source}",
+                                appId, node.Name, packageId, sourceTag);
                         }
                     }
                     // Nếu có node con, duyệt qua từng node con
@@ -644,20 +686,20 @@ namespace SteamCmdWebAPI.Services
                             // Kiểm tra Name của node con
                             if (!string.IsNullOrEmpty(child.Name) && uint.TryParse(child.Name, out uint appIdFromName) && appIdFromName > 0)
                             {
-                                _ownedAppIds.Add(appIdFromName);
-                                _logger.LogDebug("Đã tìm thấy AppID {0} từ Name của node con trong package {1}",
-                                    appIdFromName, packageId);
+                                targetAppIdSet.Add(appIdFromName);
+                                _logger.LogDebug("Đã tìm thấy AppID {0} từ Name của node con trong package {1}{2}",
+                                    appIdFromName, packageId, sourceTag);
                             }
                             // Kiểm tra Value của node con
                             else if (child.Value != null && uint.TryParse(child.Value.ToString(), out uint appIdFromValue) && appIdFromValue > 0)
                             {
-                                _ownedAppIds.Add(appIdFromValue);
-                                _logger.LogDebug("Đã tìm thấy AppID {0} từ Value của node con trong package {1}",
-                                    appIdFromValue, packageId);
+                                targetAppIdSet.Add(appIdFromValue);
+                                _logger.LogDebug("Đã tìm thấy AppID {0} từ Value của node con trong package {1}{2}",
+                                    appIdFromValue, packageId, sourceTag);
                             }
 
                             // Đệ quy tiếp với node con
-                            FindAppIdsRecursively(child, packageId);
+                            FindAppIdsRecursively(child, packageId, isFromFamilySharing);
                         }
                     }
                 }
@@ -699,9 +741,9 @@ namespace SteamCmdWebAPI.Services
                     
                     if (isAppIdNode)
                     {
-                        _ownedAppIds.Add(potentialAppId);
-                        _logger.LogDebug("Đã tìm thấy AppID {0} là tên node trong package {1}",
-                            potentialAppId, packageId);
+                        targetAppIdSet.Add(potentialAppId);
+                        _logger.LogDebug("Đã tìm thấy AppID {0} là tên node trong package {1}{2}",
+                            potentialAppId, packageId, sourceTag);
                     }
                     
                     // Kiểm tra thêm dựa trên đặc điểm của node và node con
@@ -727,9 +769,9 @@ namespace SteamCmdWebAPI.Services
                         if (totalChildrenCount > 0 && similarChildrenCount > 0 && 
                             ((double)similarChildrenCount / totalChildrenCount >= 0.5))
                         {
-                            _ownedAppIds.Add(potentialAppId);
-                            _logger.LogDebug("Đã tìm thấy AppID {0} qua phân tích cấu trúc trong package {1}",
-                                potentialAppId, packageId);
+                            targetAppIdSet.Add(potentialAppId);
+                            _logger.LogDebug("Đã tìm thấy AppID {0} qua phân tích cấu trúc trong package {1}{2}",
+                                potentialAppId, packageId, sourceTag);
                         }
                     }
                 }
@@ -761,9 +803,9 @@ namespace SteamCmdWebAPI.Services
                             uint.TryParse(appidNode.Value.ToString(), out uint appId) && 
                             appId > 0 && appId < 5000000)
                         {
-                            _ownedAppIds.Add(appId);
-                            _logger.LogDebug("Đã tìm thấy AppID {0} từ node đặc biệt trong package {1}",
-                                appId, packageId);
+                            targetAppIdSet.Add(appId);
+                            _logger.LogDebug("Đã tìm thấy AppID {0} từ node đặc biệt trong package {1}{2}",
+                                appId, packageId, sourceTag);
                         }
                     }
                 }
@@ -775,7 +817,7 @@ namespace SteamCmdWebAPI.Services
                     {
                         if (child != null)
                         {
-                            FindAppIdsRecursively(child, packageId);
+                            FindAppIdsRecursively(child, packageId, isFromFamilySharing);
                         }
                     }
                 }
@@ -791,9 +833,21 @@ namespace SteamCmdWebAPI.Services
         {
             try
             {
-                _logger.LogInformation("Đã tìm thấy tổng cộng {0} AppID, đang lấy thông tin chi tiết...", _ownedAppIds.Count);
+                // Kết hợp các AppID từ cả sở hữu và Family Sharing
+                HashSet<uint> allAppIds = new HashSet<uint>(_ownedAppIds);
+                foreach (var appId in _familySharedAppIds)
+                {
+                    allAppIds.Add(appId);
+                }
+                foreach (var appId in _hiddenAppIds)
+                {
+                    allAppIds.Add(appId);
+                }
+                
+                _logger.LogInformation("Đã tìm thấy tổng cộng {0} AppID (sở hữu: {1}, Family Sharing: {2}, ẩn: {3}), đang lấy thông tin chi tiết...", 
+                    allAppIds.Count, _ownedAppIds.Count, _familySharedAppIds.Count, _hiddenAppIds.Count);
 
-                if (_ownedAppIds.Count == 0)
+                if (allAppIds.Count == 0)
                 {
                     _logger.LogWarning("Không có AppID nào để xử lý");
                     _appInfoEvent.Set();
@@ -801,11 +855,11 @@ namespace SteamCmdWebAPI.Services
                 }
 
                 // Lọc bỏ các AppID không hợp lệ (từ 0 đến 9 là component của Steam)
-                _ownedAppIds.RemoveWhere(id => id >= 0 && id <= 9);
+                allAppIds.RemoveWhere(id => id >= 0 && id <= 9);
 
                 // Chia thành các batch nhỏ (tối đa 100 app mỗi lần)
                 int batchSize = 100;
-                var appIdsList = _ownedAppIds.ToList();
+                var appIdsList = allAppIds.ToList();
                 for (int i = 0; i < appIdsList.Count; i += batchSize)
                 {
                     var batch = appIdsList.Skip(i).Take(batchSize).ToList();
@@ -992,6 +1046,8 @@ namespace SteamCmdWebAPI.Services
 
             // Reset các biến trạng thái
             _ownedAppIds.Clear();
+            _familySharedAppIds.Clear();
+            _hiddenAppIds.Clear();
             _licenses.Clear();
             _isProcessingPackages = false;
             _authCompletionSource = new TaskCompletionSource<bool>();
@@ -1051,49 +1107,50 @@ namespace SteamCmdWebAPI.Services
                             _logger.LogWarning("Timeout khi lấy thông tin app");
                         }
 
-            // Tạo kết quả
+            // Tạo kết quả kết hợp cả 3 loại game
             var results = new List<(string AppId, string GameName)>();
-
+            
+            // Xử lý các game sở hữu
             foreach (var appId in _ownedAppIds)
             {
-                // Bỏ qua các appId từ 0 đến 9 vì là component của Steam
-                if (appId >= 0 && appId <= 9)
+                if (ProcessAppIdForResults(appId, results, false, false))
                 {
                     continue;
                 }
-
-                    // Cố gắng lấy tên game từ cache
-                    string name = "Unknown";
-
-                if (_appInfoCache.TryGetValue(appId, out var appInfo) &&
-                    appInfo.KeyValues != null)
-                    {
-                        var common = appInfo.KeyValues["common"];
-                        if (common != null)
-                        {
-                            var nameNode = common["name"];
-                            if (nameNode != null && nameNode.Value != null)
-                            {
-                                name = nameNode.Value.ToString();
-                            }
-                        }
-                    }
-
-                    if (name == "Unknown")
-                    {
-                        name = $"Game {appId}";
-                    }
-
-                    // Kiểm tra nếu tên game có định dạng "Game X" thì bỏ qua
-                    if (name.StartsWith("Game ") && int.TryParse(name.Substring(5), out _))
-                    {
-                        continue;
-                    }
-
-                    results.Add((appId.ToString(), name));
+            }
+            
+            // Xử lý các game từ Family Sharing (thêm prefix "[FS]" vào tên game)
+            foreach (var appId in _familySharedAppIds)
+            {
+                // Bỏ qua nếu đã có trong danh sách game sở hữu
+                if (_ownedAppIds.Contains(appId))
+                {
+                    continue;
                 }
+                
+                if (ProcessAppIdForResults(appId, results, true, false))
+                {
+                    continue;
+                }
+            }
+            
+            // Xử lý các game ẩn (thêm prefix "[Ẩn]" vào tên game)
+            foreach (var appId in _hiddenAppIds)
+            {
+                // Bỏ qua nếu đã có trong danh sách game sở hữu hoặc Family Sharing
+                if (_ownedAppIds.Contains(appId) || _familySharedAppIds.Contains(appId))
+                {
+                    continue;
+                }
+                
+                if (ProcessAppIdForResults(appId, results, false, true))
+                {
+                    continue;
+                }
+            }
 
-            _logger.LogInformation("Đã lấy được {0} game từ tài khoản Steam", results.Count);
+            _logger.LogInformation("Đã lấy được {0} game từ tài khoản Steam (sở hữu: {1}, Family Sharing: {2}, ẩn: {3})",
+                results.Count, _ownedAppIds.Count, _familySharedAppIds.Count, _hiddenAppIds.Count);
 
             // Ngắt kết nối để giải phóng tài nguyên
                 if (_steamClient.IsConnected)
@@ -1102,6 +1159,57 @@ namespace SteamCmdWebAPI.Services
                 }
 
             return results;
+        }
+        
+        // Phương thức hỗ trợ để xử lý AppID và thêm vào kết quả
+        private bool ProcessAppIdForResults(uint appId, List<(string AppId, string GameName)> results, bool isFromFamilySharing, bool isHidden)
+        {
+            // Bỏ qua các appId từ 0 đến 9 vì là component của Steam
+            if (appId >= 0 && appId <= 9)
+            {
+                return true;
+            }
+
+            // Cố gắng lấy tên game từ cache
+            string name = "Unknown";
+
+            if (_appInfoCache.TryGetValue(appId, out var appInfo) &&
+                appInfo.KeyValues != null)
+            {
+                var common = appInfo.KeyValues["common"];
+                if (common != null)
+                {
+                    var nameNode = common["name"];
+                    if (nameNode != null && nameNode.Value != null)
+                    {
+                        name = nameNode.Value.ToString();
+                    }
+                }
+            }
+
+            if (name == "Unknown")
+            {
+                name = $"Game {appId}";
+            }
+
+            // Thêm prefix cho game từ Family Sharing hoặc game ẩn
+            if (isFromFamilySharing)
+            {
+                name = $"[FS] {name}";
+            }
+            else if (isHidden)
+            {
+                name = $"[Ẩn] {name}";
+            }
+
+            // Kiểm tra nếu tên game có định dạng "Game X" thì bỏ qua
+            if (name.StartsWith("Game ") && !name.StartsWith("[FS] Game ") && !name.StartsWith("[Ẩn] Game ") && int.TryParse(name.Substring(5), out _))
+            {
+                return true;
+            }
+
+            results.Add((appId.ToString(), name));
+            return false;
         }
 
         public async Task<List<(string AppId, string GameName)>> GetAppInfoBatchAsync(IEnumerable<string> appIds)
@@ -1185,6 +1293,8 @@ namespace SteamCmdWebAPI.Services
             _appInfoCache.Clear();
             _licenses.Clear();
             _ownedAppIds.Clear();
+            _familySharedAppIds.Clear();
+            _hiddenAppIds.Clear();
             _logger.LogInformation("Đã xóa sạch cache thông tin ứng dụng Steam");
         }
 
@@ -1291,6 +1401,29 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogError(ex, "Lỗi khi quét game từ tài khoản: {Error}", ex.Message);
                 throw;
             }
+        }
+
+        // Sửa lại IsPackageFromFamilySharing để ép kiểu LicenseType khi so sánh
+        private bool IsPackageFromFamilySharing(uint packageId)
+        {
+            // Kiểm tra dựa vào các thuộc tính khác thay vì dùng flag
+            foreach (var license in _licenses)
+            {
+                if (license.PackageID == packageId)
+                {
+                    // Các tiêu chí để xác định một package từ Family Sharing:
+                    // 1. PaymentMethod có giá trị 0 hoặc 10 (FreeOnDemand)
+                    // 2. LicenseType thường có giá trị 1 cho license được chia sẻ
+                    // Sử dụng ép kiểu (int) khi so sánh với enum
+                    if (((int)license.PaymentMethod == 0 || (int)license.PaymentMethod == 10) &&
+                        ((int)license.LicenseType == 1 || (int)license.LicenseType == 0))
+                    {
+                        return true;
+                    }
+                }
+            }
+            
+            return false;
         }
     }
 }
