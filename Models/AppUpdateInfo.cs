@@ -13,7 +13,8 @@ namespace SteamCmdWebAPI.Models
         public string Publisher { get; set; } = "Không có thông tin";
         public long ChangeNumber { get; set; }
         public long LastCheckedChangeNumber { get; set; } // Lưu ChangeNumber từ lần kiểm tra trước
-        public long SizeOnDisk { get; set; } // Thêm trường này
+        public long SizeOnDisk { get; set; } // Kích thước tổng trên đĩa
+        public long UpdateSize { get; set; } // Kích thước cần cập nhật
         public DateTime LastChecked { get; set; } = DateTime.Now; // When API was last successfully called for this AppID
     }
 }

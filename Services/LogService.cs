@@ -194,6 +194,14 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        public List<LogEntry> GetRecentLogs(int count)
+        {
+            lock (_lockObject)
+            {
+                return _logs.OrderByDescending(l => l.Timestamp).Take(count).ToList();
+            }
+        }
+
         public int GetTotalLogsCount()
         {
             lock (_lockObject)
@@ -313,6 +321,29 @@ namespace SteamCmdWebAPI.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi tải logs từ files");
+            }
+        }
+
+        // Phương thức kiểm tra xem có log cho AppID cụ thể ở level nào đó không
+        public Task<bool> HasLogForAppIdAsync(string appId, string level)
+        {
+            if (string.IsNullOrEmpty(appId))
+                return Task.FromResult(false);
+                
+            lock (_lockObject)
+            {
+                // Lấy 100 log gần nhất để kiểm tra
+                var recentLogs = _logs.OrderByDescending(l => l.Timestamp).Take(100).ToList();
+                
+                // Tìm log có chứa AppID và có Level tương ứng
+                return Task.FromResult(recentLogs.Any(log => 
+                    (log.Level.Equals(level, StringComparison.OrdinalIgnoreCase) ||
+                     log.Status.Equals(level, StringComparison.OrdinalIgnoreCase)) &&
+                    (log.Message.Contains($"App '{appId}'") ||
+                     log.Message.Contains($"AppID: {appId}") ||
+                     log.Message.Contains($"fully installed") && log.Message.Contains(appId) ||
+                     log.Message.Contains($"already up to date") && log.Message.Contains(appId))
+                ));
             }
         }
     }

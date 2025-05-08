@@ -5,6 +5,81 @@
     ViewData["ActivePage"] = "QueueManager";
 }
 
+@using SteamCmdWebAPI.Services
+@using System.Globalization
+@using System.IO
+
+@{
+    // Extension methods for QueueItem
+    string GetFormattedTotalSize(QueueService.QueueItem item)
+    {
+        if (item.TotalSize <= 0) return "-";
+        return FormatFileSize(item.TotalSize);
+    }
+
+    string GetFormattedDownloadedSize(QueueService.QueueItem item)
+    {
+        if (item.DownloadedSize <= 0) return "-";
+        return FormatFileSize(item.DownloadedSize);
+    }
+
+    int GetProgressPercentage(QueueService.QueueItem item)
+    {
+        if (item.TotalSize <= 0) return 0;
+        return Math.Min(100, (int)((double)item.DownloadedSize / item.TotalSize * 100));
+    }
+
+    string GetFormattedCreatedAt(QueueService.QueueItem item)
+    {
+        return item.CreatedAt.ToString("dd/MM/yyyy HH:mm:ss");
+    }
+
+    string GetFormattedStartedAt(QueueService.QueueItem item)
+    {
+        return item.StartedAt.HasValue ? item.StartedAt.Value.ToString("dd/MM/yyyy HH:mm:ss") : "-";
+    }
+
+    string GetFormattedCompletedAt(QueueService.QueueItem item)
+    {
+        return item.CompletedAt.HasValue ? item.CompletedAt.Value.ToString("dd/MM/yyyy HH:mm:ss") : "-";
+    }
+
+    string FormatFileSize(long bytes)
+    {
+        if (bytes <= 0) return "-";
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        int order = 0;
+        double size = bytes;
+        while (size >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            size /= 1024;
+        }
+        return $"{size:0.##} {sizes[order]}";
+    }
+}
+
+<style>
+    .progress-container {
+        width: 100%;
+    }
+    
+    .progress-text {
+        font-size: 0.85rem;
+        margin-bottom: 2px;
+    }
+    
+    .progress {
+        height: 5px !important;
+        background-color: #e9ecef;
+        border-radius: 2px;
+    }
+    
+    .progress-bar {
+        background-color: #28a745;
+    }
+</style>
+
 <div class="page-header d-flex justify-content-between align-items-center">
     <h1>Quản lý hàng đợi cập nhật</h1>
     <div class="header-actions">
@@ -57,9 +132,9 @@
             <thead>
                 <tr>
                     <th>STT</th>
-                    <th>Profile</th>
                     <th>App</th>
-                    <th>Loại</th>
+                    <th title="Dung lượng dữ liệu cần tải về từ SteamKit">DUNG LƯỢNG</th>
+                    <th>Tiến trình</th>
                     <th>Thời gian thêm</th>
                     <th>Bắt đầu</th>
                     <th>Trạng thái</th>
@@ -71,22 +146,28 @@
                 {
                     <tr data-id="@item.Id" class="@GetRowClass(item.Status)">
                         <td>@item.Order</td>
-                        <td>@item.ProfileName</td>
                         <td>
                             <span title="AppID: @item.AppId">@item.AppName</span>
                         </td>
+                        <td title="Dung lượng dữ liệu cập nhật từ SteamKit">@GetFormattedTotalSize(item)</td>
                         <td>
-                            @if (item.IsMainApp)
+                            @if(item.Status == "Đang xử lý" && item.DownloadedSize > 0 && item.TotalSize > 0)
                             {
-                                <span class="badge bg-primary">Chính</span>
+                                <div class="progress-container">
+                                    <div class="progress-text">@GetProgressPercentage(item)%</div>
+                                    <div class="progress" style="height: 5px;">
+                                        <div class="progress-bar" role="progressbar" 
+                                             style="width: @GetProgressPercentage(item)%"></div>
+                                    </div>
+                                </div>
                             }
                             else
                             {
-                                <span class="badge bg-info">Phụ thuộc</span>
+                                <span>-</span>
                             }
                         </td>
-                        <td>@item.CreatedAt.ToString("dd/MM/yyyy HH:mm:ss")</td>
-                        <td>@(item.StartedAt.HasValue ? item.StartedAt.Value.ToString("dd/MM/yyyy HH:mm:ss") : "-")</td>
+                        <td>@GetFormattedCreatedAt(item)</td>
+                        <td>@GetFormattedStartedAt(item)</td>
                         <td>
                             <span class="status-badge @GetStatusClass(item.Status)">
                                 <i class="bi @GetStatusIcon(item.Status)"></i>
@@ -115,19 +196,22 @@
 </div>
 
 <!-- Chỉnh sửa bảng lịch sử cập nhật -->
-<div class="card mb-4">
-    <div class="card-header bg-secondary text-white">
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">Lịch sử cập nhật</h5>
+        <div class="search-box">
+            <input type="text" id="historySearch" placeholder="Tìm kiếm lịch sử...">
+            <i class="bi bi-search"></i>
+        </div>
     </div>
     <div class="card-body">
         <div class="table-responsive">
-            <table class="table table-striped table-hover">
+            <table class="table table-striped table-hover" id="historyTable">
                 <thead>
                     <tr>
                         <th>STT</th>
-                        <th>PROFILE</th>
                         <th>APP</th>
-                        <th>LOẠI</th>
+                        <th title="Dung lượng dữ liệu cần tải về từ SteamKit">DUNG LƯỢNG</th>
                         <th>THỜI GIAN THÊM</th>
                         <th>BẮT ĐẦU</th>
                         <th>HOÀN THÀNH</th>
@@ -139,45 +223,23 @@
                     {
                         <tr>
                             <td>@(Model.QueueHistory.IndexOf(item) + 1)</td>
-                            <td>@item.ProfileName</td>
-                            <td>@item.AppName</td>
+                            <td><span title="AppID: @item.AppId">@item.AppName</span></td>
+                            <td title="Dung lượng dữ liệu cập nhật từ SteamKit">@GetFormattedTotalSize(item)</td>
+                            <td>@GetFormattedCreatedAt(item)</td>
+                            <td>@GetFormattedStartedAt(item)</td>
+                            <td>@GetFormattedCompletedAt(item)</td>
                             <td>
-                                @if (item.IsMainApp)
-                                {
-                                    <span class="badge bg-primary">Chính</span>
-                                }
-                                else
-                                {
-                                    <span class="badge bg-info">Phụ</span>
-                                }
-                            </td>
-                            <td>@(item.CreatedAt.ToString("dd/MM/yyyy HH:mm:ss"))</td>
-                            <td>@(item.StartedAt?.ToString("dd/MM/yyyy HH:mm:ss") ?? "N/A")</td>
-                            <td>@(item.CompletedAt?.ToString("dd/MM/yyyy HH:mm:ss") ?? "N/A")</td>
-                            <td>
-                                @if (item.Status == "Hoàn thành")
-                                {
-                                    <span class="status-badge success">Hoàn thành</span>
-                                }
-                                else if (item.Status == "Lỗi")
-                                {
-                                    <span class="status-badge error">Lỗi</span>
-                                }
-                                else if (item.Status == "Đã hủy")
-                                {
-                                    <span class="status-badge cancelled">Đã hủy</span>
-                                }
-                                else
-                                {
-                                    <span class="status-badge">@item.Status</span>
-                                }
+                                <span class="status-badge @GetStatusClass(item.Status)">
+                                    <i class="bi @GetStatusIcon(item.Status)"></i>
+                                    @item.Status
+                                </span>
                             </td>
                         </tr>
                     }
                     @if (!Model.QueueHistory.Any())
                     {
                         <tr>
-                            <td colspan="8" class="text-center">Không có mục nào trong lịch sử</td>
+                            <td colspan="7" class="text-center">Không có mục nào trong lịch sử</td>
                         </tr>
                     }
                 </tbody>
@@ -272,7 +334,78 @@
                 });
             }, 10000);
 
-            // Hàm cập nhật bảng hàng đợi
+            // Hàm hỗ trợ định dạng kích thước file
+            function formatFileSize(bytes) {
+                if (bytes === 0 || bytes === null || bytes === undefined) return "-";
+                
+                const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                let i = 0;
+                let formattedSize = bytes;
+                
+                while (formattedSize >= 1024 && i < sizes.length - 1) {
+                    formattedSize /= 1024;
+                    i++;
+                }
+                
+                return `${formattedSize.toFixed(2)} ${sizes[i]}`;
+            }
+            
+            // Hàm hỗ trợ định dạng ngày giờ
+            function formatDateTime(date) {
+                if (!(date instanceof Date) || isNaN(date)) return "N/A";
+                
+                var day = date.getDate().toString().padStart(2, '0');
+                var month = (date.getMonth() + 1).toString().padStart(2, '0');
+                var year = date.getFullYear();
+                var hours = date.getHours().toString().padStart(2, '0');
+                var minutes = date.getMinutes().toString().padStart(2, '0');
+                var seconds = date.getSeconds().toString().padStart(2, '0');
+                
+                return day + "/" + month + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
+            }
+            
+            // Tính toán phần trăm tiến độ
+            function calculateProgress(downloaded, total) {
+                if (!total || total <= 0) return 0;
+                return Math.min(100, Math.round((downloaded * 100) / total));
+            }
+            
+            // Hàm hỗ trợ lấy class cho trạng thái
+            function getStatusClass(status) {
+                switch(status) {
+                    case "Đang chờ": return "waiting";
+                    case "Đang xử lý": return "processing";
+                    case "Hoàn thành": return "success";
+                    case "Lỗi": return "error";
+                    case "Đã hủy": return "cancelled";
+                    default: return "";
+                }
+            }
+
+            // Hàm hỗ trợ lấy icon cho trạng thái
+            function getStatusIcon(status) {
+                switch(status) {
+                    case "Đang chờ": return "bi-hourglass-split";
+                    case "Đang xử lý": return "bi-arrow-repeat";
+                    case "Hoàn thành": return "bi-check-circle";
+                    case "Lỗi": return "bi-exclamation-triangle";
+                    case "Đã hủy": return "bi-x-circle";
+                    default: return "bi-question-circle";
+                }
+            }
+
+            // Thêm hàm để lấy class CSS tương ứng với trạng thái
+            function getRowClass(status) {
+                switch(status) {
+                    case "Đang xử lý": return "table-primary";
+                    case "Hoàn thành": return "table-success";
+                    case "Lỗi": return "table-danger";
+                    case "Đã hủy": return "table-warning";
+                    default: return "";
+                }
+            }
+
+            // Cập nhật hàm updateQueueTable để sử dụng các hàm định dạng thay vì thuộc tính
             function updateQueueTable(queueItems) {
                 var tableBody = $("#queueTable tbody");
                 tableBody.empty();
@@ -280,38 +413,77 @@
                 if (queueItems && queueItems.length > 0) {
                     queueItems.forEach(function(item) {
                         var row = $("<tr>");
+                        row.attr("data-id", item.id);
+                        row.addClass(getRowClass(item.status));
+                        
+                        // STT
                         row.append($("<td>").text(item.order));
-                        row.append($("<td>").text(item.profileName));
-                        row.append($("<td>").text(item.appName));
-                        row.append($("<td>").text(item.isMainApp ? "Chính" : "Phụ thuộc"));
                         
-                        var statusCell = $("<td>");
-                        var statusBadge = $("<span>").addClass("status-badge");
+                        // Tên app (với tooltip hiển thị AppID)
+                        var appCell = $("<td>");
+                        var appSpan = $("<span>").attr("title", "AppID: " + item.appId).text(item.appName);
+                        appCell.append(appSpan);
+                        row.append(appCell);
                         
-                        if (item.status === "Đang chờ") {
-                            statusBadge.addClass("waiting").text("Đang chờ");
-                        } else if (item.status === "Đang xử lý") {
-                            statusBadge.addClass("processing").text("Đang xử lý");
+                        // Dung lượng cập nhật
+                        row.append($("<td>").text(formatFileSize(item.totalSize)));
+                        
+                        // Tiến trình - chỉ hiển thị khi đang xử lý
+                        var progressCell = $("<td>");
+                        if (item.status === "Đang xử lý" && item.downloadedSize > 0 && item.totalSize > 0) {
+                            var percentage = calculateProgress(item.downloadedSize, item.totalSize);
+                            
+                            var progressContainer = $("<div>").addClass("progress-container");
+                            var progressText = $("<div>").addClass("progress-text").text(percentage + "%");
+                            var progress = $("<div>").addClass("progress").css("height", "5px");
+                            var progressBar = $("<div>").addClass("progress-bar")
+                                .attr("role", "progressbar")
+                                .css("width", percentage + "%");
+                                
+                            progress.append(progressBar);
+                            progressContainer.append(progressText, progress);
+                            progressCell.append(progressContainer);
+                        } else {
+                            progressCell.text("-");
                         }
+                        row.append(progressCell);
+                        
+                        // Thời gian thêm
+                        var createdTime = new Date(item.createdAt);
+                        row.append($("<td>").text(formatDateTime(createdTime)));
+                        
+                        // Thời gian bắt đầu
+                        var startedTime = item.startedAt ? new Date(item.startedAt) : null;
+                        row.append($("<td>").text(startedTime ? formatDateTime(startedTime) : "-"));
+                        
+                        // Trạng thái
+                        var statusCell = $("<td>");
+                        var statusClass = getStatusClass(item.status);
+                        var statusIcon = getStatusIcon(item.status);
+                        
+                        var statusBadge = $("<span>")
+                            .addClass("status-badge " + statusClass)
+                            .append($("<i>").addClass("bi " + statusIcon))
+                            .append(" " + item.status);
                         
                         statusCell.append(statusBadge);
                         row.append(statusCell);
                         
-                        var createdTime = new Date(item.createdAt);
-                        row.append($("<td>").text(createdTime.toLocaleString()));
-                        
+                        // Thao tác
                         var actionsCell = $("<td>");
-                        var removeButton = $("<button>")
-                            .addClass("btn-icon delete")
-                            .attr("title", "Xóa khỏi hàng đợi")
-                            .attr("data-id", item.id)
-                            .append($("<i>").addClass("bi bi-trash"));
+                        if (item.status === "Đang chờ") {
+                            var removeButton = $("<button>")
+                                .addClass("btn-icon delete remove-queue-btn")
+                                .attr("title", "Xóa khỏi hàng đợi")
+                                .attr("data-id", item.id)
+                                .append($("<i>").addClass("bi bi-trash"));
+                                
+                            removeButton.click(function() {
+                                removeFromQueue(item.id);
+                            });
                             
-                        removeButton.click(function() {
-                            removeFromQueue(item.id);
-                        });
-                        
-                        actionsCell.append(removeButton);
+                            actionsCell.append(removeButton);
+                        }
                         row.append(actionsCell);
                         
                         tableBody.append(row);
@@ -319,41 +491,39 @@
                 } else {
                     tableBody.append(
                         $("<tr>").append(
-                            $("<td>").attr("colspan", "6").addClass("text-center").text("Không có mục nào trong hàng đợi")
+                            $("<td>").attr("colspan", "8").addClass("text-center").text("Không có mục nào trong hàng đợi")
                         )
                     );
                 }
-                
-                // Cập nhật số lượng
-                $("#queueCount").text(queueItems ? queueItems.length : 0);
             }
 
-            // Cập nhật hàm updateHistoryTable trong phần JavaScript
+            // Cập nhật hàm updateHistoryTable để sử dụng các hàm định dạng thay vì thuộc tính
             function updateHistoryTable(historyItems) {
                 var tableBody = $("#historyTableBody");
                 tableBody.empty();
                 
                 if (historyItems && historyItems.length > 0) {
+                    // Sắp xếp theo thời gian hoàn thành hoặc thời gian tạo (giảm dần)
+                    historyItems.sort(function(a, b) {
+                        var timeA = a.completedAt || a.createdAt;
+                        var timeB = b.completedAt || b.createdAt;
+                        return new Date(timeB) - new Date(timeA);
+                    });
+                    
                     historyItems.forEach(function(item, index) {
                         var row = $("<tr>");
                         
                         // Số thứ tự
                         row.append($("<td>").text(index + 1));
                         
-                        // Tên profile
-                        row.append($("<td>").text(item.profileName));
+                        // Tên app (với tooltip hiển thị AppID)
+                        var appCell = $("<td>");
+                        var appSpan = $("<span>").attr("title", "AppID: " + item.appId).text(item.appName);
+                        appCell.append(appSpan);
+                        row.append(appCell);
                         
-                        // Tên app
-                        row.append($("<td>").text(item.appName));
-                        
-                        // Loại (chính/phụ)
-                        var typeCell = $("<td>");
-                        if (item.isMainApp) {
-                            typeCell.append($("<span>").addClass("badge bg-primary").text("Chính"));
-                        } else {
-                            typeCell.append($("<span>").addClass("badge bg-info").text("Phụ"));
-                        }
-                        row.append(typeCell);
+                        // Dung lượng cập nhật
+                        row.append($("<td>").text(formatFileSize(item.totalSize)));
                         
                         // Thời gian thêm
                         var createdTime = item.createdAt ? new Date(item.createdAt) : null;
@@ -369,17 +539,13 @@
                         
                         // Trạng thái
                         var statusCell = $("<td>");
-                        var statusBadge = $("<span>").addClass("status-badge");
+                        var statusClass = getStatusClass(item.status);
+                        var statusIcon = getStatusIcon(item.status);
                         
-                        if (item.status === "Hoàn thành") {
-                            statusBadge.addClass("success").text("Hoàn thành");
-                        } else if (item.status === "Lỗi") {
-                            statusBadge.addClass("error").text("Lỗi");
-                        } else if (item.status === "Đã hủy") {
-                            statusBadge.addClass("cancelled").text("Đã hủy");
-                        } else {
-                            statusBadge.text(item.status);
-                        }
+                        var statusBadge = $("<span>")
+                            .addClass("status-badge " + statusClass)
+                            .append($("<i>").addClass("bi " + statusIcon))
+                            .append(" " + item.status);
                         
                         statusCell.append(statusBadge);
                         row.append(statusCell);
@@ -389,31 +555,10 @@
                 } else {
                     tableBody.append(
                         $("<tr>").append(
-                            $("<td>").attr("colspan", "8").addClass("text-center").text("Không có mục nào trong lịch sử")
+                            $("<td>").attr("colspan", "7").addClass("text-center").text("Không có mục nào trong lịch sử")
                         )
                     );
                 }
-                
-                // Cập nhật thống kê
-                var completedCount = historyItems ? historyItems.filter(i => i.status === "Hoàn thành").length : 0;
-                var failedCount = historyItems ? historyItems.filter(i => i.status === "Lỗi").length : 0;
-                
-                $("#completedCount").text(completedCount);
-                $("#failedCount").text(failedCount);
-            }
-
-            // Hàm hỗ trợ định dạng ngày giờ
-            function formatDateTime(date) {
-                if (!(date instanceof Date) || isNaN(date)) return "N/A";
-                
-                var day = date.getDate().toString().padStart(2, '0');
-                var month = (date.getMonth() + 1).toString().padStart(2, '0');
-                var year = date.getFullYear();
-                var hours = date.getHours().toString().padStart(2, '0');
-                var minutes = date.getMinutes().toString().padStart(2, '0');
-                var seconds = date.getSeconds().toString().padStart(2, '0');
-                
-                return day + "/" + month + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
             }
 
             // Hàm xóa khỏi hàng đợi
@@ -444,6 +589,14 @@
             $("#queueSearch").on("keyup", function() {
                 var value = $(this).val().toLowerCase();
                 $("#queueTable tbody tr").filter(function() {
+                    $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1);
+                });
+            });
+            
+            // Tìm kiếm cho bảng lịch sử
+            $("#historySearch").on("keyup", function() {
+                var value = $(this).val().toLowerCase();
+                $("#historyTable tbody tr").filter(function() {
                     $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1);
                 });
             });

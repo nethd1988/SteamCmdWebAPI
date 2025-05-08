@@ -46,7 +46,7 @@ namespace SteamCmdWebAPI.Services
                     string json = File.ReadAllText(_cacheFilePath);
                     var loadedCache = JsonConvert.DeserializeObject<Dictionary<string, AppUpdateInfo>>(json);
                     _cachedAppInfo = new ConcurrentDictionary<string, AppUpdateInfo>(loadedCache ?? new Dictionary<string, AppUpdateInfo>());
-                    _logger.LogInformation("Đã tải {0} bản ghi thông tin Steam từ cache", _cachedAppInfo.Count);
+                    _logger.LogInformation($"Đã tải {_cachedAppInfo.Count} bản ghi thông tin Steam từ cache");
                 }
                 else
                 {
@@ -56,7 +56,7 @@ namespace SteamCmdWebAPI.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi tải cache thông tin Steam từ {0}", _cacheFilePath);
+                _logger.LogError(ex, $"Lỗi khi tải cache thông tin Steam từ {_cacheFilePath}");
                 _cachedAppInfo = new ConcurrentDictionary<string, AppUpdateInfo>();
             }
         }
@@ -67,11 +67,11 @@ namespace SteamCmdWebAPI.Services
             {
                 string json = JsonConvert.SerializeObject(_cachedAppInfo, Formatting.Indented);
                 await File.WriteAllTextAsync(_cacheFilePath, json);
-                _logger.LogInformation("Đã lưu {0} bản ghi thông tin Steam vào cache", _cachedAppInfo.Count);
+                _logger.LogInformation($"Đã lưu {_cachedAppInfo.Count} bản ghi thông tin Steam vào cache");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi lưu cache thông tin Steam vào {0}", _cacheFilePath);
+                _logger.LogError(ex, $"Lỗi khi lưu cache thông tin Steam vào {_cacheFilePath}");
             }
         }
 
@@ -80,7 +80,7 @@ namespace SteamCmdWebAPI.Services
         {
             if (string.IsNullOrWhiteSpace(appId) || !int.TryParse(appId, out _))
             {
-                _logger.LogWarning("Yêu cầu lấy thông tin Steam với AppID không hợp lệ: '{AppID}'", appId);
+                _logger.LogWarning($"Yêu cầu lấy thông tin Steam với AppID không hợp lệ: '{appId}'");
                 return null;
             }
 
@@ -108,6 +108,7 @@ namespace SteamCmdWebAPI.Services
                         ChangeNumber = cachedInfo.ChangeNumber,
                         LastCheckedUpdateDateTime = cachedInfo.LastUpdateDateTime,
                         SizeOnDisk = cachedInfo.SizeOnDisk,
+                        UpdateSize = cachedInfo.UpdateSize,
                         LastChecked = cachedInfo.LastChecked
                     };
                 }
@@ -125,7 +126,7 @@ namespace SteamCmdWebAPI.Services
 
                 if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
-                    _logger.LogWarning("Không tìm thấy thông tin cho AppID {AppID} (404 Not Found)", appId);
+                    _logger.LogWarning($"Không tìm thấy thông tin cho AppID {appId} (404 Not Found)");
                     _cachedAppInfo.TryRemove(appId, out _);
                     await SaveCachedAppInfo();
                     return null;
@@ -159,10 +160,234 @@ namespace SteamCmdWebAPI.Services
                     appInfo.Developer = gameData.extended?.developer?.ToString() ?? "Không có thông tin";
                     appInfo.Publisher = gameData.extended?.publisher?.ToString() ?? "Không có thông tin";
 
-                    // Lấy SizeOnDisk từ cache nếu có
-                    if (cachedInfo != null)
+                    // Lấy kích thước ứng dụng
+                    try 
                     {
-                        appInfo.SizeOnDisk = cachedInfo.SizeOnDisk;
+                        // Cố gắng lấy thông tin kích thước từ SteamKit
+                        if (gameData.depots != null)
+                        {
+                            long totalSize = 0;
+                            long updateSize = 0;
+                            
+                            // Duyệt qua tất cả các depot
+                            foreach (var depotProp in gameData.depots.Properties())
+                            {
+                                if (depotProp.Name == "branches" || depotProp.Name == "appinstalldir") continue;
+                                
+                                var depot = depotProp.Value;
+                                // Lấy kích thước từ thuộc tính maxsize của depot
+                                if (depot["maxsize"] != null)
+                                {
+                                    long depotSize = depot["maxsize"].ToObject<long>();
+                                    totalSize += depotSize;
+                                    _logger.LogInformation($"Thêm kích thước depot {depotProp.Name}: {depotSize} bytes");
+                                }
+
+                                // Lấy kích thước cập nhật từ dlcappid hoặc manifests
+                                try
+                                {
+                                    if (depot["dlcappid"] != null)
+                                    {
+                                        // Đây là DLC, có thể cần cập nhật hoàn toàn
+                                        long depotUpdateSize = depot["maxsize"]?.ToObject<long>() ?? 0;
+                                        if (depotUpdateSize > 0)
+                                        {
+                                            updateSize += depotUpdateSize;
+                                            _logger.LogInformation($"Thêm kích thước cập nhật DLC {depotProp.Name}: {depotUpdateSize} bytes");
+                                        }
+                                    }
+                                    else if (depot["manifests"] != null)
+                                    {
+                                        // Kiểm tra các thuộc tính cập nhật trong manifest
+                                        if (depot["manifests"]["public"] != null)
+                                        {
+                                            var manifest = depot["manifests"]["public"];
+                                            
+                                            // Ưu tiên kiểm tra bytes_to_download từ SteamKit 3.1
+                                            if (manifest["bytes_to_download"] != null)
+                                            {
+                                                long bytesToDownload = manifest["bytes_to_download"].ToObject<long>();
+                                                if (bytesToDownload > 0)
+                                                {
+                                                    updateSize += bytesToDownload;
+                                                    _logger.LogInformation($"Thêm kích thước cập nhật bytes_to_download cho manifest {depotProp.Name}: {bytesToDownload} bytes");
+                                                }
+                                            }
+                                            // Kiểm tra nếu có bytes_total và bytes_downloaded
+                                            else if (manifest["bytes_total"] != null)
+                                            {
+                                                long bytesTotal = manifest["bytes_total"].ToObject<long>();
+                                                
+                                                if (manifest["bytes_downloaded"] != null)
+                                                {
+                                                    long bytesDownloaded = manifest["bytes_downloaded"].ToObject<long>();
+                                                    long remainingBytes = bytesTotal - bytesDownloaded;
+                                                    
+                                                    if (remainingBytes > 0)
+                                                    {
+                                                        updateSize += remainingBytes;
+                                                        _logger.LogInformation($"Thêm kích thước cập nhật (bytes_total - bytes_downloaded) cho manifest {depotProp.Name}: {remainingBytes} bytes");
+                                                    }
+                                                }
+                                                else if (bytesTotal > 0)
+                                                {
+                                                    updateSize += bytesTotal;
+                                                    _logger.LogInformation($"Thêm kích thước cập nhật bytes_total cho manifest {depotProp.Name}: {bytesTotal} bytes");
+                                                }
+                                            }
+                                            // Dự phòng: sử dụng size từ manifest nếu không có các thuộc tính khác
+                                            else if (manifest["size"] != null)
+                                            {
+                                                long manifestSize = manifest["size"].ToObject<long>();
+                                                if (manifestSize > 0)
+                                                {
+                                                    updateSize += manifestSize;
+                                                    _logger.LogInformation($"Thêm kích thước cập nhật manifest {depotProp.Name}: {manifestSize} bytes");
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning($"Lỗi khi lấy kích thước cập nhật cho depot {depotProp.Name}: {ex.Message}");
+                                }
+                            }
+                            
+                            // Lấy kích thước cập nhật từ nhánh public nếu có
+                            try
+                            {
+                                if (gameData.depots?.branches?.@public != null)
+                                {
+                                    var publicBranch = gameData.depots.branches.@public;
+                                    
+                                    // Dung lượng cập nhật từ buildid mới nhất
+                                    if (publicBranch["buildid"] != null && cachedInfo != null && cachedInfo.ChangeNumber > 0)
+                                    {
+                                        string buildId = publicBranch["buildid"].ToString();
+                                        _logger.LogInformation($"BuildID hiện tại cho {appId}: {buildId}");
+                                        
+                                        // Nếu ChangeNumber khác nhau, lấy kích thước cập nhật
+                                        if (appInfo.ChangeNumber != cachedInfo.LastCheckedChangeNumber)
+                                        {
+                                            // Kiểm tra CMsgSystemUpdateProgress.stage_size_bytes nếu có
+                                            if (publicBranch["update_progress"] != null && publicBranch["update_progress"]["stage_size_bytes"] != null)
+                                            {
+                                                long stageSize = publicBranch["update_progress"]["stage_size_bytes"].ToObject<long>();
+                                                if (stageSize > 0)
+                                                {
+                                                    updateSize = stageSize;
+                                                    _logger.LogInformation($"Sử dụng stage_size_bytes từ update_progress làm kích thước cập nhật: {stageSize} bytes");
+                                                }
+                                            }
+                                            // Trong SteamKit 3.1, sử dụng trường bytes_to_download để lấy kích thước cập nhật
+                                            else if (publicBranch["bytes_to_download"] != null)
+                                            {
+                                                long bytesToDownload = publicBranch["bytes_to_download"].ToObject<long>();
+                                                if (bytesToDownload > 0)
+                                                {
+                                                    updateSize = bytesToDownload;
+                                                    _logger.LogInformation($"Sử dụng bytes_to_download làm kích thước cập nhật: {bytesToDownload} bytes");
+                                                }
+                                            }
+                                            // Thêm kiểm tra trường bytes_total từ SteamKit
+                                            else if (publicBranch["bytes_total"] != null)
+                                            {
+                                                long bytesTotal = publicBranch["bytes_total"].ToObject<long>();
+                                                if (bytesTotal > 0)
+                                                {
+                                                    // Nếu có cả bytes_downloaded, tính kích thước cập nhật từ hiệu của bytes_total và bytes_downloaded
+                                                    if (publicBranch["bytes_downloaded"] != null)
+                                                    {
+                                                        long bytesDownloaded = publicBranch["bytes_downloaded"].ToObject<long>();
+                                                        long remainingBytes = bytesTotal - bytesDownloaded;
+                                                        if (remainingBytes > 0)
+                                                        {
+                                                            updateSize = remainingBytes;
+                                                            _logger.LogInformation($"Tính kích thước cập nhật từ bytes_total - bytes_downloaded: {remainingBytes} bytes");
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        // Nếu không có bytes_downloaded, sử dụng bytes_total làm kích thước cập nhật
+                                                        updateSize = bytesTotal;
+                                                        _logger.LogInformation($"Sử dụng bytes_total làm kích thước cập nhật: {bytesTotal} bytes");
+                                                    }
+                                                }
+                                            }
+                                            // Sử dụng paksize làm dự phòng nếu các trường khác không có
+                                            else if (publicBranch["paksize"] != null)
+                                            {
+                                                long pakSize = publicBranch["paksize"].ToObject<long>();
+                                                if (pakSize > 0)
+                                                {
+                                                    updateSize = Math.Max(updateSize, pakSize);
+                                                    _logger.LogInformation($"Sử dụng paksize làm kích thước cập nhật thay thế: {pakSize} bytes");
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning($"Lỗi khi lấy kích thước cập nhật từ nhánh public: {ex.Message}");
+                            }
+                            
+                            // Nếu không lấy được kích thước cập nhật, ước tính dựa trên thay đổi ChangeNumber
+                            if (updateSize == 0 && cachedInfo != null && appInfo.ChangeNumber != cachedInfo.LastCheckedChangeNumber)
+                            {
+                                // Ước tính 5% kích thước tổng nếu có sự thay đổi
+                                updateSize = (long)(totalSize * 0.05);
+                                _logger.LogInformation($"Ước tính kích thước cập nhật là 5% kích thước tổng: {updateSize} bytes");
+                            }
+                            
+                            if (totalSize > 0)
+                            {
+                                appInfo.SizeOnDisk = totalSize;
+                                _logger.LogInformation($"Đã lấy kích thước tổng ứng dụng {appInfo.Name} ({appId}): {totalSize} bytes");
+                            }
+                            else if (cachedInfo != null && cachedInfo.SizeOnDisk > 0)
+                            {
+                                // Sử dụng kích thước từ cache nếu không lấy được mới
+                                appInfo.SizeOnDisk = cachedInfo.SizeOnDisk;
+                            }
+                            
+                            // Lưu kích thước cập nhật
+                            if (updateSize > 0)
+                            {
+                                appInfo.UpdateSize = updateSize;
+                                _logger.LogInformation($"Đã lấy kích thước cập nhật cho {appInfo.Name} ({appId}): {updateSize} bytes");
+                            }
+                            else if (cachedInfo != null && cachedInfo.UpdateSize > 0)
+                            {
+                                // Sử dụng kích thước cập nhật từ cache nếu không lấy được mới
+                                appInfo.UpdateSize = cachedInfo.UpdateSize;
+                            }
+                        }
+                        else if (cachedInfo != null)
+                        {
+                            // Sử dụng kích thước từ cache nếu không lấy được thông tin depot
+                            if (cachedInfo.SizeOnDisk > 0)
+                                appInfo.SizeOnDisk = cachedInfo.SizeOnDisk;
+                            
+                            if (cachedInfo.UpdateSize > 0)
+                                appInfo.UpdateSize = cachedInfo.UpdateSize;
+                        }
+                    }
+                    catch (Exception sizeEx)
+                    {
+                        _logger.LogWarning(sizeEx, $"Không thể lấy thông tin kích thước cho AppID {appId}: {sizeEx.Message}");
+                        
+                        // Vẫn giữ kích thước từ cache nếu có
+                        if (cachedInfo != null)
+                        {
+                            if (cachedInfo.SizeOnDisk > 0)
+                                appInfo.SizeOnDisk = cachedInfo.SizeOnDisk;
+                            
+                            if (cachedInfo.UpdateSize > 0)
+                                appInfo.UpdateSize = cachedInfo.UpdateSize;
+                        }
                     }
 
                     // Phân tích thời gian cập nhật
@@ -195,18 +420,18 @@ namespace SteamCmdWebAPI.Services
                 }
                 else
                 {
-                    _logger.LogWarning("Phản hồi API Steam thành công nhưng dữ liệu không hợp lệ hoặc không tìm thấy cho AppID {AppID}.", appId);
+                    _logger.LogWarning($"Phản hồi API Steam thành công nhưng dữ liệu không hợp lệ hoặc không tìm thấy cho AppID {appId}.");
                     return null;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi lấy thông tin Steam App {AppID}: {Message}", appId, ex.Message);
+                _logger.LogError(ex, $"Lỗi khi lấy thông tin Steam App {appId}: {ex.Message}");
 
                 // Trả về cache cũ nếu có lỗi và cache tồn tại
                 if (cachedInfo != null)
                 {
-                    _logger.LogWarning("Sử dụng cache cũ cho AppID {AppID} do lỗi", appId);
+                    _logger.LogWarning($"Sử dụng cache cũ cho AppID {appId} do lỗi");
                     return cachedInfo;
                 }
 
@@ -229,15 +454,22 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        // Cập nhật thông tin SizeOnDisk từ manifest
-        public async Task UpdateSizeOnDiskFromManifest(string appId, long sizeOnDisk)
+        // Cập nhật thông tin kích thước cập nhật và kích thước tổng từ manifest
+        public async Task UpdateSizeOnDiskFromManifest(string appId, long sizeOnDisk, long updateSize = 0)
         {
             if (_cachedAppInfo.TryGetValue(appId, out var appInfo))
             {
                 appInfo.SizeOnDisk = sizeOnDisk;
+                
+                if (updateSize > 0)
+                {
+                    appInfo.UpdateSize = updateSize;
+                    _logger.LogInformation($"Đã cập nhật UpdateSize ({updateSize} bytes) cho AppID {appId}");
+                }
+                
                 _cachedAppInfo[appId] = appInfo;
                 await SaveCachedAppInfo();
-                _logger.LogInformation("Đã cập nhật SizeOnDisk ({0} bytes) cho AppID {1}", sizeOnDisk, appId);
+                _logger.LogInformation($"Đã cập nhật SizeOnDisk ({sizeOnDisk} bytes) cho AppID {appId}");
             }
         }
 
@@ -270,7 +502,7 @@ namespace SteamCmdWebAPI.Services
         {
             if (string.IsNullOrWhiteSpace(appId) || !int.TryParse(appId, out _))
             {
-                _logger.LogWarning("Yêu cầu xóa cache với AppID không hợp lệ: '{AppID}'", appId);
+                _logger.LogWarning($"Yêu cầu xóa cache với AppID không hợp lệ: '{appId}'");
                 return Task.FromResult(false);
             }
 
@@ -282,12 +514,12 @@ namespace SteamCmdWebAPI.Services
                 // Lưu lại cache mới
                 SaveCachedAppInfo();
                 
-                _logger.LogInformation("Đã xóa cache thông tin cập nhật cho AppID: {AppID}", appId);
+                _logger.LogInformation($"Đã xóa cache thông tin cập nhật cho AppID: {appId}");
                 return Task.FromResult(true);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi xóa cache thông tin cập nhật cho AppID: {AppID}", appId);
+                _logger.LogError(ex, $"Lỗi khi xóa cache thông tin cập nhật cho AppID: {appId}");
                 return Task.FromResult(false);
             }
         }
@@ -300,7 +532,7 @@ namespace SteamCmdWebAPI.Services
                 // Đảm bảo appId hợp lệ
                 if (string.IsNullOrWhiteSpace(appId) || !int.TryParse(appId, out _))
                 {
-                    _logger.LogWarning("Yêu cầu đăng ký cập nhật với AppID không hợp lệ: '{AppID}'", appId);
+                    _logger.LogWarning($"Yêu cầu đăng ký cập nhật với AppID không hợp lệ: '{appId}'");
                     return false;
                 }
 
@@ -308,12 +540,12 @@ namespace SteamCmdWebAPI.Services
                 var appInfo = await GetAppUpdateInfo(appId, forceRefresh: true);
                 if (appInfo == null)
                 {
-                    _logger.LogWarning("Không thể lấy thông tin cơ bản cho AppID {AppID}", appId);
+                    _logger.LogWarning($"Không thể lấy thông tin cơ bản cho AppID {appId}");
                     return false;
                 }
 
                 // Ghi log là đã đăng ký thành công
-                _logger.LogInformation("Đã đăng ký nhận thông báo cập nhật cho AppID {AppID} (Profile: {ProfileId})", appId, profileId);
+                _logger.LogInformation($"Đã đăng ký nhận thông báo cập nhật cho AppID {appId} (Profile: {profileId})");
                 
                 // Trong triển khai thực tế, bạn sẽ sử dụng Sever GL để đăng ký các sự kiện cập nhật tại đây
                 // Đây chỉ là phương thức placeholder và luôn trả về thành công
@@ -322,7 +554,7 @@ namespace SteamCmdWebAPI.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi đăng ký nhận thông báo cập nhật cho AppID {AppID} (Profile: {ProfileId})", appId, profileId);
+                _logger.LogError(ex, $"Lỗi khi đăng ký nhận thông báo cập nhật cho AppID {appId} (Profile: {profileId})");
                 return false;
             }
         }

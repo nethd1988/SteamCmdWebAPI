@@ -49,12 +49,8 @@ namespace SteamCmdWebAPI.Services
             }
 
             _profilesPath = Path.Combine(dataDir, "profiles.json");
+            // Vẫn khai báo biến để tham chiếu nhưng không tạo thư mục
             _backupFolder = Path.Combine(dataDir, "Backup");
-
-            if (!Directory.Exists(_backupFolder))
-            {
-                Directory.CreateDirectory(_backupFolder);
-            }
 
             if (!File.Exists(_profilesPath))
             {
@@ -531,13 +527,15 @@ namespace SteamCmdWebAPI.Services
             try
             {
                 var result = new List<BackupFileInfo>();
-                var directory = new DirectoryInfo(_backupFolder);
-
-                if (!directory.Exists)
+                
+                // Kiểm tra thư mục backup có tồn tại không
+                if (!Directory.Exists(_backupFolder))
                 {
+                    _logger.LogWarning("Thư mục backup không tồn tại: {Path}", _backupFolder);
                     return result;
                 }
 
+                var directory = new DirectoryInfo(_backupFolder);
                 var files = directory.GetFiles("*.json").OrderByDescending(f => f.LastWriteTime);
 
                 foreach (var file in files)
@@ -570,9 +568,10 @@ namespace SteamCmdWebAPI.Services
                     return "Không có profile nào để backup";
                 }
 
+                // Kiểm tra xem thư mục backup có tồn tại không, nếu không thì báo lỗi
                 if (!Directory.Exists(_backupFolder))
                 {
-                    Directory.CreateDirectory(_backupFolder);
+                    return "Không thể tạo backup: Thư mục backup không tồn tại";
                 }
 
                 string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
@@ -596,10 +595,18 @@ namespace SteamCmdWebAPI.Services
         {
             try
             {
+                // Kiểm tra xem thư mục backup có tồn tại không
+                if (!Directory.Exists(_backupFolder))
+                {
+                    _logger.LogWarning("Thư mục backup không tồn tại: {Path}", _backupFolder);
+                    return new List<SteamCmdProfile>();
+                }
+                
                 string filePath = Path.Combine(_backupFolder, fileName);
 
                 if (!File.Exists(filePath))
                 {
+                    _logger.LogWarning("File backup không tồn tại: {Path}", filePath);
                     return new List<SteamCmdProfile>();
                 }
 

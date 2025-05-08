@@ -15,6 +15,7 @@ using SteamCmdWebAPI.Models;
 using System.Net.Http;
 using SteamCmdWebAPI.Helpers;
 using SteamCmdWebAPI.Extensions;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace SteamCmdWebAPI.Services
 {
@@ -46,7 +47,6 @@ namespace SteamCmdWebAPI.Services
         private DateTime _lastAutoRunTime = DateTime.MinValue;
 
         private readonly List<LogEntry> _logs = new List<LogEntry>(MaxLogEntries);
-        private HashSet<string> _recentLogMessages = new HashSet<string>();
         private readonly int _maxRecentLogMessages = 100;
 
         private readonly ConcurrentDictionary<string, DateTime> _recentHubMessages = new ConcurrentDictionary<string, DateTime>();
@@ -55,8 +55,6 @@ namespace SteamCmdWebAPI.Services
         private const int HubMessageCleanupIntervalMs = 10000;
 
         private volatile bool _lastRunHadLoginError = false;
-
-        private readonly HashSet<string> appIdsToRetry = new HashSet<string>();
 
         private readonly ConcurrentQueue<(string status, string profileName, string message)> _logBuffer = new ConcurrentQueue<(string, string, string)>();
         private readonly System.Timers.Timer _logProcessTimer;
@@ -67,6 +65,9 @@ namespace SteamCmdWebAPI.Services
 
         private readonly string _logFilePath;
         private static readonly object _logFileLock = new object();
+
+        // Static collection to track apps that need retry with validate
+        private static ConcurrentDictionary<string, (int profileId, DateTime timeAdded)> _appsToRetryWithValidate;
 
         // Thêm các Regex patterns được compiled sẵn để tối ưu performance
         private static readonly Regex[] SkipPatterns = new[]
@@ -162,7 +163,7 @@ namespace SteamCmdWebAPI.Services
 
             // Khởi động LogFileReader với đường dẫn file log và callback xử lý
             _logFileReader.StartMonitoring(_logFilePath, (newLogContent) => {
-                _logger.LogDebug("Nhận được log mới: {Length} ký tự", newLogContent?.Length ?? 0);
+                _logger.LogInformation("Nhận được log mới: {Length} ký tự", newLogContent?.Length ?? 0);
             });
 
             LoadExistingLogs();
@@ -838,7 +839,7 @@ namespace SteamCmdWebAPI.Services
             }
             
             _isProcessingQueue = true;
-            
+
             try
             {
                 _logger.LogInformation("Bắt đầu xử lý hàng đợi (Số lượng: {0})", _updateQueue.Count);
@@ -891,6 +892,9 @@ namespace SteamCmdWebAPI.Services
                         }
                     }
                 }
+                
+                // Khi hàng đợi đã xử lý xong, kiểm tra và xử lý các app cần retry với validate
+                await ProcessAppsToRetryWithValidateAsync();
             }
             catch (Exception ex)
             {
@@ -904,6 +908,77 @@ namespace SteamCmdWebAPI.Services
                     _isRunningAllProfiles = false;
                 }
             }
+        }
+
+        // Hàm mới xử lý các app cần retry với validate
+        private async Task ProcessAppsToRetryWithValidateAsync()
+        {
+            if (_appsToRetryWithValidate == null || _appsToRetryWithValidate.IsEmpty)
+            {
+                _logger.LogInformation("Không có app nào cần retry với validate");
+                return;
+            }
+
+            _logger.LogInformation("Bắt đầu xử lý {Count} app cần retry với validate", _appsToRetryWithValidate.Count);
+            
+            // Tạo bản sao để tránh lỗi khi xử lý
+            var appsToRetry = _appsToRetryWithValidate.ToArray();
+            
+            foreach (var appEntry in appsToRetry)
+            {
+                string appId = appEntry.Key;
+                (int profileId, DateTime timeAdded) = appEntry.Value;
+                
+                // Chỉ xử lý các app được thêm trong 24 giờ qua
+                if (DateTime.Now - timeAdded > TimeSpan.FromHours(24))
+                {
+                    _logger.LogWarning("App {AppId} đã quá 24 giờ trong danh sách retry, bỏ qua", appId);
+                    _appsToRetryWithValidate.TryRemove(appId, out _);
+                    continue;
+                }
+                
+                _logger.LogInformation("Đang thử lại App {AppId} với tùy chọn validate cho Profile {ProfileId}", appId, profileId);
+                
+                try
+                {
+                    var profile = await _profileService.GetProfileById(profileId);
+                    if (profile == null)
+                    {
+                        _logger.LogWarning("Không tìm thấy Profile {ProfileId} cho App {AppId}, bỏ qua", profileId, appId);
+                        _appsToRetryWithValidate.TryRemove(appId, out _);
+                        continue;
+                    }
+                    
+                    await SafeSendLogAsync(profile.Name, "Info", $"═══════════════════════════════════════════════════════");
+                    await SafeSendLogAsync(profile.Name, "Info", $"   ĐANG THỬ LẠI App {appId} VỚI TÙY CHỌN VALIDATE    ");
+                    await SafeSendLogAsync(profile.Name, "Info", $"═══════════════════════════════════════════════════════");
+                    
+                    // Thực hiện cập nhật với forceValidate = true
+                    bool success = await ExecuteProfileUpdateAsync(profileId, appId, true);
+                    
+                    if (success)
+                    {
+                        _logger.LogInformation("Đã thử lại thành công App {AppId} với validate", appId);
+                        await SafeSendLogAsync(profile.Name, "Success", $"Đã thử lại thành công App {appId} với tùy chọn validate");
+                        _appsToRetryWithValidate.TryRemove(appId, out _);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Thử lại với validate không thành công cho App {AppId}", appId);
+                        await SafeSendLogAsync(profile.Name, "Warning", $"Thử lại với validate không thành công cho App {appId}");
+                        // Vẫn giữ trong danh sách để có thể thử lại sau
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi thử lại App {AppId} với validate: {Error}", appId, ex.Message);
+                }
+                
+                // Đợi giữa các lần thử để tránh quá tải
+                await Task.Delay(10000);
+            }
+            
+            _logger.LogInformation("Hoàn thành xử lý apps cần retry với validate. Còn lại: {Count} app", _appsToRetryWithValidate.Count);
         }
 
         public async Task<bool> RunProfileAsync(int id)
@@ -1190,14 +1265,25 @@ namespace SteamCmdWebAPI.Services
             // Kiểm tra kết quả chạy lần đầu
             if (!initialRunResult.Success && string.IsNullOrEmpty(specificAppId))
             {
-                _logger.LogError("ExecuteProfileUpdateAsync: RunSteamCmdProcessAsync lần đầu tiên thất bại với Exit Code: {ExitCode}", initialRunResult.ExitCode);
-                profile.Status = "Error";
-                profile.StopTime = DateTime.Now;
-                await _profileService.UpdateProfile(profile);
+                // Kiểm tra xem có log thành công nào trong quá trình chạy hay không
+                bool hasSuccessLogs = await HasSuccessLogForAppIdAsync(profile.AppID);
 
-                // Reset update flags
-                await _dependencyManagerService.ResetUpdateFlagsAsync(profile.Id);
-                return false;
+                if (hasSuccessLogs)
+                {
+                    _logger.LogWarning("RunSteamCmdProcessAsync: Phát hiện log thành công trong quá trình chạy mặc dù kết quả cuối là thất bại");
+                    initialRunResult.Success = true;
+                }
+                else 
+                {
+                    _logger.LogError("ExecuteProfileUpdateAsync: RunSteamCmdProcessAsync lần đầu tiên thất bại với Exit Code: {ExitCode}", initialRunResult.ExitCode);
+                    profile.Status = "Error";
+                    profile.StopTime = DateTime.Now;
+                    await _profileService.UpdateProfile(profile);
+
+                    // Reset update flags
+                    await _dependencyManagerService.ResetUpdateFlagsAsync(profile.Id);
+                    return false;
+                }
             }
 
             // Khởi tạo biến cho lần chạy thứ hai
@@ -1315,11 +1401,40 @@ namespace SteamCmdWebAPI.Services
             {
                 // Nếu chạy một app cụ thể, kết quả dựa vào lần chạy đầu tiên
                 overallSuccess = initialRunResult.Success;
+                
+                // Kiểm tra nếu có log thành công cho app này mặc dù initialRunResult.Success = false
+                if (!overallSuccess && await HasSuccessLogForAppIdAsync(specificAppId))
+                {
+                    _logger.LogWarning("ExecuteProfileUpdateAsync: Phát hiện log thành công cho AppID {AppId} trong LogService mặc dù kết quả là thất bại", specificAppId);
+                    overallSuccess = true;
+                }
             }
             else
             {
                 // Nếu chạy app chính và phụ thuộc, kết quả dựa vào có app nào thất bại sau khi thử lại hay không
                 overallSuccess = failedAppIdsForRetry.Count == 0;
+                
+                // Kiểm tra bổ sung log thành công cho các app đang cập nhật
+                if (!overallSuccess)
+                {
+                    // Lọc ra những app có log thành công nhưng vẫn bị đánh dấu thất bại
+                    var stillFailedAppIds = new List<string>();
+                    foreach (var appId in failedAppIdsForRetry)
+                    {
+                        if (await HasSuccessLogForAppIdAsync(appId))
+                        {
+                            _logger.LogWarning("ExecuteProfileUpdateAsync: Phát hiện AppID {AppId} có log thành công nhưng vẫn bị đánh dấu thất bại", appId);
+                        }
+                        else
+                        {
+                            stillFailedAppIds.Add(appId);
+                        }
+                    }
+                    
+                    // Cập nhật lại danh sách thất bại
+                    failedAppIdsForRetry = stillFailedAppIds;
+                    overallSuccess = failedAppIdsForRetry.Count == 0;
+                }
             }
 
             // Cập nhật trạng thái profile
@@ -1344,17 +1459,33 @@ namespace SteamCmdWebAPI.Services
                 }
                 else
                 {
-                    string errorMessage;
-                    if (initialRunResult.ExitCode == 5)
+                    // Kiểm tra lần cuối trong log để đảm bảo không bỏ sót thành công nào
+                    bool finalSuccessCheck = await HasSuccessLogForAppIdAsync(specificAppId);
+                    if (finalSuccessCheck)
                     {
-                        errorMessage = $"Cập nhật '{gameName}' (AppID: {specificAppId}) thất bại. Lỗi: Sai tên đăng nhập hoặc mật khẩu Steam. Vui lòng kiểm tra lại thông tin đăng nhập trong cài đặt profile.";
+                        _logger.LogWarning("ExecuteProfileUpdateAsync: Phát hiện log thành công muộn cho '{GameName}' (AppID: {AppId}), đánh dấu thành công",
+                            gameName, specificAppId);
+                        await SafeSendLogAsync(profile.Name, "Success", $"Cập nhật thành công '{gameName}' (AppID: {specificAppId}) - được phát hiện từ log.");
+                        overallSuccess = true;
+                        
+                        // Cập nhật lại trạng thái profile
+                        profile.Status = "Stopped";
+                        await _profileService.UpdateProfile(profile);
                     }
                     else
                     {
-                        errorMessage = $"Cập nhật '{gameName}' (AppID: {specificAppId}) thất bại. Lý do: Exit Code: {initialRunResult.ExitCode}";
+                        string errorMessage;
+                        if (initialRunResult.ExitCode == 5)
+                        {
+                            errorMessage = $"Cập nhật '{gameName}' (AppID: {specificAppId}) thất bại. Lỗi: Sai tên đăng nhập hoặc mật khẩu Steam. Vui lòng kiểm tra lại thông tin đăng nhập trong cài đặt profile.";
+                        }
+                        else
+                        {
+                            errorMessage = $"Cập nhật '{gameName}' (AppID: {specificAppId}) thất bại. Lý do: Exit Code: {initialRunResult.ExitCode}";
+                        }
+                        _logger.LogError("ExecuteProfileUpdateAsync: {Message}", errorMessage);
+                        await SafeSendLogAsync(profile.Name, "Error", errorMessage);
                     }
-                    _logger.LogError("ExecuteProfileUpdateAsync: {Message}", errorMessage);
-                    await SafeSendLogAsync(profile.Name, "Error", errorMessage);
                 }
 
                 // Reset cờ cập nhật cho app cụ thể
@@ -1376,30 +1507,66 @@ namespace SteamCmdWebAPI.Services
                 }
                 else
                 {
-                    finalFailedNames = failedAppIdsForRetry;
+                    // Kiểm tra lại log một lần cuối cho từng app trước khi kết luận thất bại
+                    List<string> confirmedFailedApps = new List<string>();
+                    foreach (var appId in failedAppIdsForRetry)
+                    {
+                        bool finalSuccessCheck = await HasSuccessLogForAppIdAsync(appId);
+                        if (finalSuccessCheck)
+                        {
+                            string appName = appNamesForLog.GetValueOrDefault(appId, $"AppID {appId}");
+                            _logger.LogWarning("ExecuteProfileUpdateAsync: Phát hiện log thành công muộn cho '{GameName}' (AppID: {AppId}), xóa khỏi danh sách lỗi", 
+                                appName, appId);
+                            await SafeSendLogAsync(profile.Name, "Success", $"Cập nhật thành công '{appName}' (AppID: {appId}) - phát hiện từ log.");
+                        }
+                        else
+                        {
+                            confirmedFailedApps.Add(appId);
+                        }
+                    }
+                    
+                    // Cập nhật lại danh sách thất bại sau kiểm tra cuối
+                    finalFailedNames = confirmedFailedApps;
+                    
+                    // Nếu không còn app nào thất bại, đánh dấu cập nhật thành công
+                    if (!finalFailedNames.Any())
+                    {
+                        _logger.LogWarning("ExecuteProfileUpdateAsync: Tất cả app đã được xác nhận thành công sau khi kiểm tra log");
+                        await SafeSendLogAsync(profile.Name, "Success", $"Hoàn tất cập nhật {profile.Name} (được xác nhận qua log).");
+                        
+                        // Cập nhật lại trạng thái profile
+                        profile.Status = "Stopped";
+                        await _profileService.UpdateProfile(profile);
+                        
+                        overallSuccess = true;
+                    }
                 }
 
-                var namesToLog = finalFailedNames
-                                 .Select(appId => $"'{appNamesForLog.GetValueOrDefault(appId, appId)}' ({appId})")
-                                 .ToList();
-
-                string errorMsg;
-                if (initialRunResult.ExitCode == 5)
+                // Chỉ hiển thị lỗi nếu vẫn còn app thất bại sau khi kiểm tra
+                if (!overallSuccess && finalFailedNames.Any())
                 {
-                    errorMsg = $"Cập nhật {profile.Name} thất bại. Lỗi: Sai tên đăng nhập hoặc mật khẩu Steam. Vui lòng kiểm tra lại thông tin đăng nhập trong cài đặt profile.";
-                }
-                else
-                {
-                    errorMsg = $"Cập nhật {profile.Name} thất bại. Lý do: Exit Code: {initialRunResult.ExitCode}";
-                }
+                    var namesToLog = finalFailedNames
+                                    .Select(appId => $"'{appNamesForLog.GetValueOrDefault(appId, appId)}' ({appId})")
+                                    .ToList();
 
-                if (namesToLog.Any())
-                {
-                    errorMsg += $" Các game sau có thể vẫn bị lỗi: {string.Join(", ", namesToLog)}.";
-                }
-                errorMsg += " Kiểm tra log chi tiết.";
+                    string errorMsg;
+                    if (initialRunResult.ExitCode == 5)
+                    {
+                        errorMsg = $"Cập nhật {profile.Name} thất bại. Lỗi: Sai tên đăng nhập hoặc mật khẩu Steam. Vui lòng kiểm tra lại thông tin đăng nhập trong cài đặt profile.";
+                    }
+                    else
+                    {
+                        errorMsg = $"Cập nhật {profile.Name} thất bại. Lý do: Exit Code: {initialRunResult.ExitCode}";
+                    }
 
-                await SafeSendLogAsync(profile.Name, "Error", errorMsg);
+                    if (namesToLog.Any())
+                    {
+                        errorMsg += $" Các game sau có thể vẫn bị lỗi: {string.Join(", ", namesToLog)}.";
+                    }
+                    errorMsg += " Kiểm tra log chi tiết.";
+
+                    await SafeSendLogAsync(profile.Name, "Error", errorMsg);
+                }
             }
             // KẾT THÚC ĐOẠN CODE MỚI
 
@@ -1527,7 +1694,7 @@ namespace SteamCmdWebAPI.Services
                             {
                                 // Cố gắng giải mã lại một lần nữa
                                 string decryptedPass = _encryptionService.Decrypt(accountPassword);
-                                _logger.LogDebug("Đã giải mã mật khẩu từ {OrigLength} thành {NewLength} ký tự", 
+                                _logger.LogInformation("Đã giải mã mật khẩu từ {OrigLength} thành {NewLength} ký tự", 
                                     accountPassword.Length, decryptedPass.Length);
                                 accountPassword = decryptedPass;
                             }
@@ -1566,7 +1733,7 @@ namespace SteamCmdWebAPI.Services
                             // Thêm dấu ngoặc kép
                             accountPassword = $"\"{accountPassword}\"";
                             
-                            _logger.LogDebug("Đã thoát ký tự đặc biệt trong mật khẩu để tránh lỗi command line");
+                            _logger.LogInformation("Đã thoát ký tự đặc biệt trong mật khẩu để tránh lỗi command line");
                         }
                         
                         // Tạo lệnh đăng nhập với mật khẩu đã được giải mã
@@ -1575,7 +1742,7 @@ namespace SteamCmdWebAPI.Services
                         await SafeSendLogAsync(profile.Name, "Info", $"Sử dụng tài khoản {accountUsername} từ SteamAccounts");
 
                         // Log thêm để kiểm tra
-                        _logger.LogDebug("Login command: {LoginCommand}",
+                        _logger.LogInformation("Login command: {LoginCommand}",
                             $"+login {accountUsername} ***PASSWORD***");
                     }
                     else if (!string.IsNullOrEmpty(profile.SteamUsername) && !string.IsNullOrEmpty(profile.SteamPassword))
@@ -1615,7 +1782,7 @@ namespace SteamCmdWebAPI.Services
                                     // Thêm dấu ngoặc kép
                                     password = $"\"{password}\"";
                                     
-                                    _logger.LogDebug("Đã thoát ký tự đặc biệt trong mật khẩu từ profile để tránh lỗi command line");
+                                    _logger.LogInformation("Đã thoát ký tự đặc biệt trong mật khẩu từ profile để tránh lỗi command line");
                                 }
                                 
                                 loginCommand = $"+login {username} {password}";
@@ -1788,8 +1955,42 @@ namespace SteamCmdWebAPI.Services
                     profile.Pid = steamCmdProcess.Id;
                     await _profileService.UpdateProfile(profile);
 
+                // Cập nhật cache
+                //_cachedAppInfo[appId] = appInfo;
+                //await SaveCachedAppInfo();
+
+                // Tạo processOutputSemaphore để đồng bộ hóa việc xử lý đầu ra
+                var processOutputSemaphore = new SemaphoreSlim(1, 1);
+                
+                // Tham chiếu đến QueueItem hiện tại
+                QueueService.QueueItem currentQueueItem = null;
+                
+                // Tìm QueueItem tương ứng
+                using (var scope = _serviceProvider.CreateScope())
+                {
+                    var queueService = scope.ServiceProvider.GetRequiredService<QueueService>();
+                    var queueItems = queueService.GetQueue();
+                    // Lấy AppID từ danh sách để kiểm tra - đây là cách tạm thời
+                    string currentAppId = appIdsToUpdate.FirstOrDefault();
+                    currentQueueItem = queueItems.FirstOrDefault(q => q.Status == "Đang xử lý" && q.AppId == currentAppId);
+                    
+                    if (currentQueueItem != null)
+                    {
+                        _logger.LogInformation("Đã tìm thấy QueueItem ID {0} cho AppID {1}", currentQueueItem.Id, currentAppId);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Không tìm thấy QueueItem đang xử lý cho AppID {0}", currentAppId);
+                    }
+                }
+
                 var recentOutputMessages = new ConcurrentDictionary<string, byte>();
 
+                // Thêm pattern để phát hiện tiến trình tải
+                var downloadProgressPattern = new Regex(@"\[.*?\]\s*(\d+)%\s*([\d.,]+)\s*(\w+)\s*/\s*([\d.,]+)\s*(\w+)", RegexOptions.Compiled);
+
+                // Sử dụng biến outputBuffer đã khai báo trước đó
+                
                 async Task SendBufferedOutput()
                 {
                     string outputToSend;
@@ -1799,9 +2000,101 @@ namespace SteamCmdWebAPI.Services
                         outputToSend = outputBuffer.ToString();
                         outputBuffer.Clear();
                     }
-                    if (!string.IsNullOrWhiteSpace(outputToSend))
+
+                    await processOutputSemaphore.WaitAsync();
+                    try
                     {
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", outputToSend.TrimEnd());
+                        var outputLines = outputToSend.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var line in outputLines)
+                        {
+                            string sanitizedLine = SanitizeLogMessage(line.Trim());
+                            
+                            // Kiểm tra xem dòng này có phải là dòng hiển thị tiến trình tải không
+                            var match = downloadProgressPattern.Match(sanitizedLine);
+                            if (match.Success)
+                            {
+                                try {
+                                    // Trích xuất thông tin tải
+                                    int percentage = int.Parse(match.Groups[1].Value);
+                                    string downloadedSizeStr = match.Groups[2].Value.Replace(",", "").Replace(".", "");
+                                    string downloadedUnit = match.Groups[3].Value;
+                                    string totalSizeStr = match.Groups[4].Value.Replace(",", "").Replace(".", "");
+                                    string totalUnit = match.Groups[5].Value;
+                                    
+                                    // Tính toán kích thước
+                                    long downloadedSize = ConvertToBytes(double.Parse(downloadedSizeStr), downloadedUnit);
+                                    long totalSize = ConvertToBytes(double.Parse(totalSizeStr), totalUnit);
+                                    
+                                    // Cập nhật thông tin tải xuống vào QueueItem hiện tại, nếu có
+                                    if (currentQueueItem != null)
+                                    {
+                                        currentQueueItem.DownloadedSize = downloadedSize;
+                                        currentQueueItem.TotalSize = totalSize;
+                                        
+                                        // Lưu thông tin này vào QueueService
+                                        await UpdateQueueItemProgress(currentQueueItem);
+                                    }
+                                    
+                                    // Log thông tin tiến trình
+                                    _logger.LogInformation("Đã cập nhật tiến trình tải: {0}%, Đã tải: {1} bytes, Tổng cộng: {2} bytes", 
+                                        percentage, downloadedSize, totalSize);
+                                }
+                                catch (Exception ex) {
+                                    _logger.LogError(ex, "Lỗi khi xử lý thông tin tiến trình tải: {0}", sanitizedLine);
+                                }
+                            }
+                            
+                            if (ShouldSkipLog(sanitizedLine)) continue;
+
+                            if (recentOutputMessages.TryAdd(sanitizedLine, 1))
+                            {
+                                await SafeSendLogAsync(profile.Name, "SteamCMD", sanitizedLine);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        processOutputSemaphore.Release();
+                    }
+                }
+
+                // Hàm chuyển đổi đơn vị sang bytes
+                long ConvertToBytes(double size, string unit)
+                {
+                    switch (unit.ToUpper())
+                    {
+                        case "B":
+                            return (long)size;
+                        case "KB":
+                            return (long)(size * 1024);
+                        case "MB":
+                            return (long)(size * 1024 * 1024);
+                        case "GB":
+                            return (long)(size * 1024 * 1024 * 1024);
+                        case "TB":
+                            return (long)(size * 1024 * 1024 * 1024 * 1024);
+                        default:
+                            return (long)size;
+                    }
+                }
+
+                // Hàm cập nhật thông tin tiến trình vào QueueService
+                async Task UpdateQueueItemProgress(QueueService.QueueItem queueItem)
+                {
+                    try
+                    {
+                        if (queueItem == null) return;
+                        
+                        // Sử dụng IServiceProvider để lấy QueueService
+                        using (var scope = _serviceProvider.CreateScope())
+                        {
+                            var queueService = scope.ServiceProvider.GetRequiredService<QueueService>();
+                            await queueService.UpdateQueueItemProgress(queueItem.Id, queueItem.DownloadedSize, queueItem.TotalSize);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi cập nhật tiến trình tải vào QueueService");
                     }
                 }
 
@@ -1841,6 +2134,8 @@ namespace SteamCmdWebAPI.Services
                         // Lấy tên game
                         string gameName = await GetGameNameFromAppId(appId);
                         
+                        // Thêm log cả vào LogService ngoài việc gửi đến hub
+                        _logService.AddLog("SUCCESS", $"Thành công: {gameName} (AppID: {appId}) đã được cập nhật (Already up to date)", profile.Name, "Success");
                         await SafeSendLogAsync(profile.Name, "Success", $"Thành công: {gameName} (AppID: {appId}) đã được cập nhật (Already up to date)");
                     }
                     else if (line.Contains("Success!", StringComparison.OrdinalIgnoreCase))
@@ -1865,6 +2160,8 @@ namespace SteamCmdWebAPI.Services
                             ? $"Thành công: {gameName} (AppID: {appId}) đã được cài đặt hoàn tất"
                             : $"Thành công: {gameName} (AppID: {appId}) đã được cập nhật thành công";
                             
+                        // Thêm log cả vào LogService ngoài việc gửi đến hub
+                        _logService.AddLog("SUCCESS", message, profile.Name, "Success");
                         await SafeSendLogAsync(profile.Name, "Success", message);
                     }
                     else if (line.Contains("The system cannot execute the specified program", StringComparison.OrdinalIgnoreCase))
@@ -1875,8 +2172,37 @@ namespace SteamCmdWebAPI.Services
                     else if (line.Contains("ERROR", StringComparison.OrdinalIgnoreCase) || 
                              line.Contains("FAILED", StringComparison.OrdinalIgnoreCase))
                     {
+                        // Kiểm tra lỗi cụ thể: Error! App 'XXXXX' state is XXXX after update job.
+                        var appStateErrorMatch = Regex.Match(line, @"Error! App '(\d+)' state is (0x[0-9A-Fa-f]+) after update job");
+                        if (appStateErrorMatch.Success)
+                        {
+                            string errorAppId = appStateErrorMatch.Groups[1].Value;
+                            string errorState = appStateErrorMatch.Groups[2].Value;
+                            
+                            hasError = true;
+                            await SafeSendLogAsync(profile.Name, "Error", $"Lỗi cập nhật App {errorAppId} (state: {errorState}). Sẽ thử lại với tùy chọn validate sau khi hàng đợi hoàn tất.");
+                            _logger.LogWarning("Phát hiện lỗi state {ErrorState} cho App {AppId}. Sẽ thêm vào hàng đợi với validate=true", errorState, errorAppId);
+                            
+                            // Thêm AppID và profileId vào danh sách để thử lại sau với validate
+                            try 
+                            {
+                                // Sử dụng static field để lưu trữ danh sách các app cần thử lại
+                                if (_appsToRetryWithValidate == null)
+                                {
+                                    _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                                }
+                                
+                                // Thêm vào danh sách để xử lý sau
+                                _appsToRetryWithValidate[errorAppId] = (profileId, DateTime.Now);
+                                _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry với validate=true", errorAppId);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Lỗi khi thêm App {AppId} vào danh sách retry", errorAppId);
+                            }
+                        }
                         // Xử lý lỗi Rate Limit Exceeded (đăng nhập quá nhiều lần)
-                        if (line.Contains("Rate Limit Exceeded", StringComparison.OrdinalIgnoreCase))
+                        else if (line.Contains("Rate Limit Exceeded", StringComparison.OrdinalIgnoreCase))
                         {
                             hasError = true;
                             string errorMessage = "Lỗi: Đã đăng nhập Steam quá nhiều lần (Rate Limit Exceeded). Vui lòng đợi 5 phút rồi thử lại.";
@@ -2097,7 +2423,7 @@ namespace SteamCmdWebAPI.Services
 
                 // Kiểm tra các trường hợp khác
                 if (steamCmdProcess.ExitCode == 0)
-                    {
+                {
                     if (!processStarted || !loginSuccessful)
                     {
                         _logger.LogWarning("Quá trình kết thúc với Exit Code 0 nhưng không hoàn tất các bước cần thiết");
@@ -2115,10 +2441,24 @@ namespace SteamCmdWebAPI.Services
                 }
                 else
                 {
-                    _logger.LogError($"Quá trình kết thúc với Exit Code: {steamCmdProcess.ExitCode}");
-                    await SafeSendLogAsync(profile.Name, "Error", $"Quá trình kết thúc với Exit Code: {steamCmdProcess.ExitCode}");
-                    runResult.Success = false;
-                    runResult.ExitCode = steamCmdProcess.ExitCode;
+                    // QUAN TRỌNG: Kiểm tra xem có log thành công trong _logService
+                    string appIdToCheck = appIdsToUpdate.FirstOrDefault() ?? profile.AppID;
+                    bool hasSuccessLog = await HasSuccessLogForAppIdAsync(appIdToCheck);
+                    
+                    if (hasSuccessLog)
+                    {
+                        _logger.LogWarning("Phát hiện log thành công cho AppID {AppId} mặc dù Exit Code: {ExitCode}", appIdToCheck, steamCmdProcess.ExitCode);
+                        await SafeSendLogAsync(profile.Name, "Success", $"Có lỗi khi thoát nhưng phát hiện ứng dụng đã được cập nhật thành công");
+                        runResult.Success = true;
+                        runResult.ExitCode = 0; // Ghi đè exit code với 0
+                    }
+                    else
+                    {
+                        _logger.LogError($"Quá trình kết thúc với Exit Code: {steamCmdProcess.ExitCode}");
+                        await SafeSendLogAsync(profile.Name, "Error", $"Quá trình kết thúc với Exit Code: {steamCmdProcess.ExitCode}");
+                        runResult.Success = false;
+                        runResult.ExitCode = steamCmdProcess.ExitCode;
+                    }
                 }
 
                 return runResult;
@@ -3157,35 +3497,35 @@ namespace SteamCmdWebAPI.Services
                 return;
             }
 
-            _logger.LogDebug("Thông tin tài khoản:");
-            _logger.LogDebug("- Username: {0}", username);
-            _logger.LogDebug("- Password length: {0}", password.Length);
-            
+            _logger.LogInformation("Thông tin tài khoản:");
+            _logger.LogInformation("- Username: {0}", username);
+            _logger.LogInformation("- Password length: {0}", password.Length);
+
             // Kiểm tra dạng Base64
             bool isBase64Pattern = Regex.IsMatch(password, @"^[a-zA-Z0-9\+/]*={0,2}$");
-            _logger.LogDebug("- Password có dạng Base64: {0}", isBase64Pattern);
+            _logger.LogInformation("- Password có dạng Base64: {0}", isBase64Pattern);
             
             // Kiểm tra độ dài điển hình của mật khẩu mã hóa
             bool isEncryptedLength = password.Length > 20 && password.Length % 4 == 0;
-            _logger.LogDebug("- Password có độ dài giống mã hóa: {0} (length={1}, divisible by 4={2})", 
+            _logger.LogInformation("- Password có độ dài giống mã hóa: {0} (length={1}, divisible by 4={2})", 
                 isEncryptedLength, password.Length, password.Length % 4 == 0);
-                
+            
             // Kiểm tra các đặc điểm phổ biến của mật khẩu mã hóa
             bool containsSpecialChars = password.Contains('+') || password.Contains('/') || password.Contains('=');
-            _logger.LogDebug("- Password chứa ký tự đặc biệt của Base64 (+/=): {0}", containsSpecialChars);
+            _logger.LogInformation("- Password chứa ký tự đặc biệt của Base64 (+/=): {0}", containsSpecialChars);
             
-            // Kiểm tra cường độ entropy của mật khẩu (mật khẩu mã hóa thường có entropy cao)
+            // Tính toán entropy để đánh giá tính ngẫu nhiên
             double entropy = CalculateStringEntropy(password);
-            _logger.LogDebug("- Password entropy (measure of randomness): {0:F2} (>4.5 có thể là mã hóa)", entropy);
+            _logger.LogInformation("- Password entropy (measure of randomness): {0:F2} (>4.5 có thể là mã hóa)", entropy);
             
-            // Kết luận về khả năng mật khẩu đang mã hóa
-            bool isLikelyEncrypted = isBase64Pattern && isEncryptedLength && entropy > 4.5;
-            _logger.LogDebug("- KẾT LUẬN: Password có khả năng vẫn bị mã hóa: {0}", isLikelyEncrypted);
-
-            // Chỉ in 5 ký tự đầu để kiểm tra, không in toàn bộ mật khẩu
-            if (password.Length > 5)
+            // Kết luận
+            bool isLikelyEncrypted = isBase64Pattern && isEncryptedLength && containsSpecialChars && entropy > 4.5;
+            _logger.LogInformation("- KẾT LUẬN: Password có khả năng vẫn bị mã hóa: {0}", isLikelyEncrypted);
+            
+            // Log 5 ký tự đầu tiên của password để kiểm tra (không nên dùng trong production)
+            if (password.Length >= 5)
             {
-                _logger.LogDebug("- 5 ký tự đầu của password: {0}...", password.Substring(0, 5));
+                _logger.LogInformation("- 5 ký tự đầu của password: {0}...", password.Substring(0, 5));
             }
         }
         
@@ -3210,6 +3550,26 @@ namespace SteamCmdWebAPI.Services
             }
             
             return entropy;
+        }
+
+        private async Task<bool> HasSuccessLogForAppIdAsync(string appId)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(appId))
+                    return false;
+                    
+                // Kiểm tra trong LogService cho 2 mẫu (Success! App và already up to date)
+                bool hasSuccessLog = await _logService.HasLogForAppIdAsync(appId, "Success");
+                
+                _logger.LogInformation("Kiểm tra log thành công cho AppID {AppId}: {Result}", appId, hasSuccessLog);
+                return hasSuccessLog;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi kiểm tra log thành công cho AppID {AppId}", appId);
+                return false;
+            }
         }
     }
 }

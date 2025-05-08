@@ -54,6 +54,8 @@ namespace SteamCmdWebAPI.Services
             public string ProcessingStatus { get; set; }
             public int RetryCount { get; set; }
             public DateTime? LastRetryTime { get; set; }
+            public long DownloadedSize { get; set; }
+            public long TotalSize { get; set; }
         }
 
         public QueueService(
@@ -164,6 +166,38 @@ namespace SteamCmdWebAPI.Services
                     Order = GetNextOrder()
                 };
 
+                // Lấy thông tin kích thước từ SteamApiService nếu có thể
+                try
+                {
+                    if (appInfo != null)
+                    {
+                        // Ưu tiên sử dụng UpdateSize nếu có
+                        if (appInfo.UpdateSize > 0)
+                        {
+                            queueItem.TotalSize = appInfo.UpdateSize;
+                            _logger.LogInformation("Đã lấy thông tin kích thước cập nhật cho AppID {0}: {1} bytes", appId, appInfo.UpdateSize);
+                        }
+                        // Nếu không có UpdateSize, sử dụng SizeOnDisk
+                        else if (appInfo.SizeOnDisk > 0)
+                        {
+                            queueItem.TotalSize = appInfo.SizeOnDisk;
+                            _logger.LogInformation("Không có thông tin kích thước cập nhật, sử dụng kích thước tổng cho AppID {0}: {1} bytes", appId, appInfo.SizeOnDisk);
+                        }
+                        else
+                        {
+                            _logger.LogDebug("Không có thông tin kích thước từ SteamApiService cho AppID {0}", appId);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Không có thông tin AppInfo từ SteamApiService cho AppID {0}", appId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Không thể lấy thông tin kích thước từ SteamApiService cho AppID {0}", appId);
+                }
+
                 bool added = false;
                 lock (_queueLock)
                 {
@@ -210,7 +244,7 @@ namespace SteamCmdWebAPI.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi thêm AppID {AppId} của Profile {ProfileId} vào hàng đợi", appId, profileId);
+                _logger.LogError(ex, "Lỗi khi thêm AppID {AppId} vào hàng đợi: {Error}", appId, ex.Message);
                 return false;
             }
         }
@@ -357,6 +391,33 @@ namespace SteamCmdWebAPI.Services
 
                                 var result = await steamCmdService.ExecuteProfileUpdateAsync(currentItem.ProfileId, currentItem.AppId);
                                 success = result;
+                                
+                                // Thêm kiểm tra bổ sung nếu ExecuteProfileUpdateAsync trả về false
+                                if (!success)
+                                {
+                                    // Kiểm tra trong LogService có log thành công cho AppID này không
+                                    using (var logScope = _serviceProvider.CreateScope())
+                                    {
+                                        var logService = logScope.ServiceProvider.GetRequiredService<LogService>();
+                                        var recentLogs = logService.GetRecentLogs(50);
+                                        
+                                        // Kiểm tra nếu có bất kỳ log Success nào chứa AppID này
+                                        var successLogs = recentLogs.Where(log => 
+                                            log.Level.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase) &&
+                                            (log.Message.Contains($"App '{currentItem.AppId}'") || 
+                                             log.Message.Contains($"AppID: {currentItem.AppId}") ||
+                                             log.Message.Contains($"fully installed") && log.Message.Contains(currentItem.AppId) ||
+                                             log.Message.Contains($"already up to date") && log.Message.Contains(currentItem.AppId)));
+                                        
+                                        if (successLogs.Any())
+                                        {
+                                            _logger.LogInformation("Phát hiện log thành công cho {0} (AppID: {1}) trong LogService mặc dù ExecuteProfileUpdateAsync trả về false", 
+                                                currentItem.AppName, currentItem.AppId);
+                                            success = true;
+                                            currentItem.Error = null;
+                                        }
+                                    }
+                                }
                             }
                         }
                         
@@ -655,6 +716,49 @@ namespace SteamCmdWebAPI.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi cập nhật trạng thái hàng đợi");
+            }
+        }
+
+        // Phương thức mới để cập nhật thông tin tiến trình tải của một QueueItem
+        public async Task<bool> UpdateQueueItemProgress(int queueItemId, long downloadedSize, long totalSize)
+        {
+            try
+            {
+                lock (_queueLock)
+                {
+                    var item = _queue.FirstOrDefault(q => q.Id == queueItemId);
+                    if (item == null)
+                    {
+                        _logger.LogWarning("UpdateQueueItemProgress: Không tìm thấy QueueItem với ID {Id}", queueItemId);
+                        return false;
+                    }
+
+                    // Cập nhật thông tin
+                    item.DownloadedSize = downloadedSize;
+                    
+                    // Chỉ cập nhật TotalSize nếu giá trị mới lớn hơn giá trị hiện tại
+                    if (totalSize > item.TotalSize)
+                    {
+                        item.TotalSize = totalSize;
+                    }
+                    
+                    // Lưu vào file
+                    SaveQueueToFile();
+                    
+                    _logger.LogDebug("Đã cập nhật tiến trình tải cho QueueItem {Id}: DownloadedSize={Downloaded}, TotalSize={Total}",
+                        queueItemId, downloadedSize, item.TotalSize);
+                }
+
+                // Thông báo cập nhật để cập nhật UI
+                await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
+                    new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
+                
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi cập nhật tiến trình tải cho QueueItem {Id}", queueItemId);
+                return false;
             }
         }
     }
