@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Models;
 using SteamCmdWebAPI.Services;
 using System.Linq;
+using System.Text.Json.Serialization;
 
 namespace SteamCmdWebAPI.Pages
 {
@@ -182,10 +183,22 @@ namespace SteamCmdWebAPI.Pages
             }
         }
 
-        public async Task<IActionResult> OnPostUpdateAccountAsync()
+        public async Task<IActionResult> OnPostUpdateAccountAsync([FromBody] UpdateAccountRequest request)
         {
+            if (request == null || request.Account == null)
+            {
+                return new JsonResult(new { success = false, message = "Dữ liệu không hợp lệ" });
+            }
+            
             try
             {
+                Account = request.Account;
+                
+                _logger.LogInformation("OnPostUpdateAccountAsync: Nhận yêu cầu cập nhật tài khoản {AccountId}, AutoScanEnabled: {AutoScanEnabled}, ScanInterval: {ScanInterval}",
+                    Account.Id, Account.AutoScanEnabled, Account.ScanIntervalHours);
+                
+                // Không cần kiểm tra request.Form vì chúng ta đang dùng JSON binding
+                
                 if (Account.Id <= 0)
                 {
                     return new JsonResult(new { success = false, message = "Invalid account ID" });
@@ -209,46 +222,129 @@ namespace SteamCmdWebAPI.Pages
                     Account.Username = existingAccount.Username;
                 }
 
-                // Update game names if AppIds changed
-                if (Account.AppIds != existingAccount.AppIds)
+                // Sử dụng GameNames hiện tại nếu AppIds không thay đổi
+                if (Account.AppIds == existingAccount.AppIds)
                 {
-                    var appIds = Account.AppIds.Split(',').Select(id => id.Trim()).Where(id => !string.IsNullOrEmpty(id)).ToList();
-                    var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(appIds);
-                    var gameNames = new List<string>();
+                    Account.GameNames = existingAccount.GameNames;
+                    _logger.LogInformation("AppIds không thay đổi, giữ nguyên GameNames");
+                }
+                // Chỉ cập nhật GameNames nếu AppIds thay đổi và AppIds không rỗng
+                else if (!string.IsNullOrWhiteSpace(Account.AppIds))
+                {
+                    // Ghi log để theo dõi
+                    _logger.LogInformation("AppIds thay đổi, cập nhật GameNames");
                     
-                    foreach (var (appId, gameName) in gameInfos)
-                    {
-                        if (!string.IsNullOrEmpty(gameName))
-                        {
-                            gameNames.Add(gameName);
-                            _logger.LogInformation("Retrieved game info: AppID {0} -> {1}", appId, gameName);
-                        }
-                        else
-                        {
-                            // Try using SteamApiService if SteamAppInfoService doesn't have the info
-                            try
+                    // Thực hiện trong Task riêng biệt để không chặn luồng chính
+                    await Task.Run(async () => {
+                        try {
+                            var appIds = Account.AppIds.Split(',').Select(id => id.Trim()).Where(id => !string.IsNullOrEmpty(id)).ToList();
+                            var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(appIds);
+                            var gameNames = new List<string>();
+                            
+                            foreach (var (appId, gameName) in gameInfos)
                             {
-                                var appInfo = await _steamApiService.GetAppUpdateInfo(appId);
-                                gameNames.Add(appInfo?.Name ?? $"AppID {appId}");
+                                if (!string.IsNullOrEmpty(gameName))
+                                {
+                                    gameNames.Add(gameName);
+                                }
+                                else
+                                {
+                                    // Thử dùng SteamApiService nếu không có thông tin trong SteamAppInfoService
+                                    try
+                                    {
+                                        var appInfo = await _steamApiService.GetAppUpdateInfo(appId);
+                                        gameNames.Add(appInfo?.Name ?? $"AppID {appId}");
+                                    }
+                                    catch
+                                    {
+                                        gameNames.Add($"AppID {appId}");
+                                    }
+                                }
                             }
-                            catch
-                            {
-                                gameNames.Add($"AppID {appId}");
-                            }
+                            
+                            Account.GameNames = string.Join(", ", gameNames);
                         }
-                    }
-                    
-                    Account.GameNames = string.Join(", ", gameNames);
+                        catch (Exception ex) {
+                            _logger.LogError(ex, "Lỗi khi lấy thông tin game: {Error}", ex.Message);
+                            // Nếu có lỗi, giữ GameNames cũ
+                            Account.GameNames = existingAccount.GameNames;
+                        }
+                    });
                 }
                 else
                 {
-                    Account.GameNames = existingAccount.GameNames;
+                    // Nếu AppIds rỗng, GameNames cũng rỗng
+                    Account.GameNames = string.Empty;
                 }
 
                 // Update other info
                 Account.CreatedAt = existingAccount.CreatedAt;
+                Account.UpdatedAt = DateTime.Now;
+                
+                // Cập nhật thời gian quét tiếp theo nếu quét tự động được bật
+                if (Account.AutoScanEnabled)
+                {
+                    // Nếu không có LastScanTime, thiết lập nó là thời gian hiện tại
+                    Account.LastScanTime = existingAccount.LastScanTime ?? DateTime.Now;
+                    
+                    // Tính toán thời gian quét tiếp theo
+                    Account.NextScanTime = DateTime.Now.AddHours(Account.ScanIntervalHours);
+                    
+                    _logger.LogInformation("Quét tự động được bật với chu kỳ {Hours} giờ. Quét tiếp theo: {NextScan}", 
+                        Account.ScanIntervalHours, Account.NextScanTime);
+                }
+                else
+                {
+                    // Nếu bị tắt, xóa thời gian quét tiếp theo
+                    Account.NextScanTime = null;
+                    _logger.LogInformation("Quét tự động đã bị tắt");
+                }
 
+                // Lưu tài khoản ngay lập tức
                 await _accountService.UpdateAccountAsync(Account);
+
+                // Sau khi lưu xong, bắt đầu một Task riêng để cập nhật thông tin game
+                if (Account.AppIds != existingAccount.AppIds && !string.IsNullOrWhiteSpace(Account.AppIds))
+                {
+                    // Chạy các nhiệm vụ dưới nền mà không chờ kết quả
+                    Task.Run(async () => {
+                        try 
+                        {
+                            _logger.LogInformation("Đang cập nhật thông tin game dưới nền...");
+                            var updatedAccount = await _accountService.GetAccountByIdAsync(Account.Id);
+                            
+                            if (updatedAccount != null)
+                            {
+                                var appIds = updatedAccount.AppIds.Split(',').Select(id => id.Trim()).Where(id => !string.IsNullOrEmpty(id)).ToList();
+                                var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(appIds);
+                                
+                                if (gameInfos.Count > 0)
+                                {
+                                    var gameNames = new List<string>();
+                                    foreach (var (appId, gameName) in gameInfos)
+                                    {
+                                        if (!string.IsNullOrEmpty(gameName))
+                                        {
+                                            gameNames.Add(gameName);
+                                        }
+                                        else
+                                        {
+                                            gameNames.Add($"AppID {appId}");
+                                        }
+                                    }
+                                    
+                                    updatedAccount.GameNames = string.Join(", ", gameNames);
+                                    await _accountService.UpdateAccountAsync(updatedAccount);
+                                    _logger.LogInformation("Đã cập nhật thông tin game dưới nền thành công");
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi cập nhật thông tin game dưới nền: {Error}", ex.Message);
+                        }
+                    });
+                }
 
                 return new JsonResult(new { success = true });
             }
@@ -622,5 +718,221 @@ namespace SteamCmdWebAPI.Pages
                 });
             }
         }
+
+        public async Task<IActionResult> OnPostToggleAutoScanAsync([FromBody] ToggleAutoScanRequest request)
+        {
+            try
+            {
+                _logger.LogInformation("OnPostToggleAutoScanAsync: accountId={AccountId}, enabled={Enabled}", 
+                    request.AccountId, request.Enabled);
+                
+                var account = await _accountService.GetAccountByIdAsync(request.AccountId);
+                if (account == null)
+                {
+                    return new JsonResult(new { success = false, message = "Không tìm thấy tài khoản" });
+                }
+
+                // Cập nhật trạng thái quét tự động
+                account.AutoScanEnabled = request.Enabled;
+                
+                // Nếu bật, tính toán thời gian quét tiếp theo
+                if (request.Enabled)
+                {
+                    account.LastScanTime = account.LastScanTime ?? DateTime.Now;
+                    account.NextScanTime = DateTime.Now.AddHours(account.ScanIntervalHours);
+                }
+                else
+                {
+                    account.NextScanTime = null;
+                }
+                
+                await _accountService.UpdateAccountAsync(account);
+                
+                return new JsonResult(new 
+                { 
+                    success = true, 
+                    nextScanTime = account.NextScanTime?.ToString("dd/MM/yyyy HH:mm"),
+                    message = request.Enabled ? "Đã bật quét tự động" : "Đã tắt quét tự động"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi thay đổi trạng thái quét tự động cho tài khoản {AccountId}", request.AccountId);
+                return new JsonResult(new { success = false, message = ex.Message });
+            }
+        }
+        
+        public async Task<IActionResult> OnPostScanNowAsync(int accountId)
+        {
+            try
+            {
+                var account = await _accountService.GetAccountByIdAsync(accountId);
+                if (account == null)
+                {
+                    return new JsonResult(new { success = false, message = "Không tìm thấy tài khoản" });
+                }
+
+                // Lấy appIds hiện tại
+                var existingAppIds = string.IsNullOrEmpty(account.AppIds) 
+                    ? new List<string>() 
+                    : account.AppIds.Split(',').Select(a => a.Trim()).Where(a => !string.IsNullOrEmpty(a)).ToList();
+                
+                int existingCount = existingAppIds.Count;
+                
+                // Kiểm tra thông tin đăng nhập
+                if (string.IsNullOrEmpty(account.Username) || string.IsNullOrEmpty(account.Password))
+                {
+                    return new JsonResult(new { success = false, message = "Thiếu thông tin đăng nhập" });
+                }
+                
+                // Quét game từ tài khoản
+                _logger.LogInformation("Đang quét tài khoản {ProfileName} (ID: {AccountId})", account.ProfileName, accountId);
+                
+                var games = await _steamAppInfoService.ScanAccountGames(account.Username, account.Password);
+                
+                if (games.Count == 0)
+                {
+                    return new JsonResult(new { 
+                        success = true, 
+                        message = "Không tìm thấy game nào trong tài khoản",
+                        newGamesCount = 0
+                    });
+                }
+                
+                // Lấy danh sách appIds mới
+                var scannedAppIds = games.Select(g => g.AppId).ToList();
+                
+                // Kết hợp danh sách cũ và mới
+                var allAppIds = new HashSet<string>(existingAppIds);
+                foreach (var appId in scannedAppIds)
+                {
+                    allAppIds.Add(appId);
+                }
+                
+                int newGamesCount = allAppIds.Count - existingCount;
+                
+                if (newGamesCount > 0)
+                {
+                    // Có game mới, cập nhật thông tin
+                    account.AppIds = string.Join(",", allAppIds);
+                    
+                    // Cập nhật tên game
+                    var gameNames = new List<string>();
+                    foreach (var (appId, gameName) in games)
+                    {
+                        if (!string.IsNullOrEmpty(gameName))
+                        {
+                            gameNames.Add(gameName);
+                        }
+                    }
+                    
+                    account.GameNames = string.Join(",", gameNames);
+                    
+                    // Cập nhật thời gian quét
+                    account.LastScanTime = DateTime.Now;
+                    
+                    if (account.AutoScanEnabled)
+                    {
+                        account.NextScanTime = DateTime.Now.AddHours(account.ScanIntervalHours);
+                    }
+                    
+                    await _accountService.UpdateAccountAsync(account);
+                    
+                    return new JsonResult(new { 
+                        success = true, 
+                        message = $"Đã quét thành công và tìm thấy {newGamesCount} game mới",
+                        newGamesCount = newGamesCount
+                    });
+                }
+                else
+                {
+                    // Không có game mới, chỉ cập nhật thời gian quét
+                    account.LastScanTime = DateTime.Now;
+                    
+                    if (account.AutoScanEnabled)
+                    {
+                        account.NextScanTime = DateTime.Now.AddHours(account.ScanIntervalHours);
+                    }
+                    
+                    await _accountService.UpdateAccountAsync(account);
+                    
+                    return new JsonResult(new { 
+                        success = true, 
+                        message = "Đã quét thành công, không tìm thấy game mới",
+                        newGamesCount = 0
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi quét tài khoản {AccountId}", accountId);
+                return new JsonResult(new { success = false, message = $"Lỗi khi quét: {ex.Message}" });
+            }
+        }
+
+        public async Task<IActionResult> OnPostUpdateScanSettingsAsync([FromBody] UpdateAccountRequest request)
+        {
+            if (request == null || request.Account == null)
+            {
+                return new JsonResult(new { success = false, message = "Dữ liệu không hợp lệ" });
+            }
+            
+            try
+            {
+                var accountToUpdate = request.Account;
+                
+                _logger.LogInformation("OnPostUpdateScanSettingsAsync: Đang cập nhật cài đặt quét tự động cho tài khoản ID {Id}, " +
+                    "AutoScanEnabled: {AutoScanEnabled}, ScanIntervalHours: {ScanIntervalHours}",
+                    accountToUpdate.Id, accountToUpdate.AutoScanEnabled, accountToUpdate.ScanIntervalHours);
+                
+                // Lấy tài khoản từ cơ sở dữ liệu
+                var existingAccount = await _accountService.GetAccountByIdAsync(accountToUpdate.Id);
+                if (existingAccount == null)
+                {
+                    return new JsonResult(new { success = false, message = "Không tìm thấy tài khoản" });
+                }
+                
+                // Chỉ cập nhật các thông tin liên quan đến quét tự động
+                existingAccount.AutoScanEnabled = accountToUpdate.AutoScanEnabled;
+                existingAccount.ScanIntervalHours = accountToUpdate.ScanIntervalHours > 0 ? accountToUpdate.ScanIntervalHours : 6;
+                
+                // Cập nhật thời gian quét tiếp theo nếu bật quét tự động
+                if (existingAccount.AutoScanEnabled)
+                {
+                    existingAccount.NextScanTime = DateTime.Now.AddHours(existingAccount.ScanIntervalHours);
+                }
+                
+                // Cập nhật tài khoản trong cơ sở dữ liệu
+                await _accountService.UpdateAccountAsync(existingAccount);
+                
+                _logger.LogInformation("OnPostUpdateScanSettingsAsync: Đã cập nhật thành công cài đặt quét tự động cho tài khoản ID {Id}", 
+                    existingAccount.Id);
+                
+                // Trả về kết quả thành công và thời gian quét tiếp theo
+                return new JsonResult(new { 
+                    success = true, 
+                    nextScanTime = existingAccount.NextScanTime?.ToString("dd/MM HH:mm") 
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "OnPostUpdateScanSettingsAsync: Lỗi khi cập nhật cài đặt quét tự động cho tài khoản ID {Id}", 
+                    request.Account.Id);
+                return new JsonResult(new { success = false, message = ex.Message });
+            }
+        }
+    }
+    
+    // Lớp request model cho ToggleAutoScan
+    public class ToggleAutoScanRequest
+    {
+        public int AccountId { get; set; }
+        public bool Enabled { get; set; }
+    }
+    
+    // Lớp request model cho UpdateAccount
+    public class UpdateAccountRequest
+    {
+        public SteamAccount Account { get; set; }
     }
 }

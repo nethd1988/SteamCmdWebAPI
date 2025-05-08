@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using SteamCmdWebAPI.Models;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text.Json.Serialization;
 
 namespace SteamCmdWebAPI.Services
 {
@@ -175,53 +176,36 @@ namespace SteamCmdWebAPI.Services
         {
             lock (_fileLock)
             {
+                // Tối ưu hóa: Chỉ mã hóa thông tin tài khoản cần thiết
                 var accountsToSave = new List<SteamAccount>();
+                
+                // Thiết lập tùy chọn JSON với WriteIndented để dễ đọc và IncludeFields để bảo đảm tất cả các trường được lưu
+                var options = new JsonSerializerOptions { 
+                    WriteIndented = true,  // Để dễ đọc khi debug
+                    DefaultIgnoreCondition = JsonIgnoreCondition.Never,  // Không bỏ qua bất kỳ trường nào
+                    IgnoreReadOnlyProperties = false,  // Bao gồm cả thuộc tính chỉ đọc
+                    IncludeFields = true  // Bao gồm tất cả các trường
+                }; 
+                
+                // Ghi log trước khi lưu
+                _logger.LogInformation("Đang lưu {Count} tài khoản", accounts.Count);
 
+                // Tạo một danh sách mới để lưu, tránh thay đổi danh sách gốc
                 foreach (var account in accounts)
                 {
-                    // Lấy thông tin người dùng và mật khẩu từ tài khoản
+                    _logger.LogDebug("Lưu tài khoản ID {Id} - AutoScanEnabled: {AutoScanEnabled}", 
+                        account.Id, account.AutoScanEnabled);
+                    
+                    // Thêm log để kiểm tra trạng thái AutoScanEnabled trước khi lưu
+                    _logger.LogInformation("SaveAccounts: Tài khoản {ProfileName} (ID: {Id}) có AutoScanEnabled = {AutoScanEnabled}", 
+                        account.ProfileName, account.Id, account.AutoScanEnabled);
+                    
+                    // Chỉ xử lý username và password khi cần
                     string usernameToSave = account.Username;
                     string passwordToSave = account.Password;
-                    
-                    // Luôn mã hóa username trước khi lưu - trước tiên giải mã nếu đã mã hóa để tránh mã hóa 2 lần
-                    if (!string.IsNullOrEmpty(usernameToSave))
-                    {
-                        try
-                        {
-                            // Thử giải mã - nếu đã mã hóa thì sẽ thành công
-                            string tempDecrypted = _encryptionService.Decrypt(usernameToSave);
-                            // Mã hóa lại từ chuỗi đã giải mã
-                            usernameToSave = _encryptionService.Encrypt(tempDecrypted);
-                            _logger.LogDebug("Đã tái mã hóa username cho tài khoản {ProfileName}", account.ProfileName);
-                        }
-                        catch (Exception)
-                        {
-                            // Nếu giải mã thất bại, chuỗi chưa mã hóa - mã hóa nó
-                                usernameToSave = _encryptionService.Encrypt(usernameToSave);
-                            _logger.LogDebug("Đã mã hóa username mới cho tài khoản {ProfileName}", account.ProfileName);
-                        }
-                    }
 
-                    // Luôn mã hóa password trước khi lưu
-                    if (!string.IsNullOrEmpty(passwordToSave))
-                    {
-                        try
-                        {
-                            // Thử giải mã - nếu đã mã hóa thì sẽ thành công
-                            string tempDecrypted = _encryptionService.Decrypt(passwordToSave);
-                            // Mã hóa lại từ chuỗi đã giải mã
-                            passwordToSave = _encryptionService.Encrypt(tempDecrypted);
-                            _logger.LogDebug("Đã tái mã hóa password cho tài khoản {ProfileName}", account.ProfileName);
-                        }
-                        catch (Exception)
-                        {
-                            // Nếu giải mã thất bại, chuỗi chưa mã hóa - mã hóa nó
-                                passwordToSave = _encryptionService.Encrypt(passwordToSave);
-                            _logger.LogDebug("Đã mã hóa password mới cho tài khoản {ProfileName}", account.ProfileName);
-                        }
-                    }
-
-                    accountsToSave.Add(new SteamAccount
+                    // Không cần kiểm tra mã hóa thủ công nếu đã biết chắc trạng thái
+                    var accountToSave = new SteamAccount
                     {
                         Id = account.Id,
                         ProfileName = account.ProfileName,
@@ -230,13 +214,57 @@ namespace SteamCmdWebAPI.Services
                         AppIds = account.AppIds,
                         GameNames = account.GameNames,
                         CreatedAt = account.CreatedAt,
-                        UpdatedAt = account.UpdatedAt
-                    });
+                        UpdatedAt = account.UpdatedAt,
+                        // Đảm bảo các trường bổ sung được sao chép đúng
+                        AutoScanEnabled = account.AutoScanEnabled,
+                        LastScanTime = account.LastScanTime,
+                        NextScanTime = account.NextScanTime,
+                        ScanIntervalHours = account.ScanIntervalHours
+                    };
+                    
+                    // Thêm log để kiểm tra giá trị sau khi sao chép
+                    _logger.LogInformation("SaveAccounts: Tài khoản sao chép {ProfileName} (ID: {Id}) có AutoScanEnabled = {AutoScanEnabled}", 
+                        accountToSave.ProfileName, accountToSave.Id, accountToSave.AutoScanEnabled);
+                    
+                    accountsToSave.Add(accountToSave);
                 }
 
-                var options = new JsonSerializerOptions { WriteIndented = true };
-                string json = JsonSerializer.Serialize(accountsToSave, options);
-                File.WriteAllText(_accountsFilePath, json);
+                try 
+                {
+                    var json = JsonSerializer.Serialize(accountsToSave, options);
+                    
+                    // Ghi log trước khi ghi file
+                    _logger.LogDebug("SaveAccounts: JSON để ghi vào file: {Json}", json);
+                    
+                    File.WriteAllText(_accountsFilePath, json);
+                    _logger.LogInformation("Đã lưu danh sách tài khoản thành công");
+                    
+                    // Kiểm tra ngay sau khi lưu
+                    string savedJson = File.ReadAllText(_accountsFilePath);
+                    _logger.LogDebug("SaveAccounts: Xác minh JSON đã lưu (độ dài: {Length})", savedJson.Length);
+                    
+                    // Phân tích lại để kiểm tra
+                    try {
+                        var verifiedAccounts = JsonSerializer.Deserialize<List<SteamAccount>>(savedJson, options);
+                        _logger.LogInformation("SaveAccounts: Đã xác minh JSON - Đọc lại được {Count} tài khoản",
+                            verifiedAccounts?.Count ?? 0);
+                            
+                        if (verifiedAccounts != null) {
+                            foreach (var acc in verifiedAccounts.Where(a => a.AutoScanEnabled)) {
+                                _logger.LogDebug("SaveAccounts: Tài khoản đã lưu {Id} có AutoScanEnabled = {Value}", 
+                                    acc.Id, acc.AutoScanEnabled);
+                            }
+                        }
+                    }
+                    catch (Exception ex) {
+                        _logger.LogWarning(ex, "SaveAccounts: Không thể xác minh JSON đã lưu: {Message}", ex.Message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi lưu danh sách tài khoản Steam: {0}", ex.Message);
+                    throw;
+                }
             }
         }
 
@@ -360,6 +388,83 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        public async Task<(bool success, string message, DateTime? nextScanTime)> ToggleAutoScanAsync(int accountId, bool enabled)
+        {
+            try
+            {
+                var accounts = await GetAllAccountsAsync();
+                var account = accounts.FirstOrDefault(a => a.Id == accountId);
+                
+                if (account == null)
+                {
+                    _logger.LogWarning("ToggleAutoScanAsync: Không tìm thấy tài khoản ID {AccountId}", accountId);
+                    return (false, $"Không tìm thấy tài khoản ID {accountId}", null);
+                }
+                
+                _logger.LogInformation("ToggleAutoScanAsync: Tài khoản {Username} (ID: {Id}), đang chuyển từ {OldState} -> {NewState}", 
+                    account.ProfileName, accountId, account.AutoScanEnabled, enabled);
+                
+                // Cập nhật trạng thái
+                var previousState = account.AutoScanEnabled;
+                account.AutoScanEnabled = enabled;
+                
+                _logger.LogDebug("ToggleAutoScanAsync: Đã thay đổi trạng thái từ {Old} -> {New}", previousState, account.AutoScanEnabled);
+                
+                // Cập nhật thời gian
+                if (enabled)
+                {
+                    // Lấy thời gian quét hiện tại hoặc mặc định là 6 giờ
+                    int intervalHours = account.ScanIntervalHours > 0 ? account.ScanIntervalHours : 6;
+                    account.ScanIntervalHours = intervalHours; // Đảm bảo có interval
+                    
+                    // Thiết lập thời gian quét tiếp theo
+                    account.NextScanTime = DateTime.Now.AddHours(intervalHours);
+                    
+                    _logger.LogInformation("ToggleAutoScanAsync: Đã bật quét tự động, quét tiếp theo vào {NextScanTime}", 
+                        account.NextScanTime);
+                }
+                else
+                {
+                    _logger.LogInformation("ToggleAutoScanAsync: Đã tắt quét tự động");
+                }
+                
+                // Lưu thay đổi
+                account.UpdatedAt = DateTime.Now;
+                
+                // Kiểm tra trạng thái trước khi lưu
+                _logger.LogDebug("ToggleAutoScanAsync: Trước khi lưu - Tài khoản {Id} có AutoScanEnabled = {AutoScanEnabled}", 
+                    account.Id, account.AutoScanEnabled);
+                
+                SaveAccounts(accounts);
+                
+                // Kiểm tra lại sau khi lưu bằng cách đọc lại
+                var refreshedAccounts = await GetAllAccountsAsync();
+                var refreshedAccount = refreshedAccounts.FirstOrDefault(a => a.Id == accountId);
+                
+                if (refreshedAccount != null)
+                {
+                    _logger.LogDebug("ToggleAutoScanAsync: Sau khi lưu - Tài khoản {Id} có AutoScanEnabled = {AutoScanEnabled}", 
+                        refreshedAccount.Id, refreshedAccount.AutoScanEnabled);
+                        
+                    if (refreshedAccount.AutoScanEnabled != enabled)
+                    {
+                        _logger.LogWarning("ToggleAutoScanAsync: Giá trị AutoScanEnabled không khớp sau khi lưu! Expected: {Expected}, Actual: {Actual}",
+                            enabled, refreshedAccount.AutoScanEnabled);
+                    }
+                }
+                
+                _logger.LogInformation("ToggleAutoScanAsync: Đã lưu trạng thái mới, AutoScanEnabled: {AutoScanEnabled}", account.AutoScanEnabled);
+                
+                // Trả về kết quả thành công và thời gian quét tiếp theo
+                return (true, enabled ? "Đã bật quét tự động" : "Đã tắt quét tự động", account.NextScanTime);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ToggleAutoScanAsync: Lỗi khi cập nhật trạng thái quét tự động cho tài khoản ID {AccountId}", accountId);
+                return (false, "Lỗi khi cập nhật trạng thái quét tự động", null);
+            }
+        }
+
         public async Task UpdateAccountAsync(SteamAccount account)
         {
             var accounts = await GetAllAccountsAsync();
@@ -369,6 +474,10 @@ namespace SteamCmdWebAPI.Services
             {
                 throw new Exception($"Không tìm thấy tài khoản với ID {account.Id}");
             }
+            
+            // Ghi log trạng thái tự động quét
+            _logger.LogInformation("UpdateAccountAsync: AutoScanEnabled trước khi cập nhật: {Old}, sau khi cập nhật: {New}", 
+                accounts[index].AutoScanEnabled, account.AutoScanEnabled);
 
             // Nếu có AppId mới, tự động lấy thông tin tên game
             if (!string.IsNullOrEmpty(account.AppIds))
@@ -458,10 +567,37 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogError(ex, "Lỗi khi mã hóa thông tin tài khoản để cập nhật: {0}", ex.Message);
             }
 
+            // Cập nhật thông tin quét tự động
+            if (account.AutoScanEnabled)
+            {
+                // Đảm bảo có ScanIntervalHours
+                if (account.ScanIntervalHours <= 0)
+                {
+                    account.ScanIntervalHours = 6; // Mặc định 6 giờ
+                }
+                
+                // Cập nhật thời gian quét tiếp theo nếu chưa có
+                if (!account.NextScanTime.HasValue)
+                {
+                    account.NextScanTime = DateTime.Now.AddHours(account.ScanIntervalHours);
+                }
+                
+                _logger.LogInformation("UpdateAccountAsync: Đã bật quét tự động, interval: {Interval}h, quét tiếp theo: {NextTime}",
+                    account.ScanIntervalHours, account.NextScanTime);
+            }
+            else
+            {
+                _logger.LogInformation("UpdateAccountAsync: Đã tắt quét tự động");
+            }
+
             account.UpdatedAt = DateTime.Now;
             accounts[index] = account;
 
             SaveAccounts(accounts);
+            
+            // Ghi log sau khi đã lưu
+            _logger.LogInformation("UpdateAccountAsync: Đã cập nhật tài khoản {ProfileName} (ID: {Id}), AutoScanEnabled: {AutoScan}", 
+                account.ProfileName, account.Id, account.AutoScanEnabled);
         }
 
         public async Task DeleteAccountAsync(int id)
@@ -577,8 +713,16 @@ namespace SteamCmdWebAPI.Services
                     AppIds = account.AppIds,
                     GameNames = account.GameNames,
                     CreatedAt = account.CreatedAt,
-                    UpdatedAt = account.UpdatedAt
+                    UpdatedAt = account.UpdatedAt,
+                    // Copy all auto-scan related properties
+                    AutoScanEnabled = account.AutoScanEnabled,
+                    LastScanTime = account.LastScanTime,
+                    NextScanTime = account.NextScanTime,
+                    ScanIntervalHours = account.ScanIntervalHours
                 };
+                
+                _logger.LogDebug("DecryptAndReencryptIfNeeded: Tài khoản {ProfileName} (ID: {Id}) có AutoScanEnabled = {AutoScanEnabled}", 
+                    processedAccount.ProfileName, processedAccount.Id, processedAccount.AutoScanEnabled);
                 
                 // Thử giải mã username
                 if (!string.IsNullOrEmpty(processedAccount.Username))

@@ -11,6 +11,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="9.0.4" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="9.0.4" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.EventLog" Version="9.0.0" />

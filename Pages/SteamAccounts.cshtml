@@ -28,11 +28,12 @@
             <table class="table table-striped table-hover">
                 <thead>
                     <tr>
-                        <th>ID</th>
-                        <th>TÊN PROFILE</th>
-                        <th>TỔNG GAME</th>
-                        <th>APP IDS / TÊN GAME</th>
-                        <th>THAO TÁC</th>
+                        <th style="width: 5%">ID</th>
+                        <th style="width: 15%">TÊN PROFILE</th>
+                        <th style="width: 8%">TỔNG</th>
+                        <th style="width: 52%">APP IDS / TÊN GAME</th>
+                        <th style="width: 10%">TỰ ĐỘNG</th>
+                        <th style="width: 10%">THAO TÁC</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -43,7 +44,7 @@
                             <tr>
                                 <td>@account.Id</td>
                                 <td>@account.ProfileName</td>
-                                <td>
+                                <td class="text-center">
                                     @{
                                         var gameCount = !string.IsNullOrEmpty(account.AppIds) 
                                             ? account.AppIds.Split(',', StringSplitOptions.RemoveEmptyEntries).Length 
@@ -52,15 +53,56 @@
                                     @gameCount
                                 </td>
                                 <td>
-                                    <div>@account.GameNames</div>
-                                    <small class="text-muted">@account.AppIds</small>
+                                    <div class="game-info mb-1">@account.GameNames</div>
+                                    <div class="app-ids">@account.AppIds</div>
+                                </td>
+                                <td class="text-center">
+                                    <div class="form-check form-switch d-flex justify-content-center">
+                                        <input class="form-check-input auto-scan-toggle" type="checkbox" 
+                                               id="autoScanToggle_@account.Id" 
+                                               data-account-id="@account.Id"
+                                               @(account.AutoScanEnabled ? "checked" : "")>
+                                    </div>
+                                    @if (account.LastScanTime.HasValue)
+                                    {
+                                        <small class="d-block text-muted mt-1">@account.LastScanTime.Value.ToString("dd/MM HH:mm")</small>
+                                    }
+                                    @if (account.NextScanTime.HasValue && account.AutoScanEnabled)
+                                    {
+                                        <small class="d-block text-muted">@account.NextScanTime.Value.ToString("dd/MM HH:mm")</small>
+                                    }
+                                    <div class="dropdown mt-1">
+                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" 
+                                                type="button"
+                                                id="dropdownIntervalBtn_@account.Id" 
+                                                data-bs-toggle="dropdown" 
+                                                aria-expanded="false"
+                                                data-account-id="@account.Id"
+                                                data-profile-name="@account.ProfileName"
+                                                data-interval="@account.ScanIntervalHours"
+                                                data-auto-scan="@account.AutoScanEnabled.ToString().ToLower()"
+                                                title="Chọn khoảng thời gian quét">
+                                            <i class="bi bi-clock"></i> @account.ScanIntervalHours giờ
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdownIntervalBtn_@account.Id">
+                                            <li><h6 class="dropdown-header">Khoảng thời gian quét</h6></li>
+                                            <li><a class="dropdown-item interval-option" href="#" data-account-id="@account.Id" data-interval="1">1 giờ</a></li>
+                                            <li><a class="dropdown-item interval-option" href="#" data-account-id="@account.Id" data-interval="3">3 giờ</a></li>
+                                            <li><a class="dropdown-item interval-option" href="#" data-account-id="@account.Id" data-interval="6">6 giờ</a></li>
+                                            <li><a class="dropdown-item interval-option" href="#" data-account-id="@account.Id" data-interval="12">12 giờ</a></li>
+                                            <li><a class="dropdown-item interval-option" href="#" data-account-id="@account.Id" data-interval="24">24 giờ</a></li>
+                                        </ul>
+                                    </div>
                                 </td>
                                 <td>
-                                    <div class="btn-group">
-                                        <button class="btn-icon edit" onclick="editAccount(@account.Id)" title="Sửa">
+                                    <div class="d-flex justify-content-around">
+                                        <button class="btn-icon edit" onclick="return editAccount(@account.Id, event);" title="Sửa">
                                             <i class="bi bi-pencil"></i>
                                         </button>
-                                        <button class="btn-icon delete" onclick="deleteAccount(@account.Id, '@account.ProfileName')" title="Xóa">
+                                        <button class="btn-icon scan-now" onclick="return scanNow(@account.Id, event);" title="Quét ngay">
+                                            <i class="bi bi-search"></i>
+                                        </button>
+                                        <button class="btn-icon delete" onclick="return deleteAccount(@account.Id, '@account.ProfileName', event);" title="Xóa">
                                             <i class="bi bi-trash"></i>
                                         </button>
                                     </div>
@@ -71,7 +113,7 @@
                     else
                     {
                         <tr>
-                            <td colspan="5" class="text-center">Chưa có tài khoản nào</td>
+                            <td colspan="6" class="text-center">Chưa có tài khoản nào</td>
                         </tr>
                     }
                 </tbody>
@@ -90,34 +132,32 @@
             <form method="post" id="addAccountForm">
                 @Html.AntiForgeryToken()
                 <div class="mb-3">
-                    <label for="profileName" class="form-label">Tên Profile</label>
+                    <label for="profileName" class="form-label">Tên Profile <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" id="profileName" name="Account.ProfileName" required>
+                    <div class="invalid-feedback">Vui lòng nhập tên profile</div>
                 </div>
                 <div class="mb-3">
-                    <label for="username" class="form-label">Tên tài khoản</label>
+                    <label for="username" class="form-label">Tên tài khoản <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" id="username" name="Account.Username" required>
+                    <div class="invalid-feedback">Vui lòng nhập tên tài khoản Steam</div>
                 </div>
                 <div class="mb-3">
-                    <label for="password" class="form-label">Mật khẩu</label>
+                    <label for="password" class="form-label">Mật khẩu <span class="text-danger">*</span></label>
                     <input type="password" class="form-control" id="password" name="Account.Password" required>
+                    <div class="invalid-feedback">Vui lòng nhập mật khẩu</div>
                 </div>
                 <div class="mb-3">
                     <label for="appIds" class="form-label">App IDs & Game Names</label>
-                    <div class="d-flex gap-2 mb-2">
-                        <button type="button" class="btn btn-success btn-sm flex-grow-1" id="btnScanSteamAccount">
-                            <i class="bi bi-steam"></i> Tự động quét danh sách game từ tài khoản
-                        </button>
-                        <button type="button" class="btn btn-info btn-sm" id="btnScanAppIds" title="Quét thông tin game theo App IDs">
-                            <i class="bi bi-search"></i> Scan AppIDs
-                        </button>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="replaceExistingAppIds" checked>
+                        <label class="form-check-label" for="replaceExistingAppIds">
+                            Thay thế ID cũ (thay vì bổ sung thêm)
+                        </label>
                     </div>
                     <div class="input-group">
-                        <textarea class="form-control" id="appIds" name="Account.AppIds" rows="3" placeholder="Hệ thống sẽ tự động điền sau khi quét hoặc bạn có thể nhập thủ công (cách nhau bởi dấu phẩy)"></textarea>
+                        <textarea class="form-control" id="appIds" name="Account.AppIds" rows="3" placeholder="Nhập AppIDs của game, cách nhau bởi dấu phẩy (ví dụ: 570,730,440)"></textarea>
                     </div>
                     <small class="form-text text-muted">Ví dụ nhập thủ công: 570,730,440</small>
-                    <div class="form-text text-warning">
-                        <i class="bi bi-info-circle"></i> Quá trình quét có thể bị timeout nếu tài khoản có nhiều game. Đây là bình thường, hãy thử quét lại.
-                    </div>
                 </div>
                 <div class="d-flex justify-content-end gap-2">
                     <button type="button" class="btn btn-secondary" id="btnCancelAdd">Đóng</button>
@@ -139,8 +179,9 @@
                 @Html.AntiForgeryToken()
                 <input type="hidden" id="editId" name="Account.Id">
                 <div class="mb-3">
-                    <label for="editProfileName" class="form-label">Tên Profile</label>
+                    <label for="editProfileName" class="form-label">Tên Profile <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" id="editProfileName" name="Account.ProfileName" required>
+                    <div class="invalid-feedback">Vui lòng nhập tên profile</div>
                 </div>
                 <div class="mb-3">
                     <label for="editUsername" class="form-label">Tên tài khoản</label>
@@ -154,27 +195,27 @@
                 </div>
                 <div class="mb-3">
                     <label for="editAppIds" class="form-label">App IDs & Game Names</label>
-                    <div class="d-flex gap-2 mb-2">
-                        <button type="button" class="btn btn-success btn-sm flex-grow-1" id="btnScanEditSteamAccount">
-                            <i class="bi bi-steam"></i> Tự động quét danh sách game từ tài khoản
-                        </button>
-                        <button type="button" class="btn btn-info btn-sm" id="btnScanEditAppIds" title="Quét thông tin game theo App IDs">
-                            <i class="bi bi-search"></i> Scan AppIDs
-                        </button>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="editReplaceExistingAppIds" checked>
+                        <label class="form-check-label" for="editReplaceExistingAppIds">
+                            Thay thế ID cũ (thay vì bổ sung thêm)
+                        </label>
                     </div>
                     <div class="input-group">
-                        <textarea class="form-control" id="editAppIds" name="Account.AppIds" rows="3" placeholder="Hệ thống sẽ tự động điền sau khi quét hoặc bạn có thể nhập thủ công (cách nhau bởi dấu phẩy)"></textarea>
+                        <textarea class="form-control" id="editAppIds" name="Account.AppIds" rows="3" placeholder="Nhập AppIDs của game, cách nhau bởi dấu phẩy (ví dụ: 570,730,440)"></textarea>
                     </div>
                     <small class="form-text text-muted">Ví dụ nhập thủ công: 570,730,440</small>
-                    <div class="form-text text-warning">
-                        <i class="bi bi-info-circle"></i> Quá trình quét có thể bị timeout nếu tài khoản có nhiều game. Đây là bình thường, hãy thử quét lại.
-                    </div>
                 </div>
                 <div class="mb-3">
                     <label for="editGameNames" class="form-label">Tên game</label>
                     <textarea class="form-control" id="editGameNames" name="Account.GameNames" rows="3" readonly></textarea>
-                    <small class="form-text text-muted">Sẽ tự động cập nhật khi lưu</small>
+                    <small class="form-text text-muted">Tên game sẽ tự động được lấy theo AppIDs</small>
                 </div>
+                
+                <!-- Đã xóa phần form hẹn giờ quét tự động -->
+                <input type="hidden" id="editAutoScanEnabled" name="Account.AutoScanEnabled" value="false">
+                <input type="hidden" id="editScanIntervalHours" name="Account.ScanIntervalHours" value="6">
+                
                 <div class="d-flex justify-content-end gap-2">
                     <button type="button" class="btn btn-secondary" id="btnCancelEdit">Đóng</button>
                     <button type="button" class="btn btn-primary" id="btnUpdateAccount">Cập nhật</button>
@@ -291,21 +332,60 @@
             position: relative;
         }
         
-        /* Tùy chỉnh nút scan */
-        #btnScanSteamAccount, #btnScanEditSteamAccount {
-            background-color: #1b2838;
-            border-color: #1b2838;
-        }
-        
-        #btnScanSteamAccount:hover, #btnScanEditSteamAccount:hover {
-            background-color: #66c0f4;
-            border-color: #66c0f4;
-        }
-        
         /* Hiệu ứng hover cho badge */
         .badge.bg-success:hover {
             background-color: #218838 !important;
             cursor: default;
+        }
+        
+        /* Tùy chỉnh hiển thị tên game để tự động xuống dòng */
+        td {
+            vertical-align: middle;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        
+        /* Tùy chỉnh cho cột AppIds và GameNames */
+        .game-info {
+            max-width: 100%;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: normal;
+            line-height: 1.4;
+        }
+        
+        /* Tùy chỉnh cho danh sách AppIds */
+        .app-ids {
+            color: #6c757d;
+            font-size: 0.85em;
+            word-break: break-all;
+            line-height: 1.3;
+            display: block;
+        }
+        
+        /* Tùy chỉnh nút thao tác */
+        .btn-icon {
+            background: none;
+            border: none;
+            padding: 0.4rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-icon.edit {
+            color: #17a2b8;
+        }
+        
+        .btn-icon.scan-now {
+            color: #28a745;
+        }
+        
+        .btn-icon.delete {
+            color: #dc3545;
+        }
+        
+        .btn-icon:hover {
+            transform: scale(1.2);
         }
     </style>
 }
@@ -331,402 +411,415 @@
             "hideMethod": "fadeOut"
         };
         
+        // Khởi tạo khi trang đã tải xong
+        $(document).ready(function() {
+            // Xử lý sự kiện chọn khoảng thời gian quét từ dropdown
+            $(document).on('click', '.interval-option', function(event) {
+                event.preventDefault();
+                
+                const accountId = $(this).data('account-id');
+                const interval = $(this).data('interval');
+                const dropdownButton = $(`#dropdownIntervalBtn_${accountId}`);
+                const isEnabled = $(`#autoScanToggle_${accountId}`).prop('checked');
+
+                // Hiển thị trạng thái đang xử lý trên nút
+                const originalText = dropdownButton.html();
+                dropdownButton.html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang lưu...');
+
+                // Tạo dữ liệu để gửi
+                const data = {
+                    Account: {
+                        Id: parseInt(accountId),
+                        AutoScanEnabled: isEnabled,
+                        ScanIntervalHours: interval
+                    }
+                };
+                
+                console.log("Đang lưu cài đặt khoảng thời gian quét:", data);
+                
+                // Gửi cài đặt lên server
+                $.ajax({
+                    url: '?handler=UpdateScanSettings',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(data),
+                    headers: {
+                        'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function(response) {
+                        if (response && response.success) {
+                            // Cập nhật giao diện
+                            dropdownButton.html(`<i class="bi bi-clock"></i> ${interval} giờ`);
+                            dropdownButton.data('interval', interval);
+                            
+                            // Hiển thị thông báo
+                            toastr.success(`Đã thay đổi khoảng thời gian quét thành ${interval} giờ`, 'Thành công');
+                            
+                            // Cập nhật hiển thị thời gian quét tiếp theo
+                            if (isEnabled && response.nextScanTime) {
+                                const toggleElem = $(`#autoScanToggle_${accountId}`);
+                                const container = toggleElem.closest('td').find('small:last');
+                                
+                                if (container.length === 0) {
+                                    toggleElem.closest('td').find('.form-check').after(
+                                        `<small class="d-block text-muted mt-1">@DateTime.Now.ToString("dd/MM HH:mm")</small>
+                                         <small class="d-block text-muted">${response.nextScanTime}</small>`
+                                    );
+                        } else {
+                                    container.text(response.nextScanTime);
+                                }
+                            }
+                        } else {
+                            // Khôi phục nút
+                            dropdownButton.html(originalText);
+                            toastr.error(response?.message || 'Có lỗi xảy ra khi lưu cài đặt quét tự động', 'Lỗi');
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        // Khôi phục nút
+                        dropdownButton.html(originalText);
+                        
+                        console.error('AJAX Error:', status, error);
+                        let errorMessage = 'Có lỗi xảy ra khi lưu cài đặt';
+                        
+                        if (xhr && xhr.responseJSON && xhr.responseJSON.message) {
+                            errorMessage = xhr.responseJSON.message;
+                        }
+                        
+                        toastr.error(errorMessage, 'Lỗi');
+                    }
+                });
+            });
+        });
+        
+        // Hàng đợi quét tài khoản - sẽ quét tuần tự
+        const scanQueue = {
+            queue: [],
+            isProcessing: false,
+            
+            // Thêm tài khoản vào hàng đợi
+            add: function(accountId) {
+                if (this.queue.includes(accountId)) {
+                    toastr.info(`Tài khoản ID ${accountId} đã nằm trong hàng đợi quét.`, "Thông báo");
+                    return false;
+                }
+                
+                this.queue.push(accountId);
+                toastr.info(`Đã thêm tài khoản ID ${accountId} vào hàng đợi quét.`, "Thông báo");
+                
+                if (!this.isProcessing) {
+                    this.processNext();
+                }
+                
+                return true;
+            },
+            
+            // Xử lý tài khoản tiếp theo trong hàng đợi
+            processNext: function() {
+                if (this.queue.length === 0) {
+                    this.isProcessing = false;
+                    toastr.success("Hoàn thành quét tất cả tài khoản trong hàng đợi.", "Thành công");
+                    return;
+                }
+                
+                this.isProcessing = true;
+                const accountId = this.queue.shift();
+                            
+                // Hiển thị trạng thái đang quét
+                toastr.info(`Đang quét tài khoản ID ${accountId}. Còn ${this.queue.length} tài khoản trong hàng đợi.`, "Đang quét", {
+                    "timeOut": "0",
+                    "extendedTimeOut": "0",
+                    "progressBar": false,
+                    "positionClass": "toast-top-center"
+                });
+                
+                // Thực hiện quét
+                $.ajax({
+                    url: "?handler=ScanNow",
+                    type: "POST",
+                    data: { accountId: accountId },
+                    headers: {
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: (response) => {
+                        toastr.clear();
+                        
+                        if (response && response.success) {
+                            toastr.success(`Quét thành công tài khoản ID ${accountId}!`, "Thành công", {
+                                "timeOut": "5000",
+                                "positionClass": "toast-top-center"
+            });
+
+                            // Nếu có kết quả mới, hiển thị
+                            if (response.newGamesCount > 0) {
+                                toastr.info(`Đã tìm thấy ${response.newGamesCount} game mới!`, "Kết quả quét", {
+                        "timeOut": "10000",
+                        "positionClass": "toast-top-center"
+                                });
+                            }
+                        } else {
+                            toastr.error(response?.message || `Có lỗi xảy ra khi quét tài khoản ID ${accountId}`, "Lỗi", {
+                                "timeOut": "10000",
+                                "positionClass": "toast-top-center"
+                            });
+                        }
+                        
+                        // Xử lý tài khoản tiếp theo sau một khoảng thời gian
+                        setTimeout(() => this.processNext(), 1000);
+                    },
+                    error: (xhr, status, error) => {
+                        toastr.clear();
+                        console.error("Lỗi AJAX:", status, error);
+                        
+                        let errorMessage = `Có lỗi xảy ra khi quét tài khoản ID ${accountId}`;
+                        try {
+                            if (xhr && xhr.responseJSON && xhr.responseJSON.message) {
+                                errorMessage = xhr.responseJSON.message;
+                }
+                        } catch (e) {
+                            console.error("Lỗi khi xử lý phản hồi lỗi:", e);
+                        }
+                        
+                        toastr.error(errorMessage, "Lỗi", {
+                        "timeOut": "10000",
+                        "positionClass": "toast-top-center"
+                        });
+                        
+                        // Xử lý tài khoản tiếp theo dù có lỗi
+                        setTimeout(() => this.processNext(), 1000);
+                    }
+                });
+            }
+        };
+        
+        // Quét tài khoản ngay lập tức - sử dụng hàng đợi
+        function scanNow(accountId, event) {
+            // Ngăn chặn hành vi mặc định
+            if (event) {
+                event.preventDefault();
+            }
+            
+            if (!confirm("Bạn có muốn quét ngay tài khoản này không?")) {
+                return false;
+            }
+            
+            // Thêm vào hàng đợi và xử lý
+            scanQueue.add(accountId);
+            return false;
+        }
+        
+        // Hàm quét tất cả tài khoản
+        function scanAllAccounts() {
+            if (!confirm("Bạn có muốn quét tất cả tài khoản không?")) {
+                    return;
+                }
+                
+            // Lấy danh sách tất cả các ID tài khoản
+            const accountIds = [];
+            $(".auto-scan-toggle").each(function() {
+                accountIds.push($(this).data("account-id"));
+            });
+            
+            if (accountIds.length === 0) {
+                toastr.warning("Không có tài khoản nào để quét.", "Cảnh báo");
+                    return;
+                }
+                
+            toastr.info(`Đang thêm ${accountIds.length} tài khoản vào hàng đợi quét...`, "Thông báo");
+            
+            // Thêm từng tài khoản vào hàng đợi
+            accountIds.forEach(id => scanQueue.add(id));
+                }
+
+        // Xóa tài khoản
+        function deleteAccount(id, profileName, event) {
+            // Ngăn chặn hành vi mặc định
+            if (event) {
+                event.preventDefault();
+            }
+            
+            if (!confirm(`Bạn có chắc muốn xóa tài khoản "${profileName}" không?`)) {
+                return false;
+            }
+            
+                $.ajax({
+                url: "?handler=DeleteAccount",
+                    type: "POST",
+                data: { id: id },
+                    headers: {
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                success: function(response) {
+                    if (response && response.success) {
+                        toastr.success("Đã xóa tài khoản thành công!", "Thành công");
+                        // Tải lại trang sau 1 giây
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 1000);
+                    } else {
+                        toastr.error(response?.message || "Có lỗi xảy ra khi xóa tài khoản", "Lỗi");
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error("Lỗi AJAX:", status, error);
+                    toastr.error("Không thể xóa tài khoản. Vui lòng thử lại sau.", "Lỗi");
+                }
+            });
+            
+            return false;
+        }
+        
         $(document).ready(function () {
+            // Biến lưu vị trí scroll trước khi hiển thị form
+            let lastScrollPosition = 0;
+                            
+            // Xử lý bật/tắt quét tự động
+            $(document).on("change", ".auto-scan-toggle", function() {
+                const accountId = $(this).data("account-id");
+                const isEnabled = $(this).prop("checked");
+                const toggleElem = $(this);
+                
+                // Ghi log
+                console.log(`Toggling auto scan for account ${accountId}: ${isEnabled}`);
+                
+                // Tạo đối tượng dữ liệu để gửi
+                const data = { 
+                    accountId: accountId,
+                    enabled: isEnabled
+                };
+                
+                // Gửi yêu cầu lên server
+                $.ajax({
+                    url: "?handler=ToggleAutoScan",
+                    type: "POST",
+                    contentType: "application/json",
+                    data: JSON.stringify(data),
+                    headers: {
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function(response) {
+                        console.log("Server response:", response);
+                        
+                        if (response && response.success) {
+                            toastr.success(
+                                `Đã ${isEnabled ? 'bật' : 'tắt'} quét tự động cho tài khoản này`,
+                                "Thành công",
+                                {
+                                    "timeOut": "3000",
+                                    "positionClass": "toast-top-right"
+                                }
+                            );
+                            
+                            if (isEnabled && response.nextScanTime) {
+                                // Hiển thị thời gian quét tiếp theo
+                                toastr.info(
+                                    `Lần quét tiếp theo: ${response.nextScanTime}`,
+                                    "Thông tin",
+                                    {
+                                        "timeOut": "5000"
+                                    }
+                                );
+                            
+                                // Cập nhật UI để hiển thị thời gian quét tiếp theo
+                                const container = toggleElem.closest("td").find("small:last");
+                                if (container.length === 0) {
+                                    // Nếu chưa có small tag, thêm mới
+                                    toggleElem.closest("td").find(".form-check").after(
+                                        `<small class="d-block text-muted mt-1">@DateTime.Now.ToString("dd/MM HH:mm")</small>
+                                         <small class="d-block text-muted">${response.nextScanTime}</small>`
+                                    );
+                            } else {
+                                    container.text(response.nextScanTime);
+                                }
+                                
+                                // Cập nhật data attribute cho nút cài đặt
+                                toggleElem.closest("td").find(".btn-set-interval").data("auto-scan", "true");
+                            } else {
+                                // Nếu tắt, xóa thông tin thời gian quét tiếp theo
+                                toggleElem.closest("td").find("small:contains('Quét tiếp theo')").remove();
+                                
+                                // Cập nhật data attribute cho nút cài đặt
+                                toggleElem.closest("td").find(".btn-set-interval").data("auto-scan", "false");
+                            }
+                        } else {
+                            // Khôi phục UI nếu lỗi
+                            toggleElem.prop("checked", !isEnabled);
+                            
+                            toastr.error(response?.message || "Có lỗi xảy ra khi cập nhật trạng thái quét tự động", "Lỗi", {
+                                "timeOut": "5000"
+                            });
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        // Khôi phục UI nếu lỗi
+                        toggleElem.prop("checked", !isEnabled);
+                        
+                        console.error("AJAX Error:", status, error);
+                        let errorMessage = "Có lỗi xảy ra khi gửi yêu cầu";
+                        
+                        if (xhr && xhr.responseJSON && xhr.responseJSON.message) {
+                            errorMessage = xhr.responseJSON.message;
+                        }
+                        
+                        toastr.error(errorMessage, "Lỗi", {
+                            "timeOut": "5000"
+                            });
+                    }
+                });
+            });
+            
             // Hiển thị form thêm tài khoản
-            $("#btnAddAccount").click(function () {
+            $("#btnAddAccount").click(function (event) {
+                // Ngăn chặn hành vi mặc định của sự kiện click
+                event.preventDefault();
+                
+                // Lưu vị trí scroll hiện tại
+                lastScrollPosition = $(window).scrollTop();
                 $("#formAddAccount").slideDown();
+                
+                // Scroll đến form
+                $('html, body').animate({
+                    scrollTop: $("#formAddAccount").offset().top - 100
+                }, 500);
             });
 
             // Ẩn form thêm tài khoản
-            $("#btnCancelAdd").click(function () {
-                $("#formAddAccount").slideUp();
-                $("#addAccountForm")[0].reset();
+            $("#btnCancelAdd").click(function (event) {
+                // Ngăn chặn hành vi mặc định của sự kiện click
+                event.preventDefault();
+                
+                $("#formAddAccount").slideUp(400, function() {
+                    // Xóa các trường đã nhập
+                    $("#addAccountForm")[0].reset();
+                            
+                    // Xóa trạng thái validation
+                    $("#addAccountForm").find(".is-invalid").removeClass("is-invalid");
+                    
+                    // Trở về vị trí scroll trước đó
+                    $('html, body').animate({
+                        scrollTop: lastScrollPosition
+                    }, 300);
+                            });
             });
-
+                            
             // Ẩn form sửa tài khoản
-            $("#btnCancelEdit").click(function () {
-                $("#formEditAccount").slideUp();
-                $("#editAccountForm")[0].reset();
-            });
-
-            // Thêm tài khoản
-            $("#btnSaveAccount").click(function () {
-                const form = $("#addAccountForm");
-                const formData = form.serialize();
-
-                $.ajax({
-                    url: "?handler=AddAccount",
-                    type: "POST",
-                    data: formData,
-                    headers: {
-                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
-                    },
-                    success: function (response) {
-                        if (response.success) {
-                            toastr.success("Đã thêm tài khoản thành công", "Thành công", {
-                                "timeOut": "60000",
-                                "positionClass": "toast-top-center",
-                                "extendedTimeOut": "15000" 
-                            });
-                            
-                            // Hiển thị đếm ngược tự động tải lại
-                            let countdownTime = 60;
-                            let countdownElem = $('<div class="mt-2 text-center">Trang sẽ tự động tải lại sau <span id="countdown">60</span> giây</div>');
-                            $("#formAddAccount").before(countdownElem);
-                            
-                            let countdownInterval = setInterval(function() {
-                                countdownTime--;
-                                $("#countdown").text(countdownTime);
-                                if (countdownTime <= 0) {
-                                    clearInterval(countdownInterval);
-                                }
-                            }, 1000);
-                            
-                            setTimeout(function () {
-                                window.location.reload();
-                            }, 60000);
-                        } else {
-                            toastr.error(response.message || "Có lỗi xảy ra khi thêm tài khoản", "Lỗi", {
-                                "timeOut": "30000"
-                            });
-                        }
-                    },
-                    error: function () {
-                        toastr.error("Có lỗi xảy ra khi gửi yêu cầu", "Lỗi", {
-                            "timeOut": "30000"
-                        });
-                    }
+            $("#btnCancelEdit").click(function (event) {
+                // Ngăn chặn hành vi mặc định của sự kiện click
+                event.preventDefault();
+                
+                $("#formEditAccount").slideUp(400, function() {
+                    $("#editAccountForm")[0].reset();
+                    $("#editAccountForm").find(".is-invalid").removeClass("is-invalid");
                 });
-            });
-
-            // Cập nhật tài khoản
-            $("#btnUpdateAccount").click(function () {
-                const form = $("#editAccountForm");
-                const formData = form.serialize();
-
-                $.ajax({
-                    url: "?handler=UpdateAccount",
-                    type: "POST",
-                    data: formData,
-                    headers: {
-                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
-                    },
-                    success: function (response) {
-                        if (response.success) {
-                            toastr.success("Đã cập nhật tài khoản thành công", "Thành công", {
-                                "timeOut": "60000",
-                                "positionClass": "toast-top-center",
-                                "extendedTimeOut": "15000"
-                            });
-                            
-                            // Hiển thị đếm ngược tự động tải lại
-                            let countdownTimeUpdate = 60;
-                            let countdownElemUpdate = $('<div class="mt-2 text-center">Trang sẽ tự động tải lại sau <span id="countdown-update">60</span> giây</div>');
-                            $("#formEditAccount").before(countdownElemUpdate);
-                            
-                            let countdownIntervalUpdate = setInterval(function() {
-                                countdownTimeUpdate--;
-                                $("#countdown-update").text(countdownTimeUpdate);
-                                if (countdownTimeUpdate <= 0) {
-                                    clearInterval(countdownIntervalUpdate);
-                                }
-                            }, 1000);
-                            
-                            setTimeout(function () {
-                                window.location.reload();
-                            }, 60000);
-                        } else {
-                            toastr.error(response.message || "Có lỗi xảy ra khi cập nhật tài khoản", "Lỗi", {
-                                "timeOut": "30000"
-                            });
-                        }
-                    },
-                    error: function () {
-                        toastr.error("Có lỗi xảy ra khi gửi yêu cầu", "Lỗi", {
-                            "timeOut": "30000"
-                        });
-                    }
-                });
-            });
-
-            // Nút quét từ tài khoản - form thêm mới
-            $("#btnScanSteamAccount").click(function() {
-                // Hiển thị hướng dẫn rõ ràng và lâu hơn
-                toastr.info(
-                    "Quá trình có thể mất vài phút và có thể bị timeout nếu có nhiều game. Vui lòng chờ...", 
-                    "Đang chuẩn bị quét tài khoản Steam", 
-                    {
-                        "timeOut": "10000",
-                        "progressBar": true,
-                        "positionClass": "toast-top-center"
-                    }
-                );
-                scanSteamAccount("#username", "#password", "#appIds", null, null);
-            });
-
-            // Nút quét từ tài khoản - form sửa
-            $("#btnScanEditSteamAccount").click(function() {
-                const username = $("#editUsername").val();
-                const accountId = $("#editId").val();
-                
-                // Hiển thị thông báo hữu ích khi username trống
-                if (!username && accountId) {
-                    toastr.info(
-                        "Bạn đang để trống tên đăng nhập. Hệ thống sẽ tự động sử dụng tên đăng nhập đã lưu trong database.", 
-                        "Thông tin", 
-                        {
-                            "timeOut": "8000",
-                            "positionClass": "toast-top-center"
-                        }
-                    );
-                }
-                
-                toastr.info(
-                    "Quá trình có thể mất vài phút và có thể bị timeout nếu có nhiều game. Vui lòng chờ...", 
-                    "Đang chuẩn bị quét tài khoản Steam", 
-                    {
-                        "timeOut": "10000",
-                        "progressBar": true,
-                        "positionClass": "toast-top-center"
-                    }
-                );
-                
-                scanSteamAccount("#editUsername", "#editPassword", "#editAppIds", "#editGameNames", accountId);
-            });
-
-            // Nút scan AppID - form thêm mới
-            $("#btnScanAppIds").click(function() {
-                const appIds = $("#appIds").val();
-                if (!appIds) {
-                    toastr.warning("Vui lòng nhập AppID trước khi quét thông tin game", "Cảnh báo", {
-                        "timeOut": "8000"
-                    });
-                    return;
-                }
-                scanAppIds("#appIds");
-            });
-
-            // Nút scan AppID - form sửa
-            $("#btnScanEditAppIds").click(function() {
-                const appIds = $("#editAppIds").val();
-                if (!appIds) {
-                    toastr.warning("Vui lòng nhập AppID trước khi quét thông tin game", "Cảnh báo", {
-                        "timeOut": "8000"
-                    });
-                    return;
-                }
-                scanAppIds("#editAppIds", "#editGameNames");
-            });
-
-            // Hàm quét danh sách game từ tài khoản Steam
-            function scanSteamAccount(usernameSelector, passwordSelector, appIdsSelector, gameNamesSelector = null, accountId = null) {
-                const username = $(usernameSelector).val();
-                const password = $(passwordSelector).val();
-                
-                // Trường hợp thêm mới (không có accountId): yêu cầu nhập username
-                if (!accountId && !username) {
-                    toastr.warning("Vui lòng điền tên đăng nhập trước khi quét", "Cảnh báo", {
-                        "timeOut": "8000"
-                    });
-                    return;
-                }
-                
-                // Trường hợp thêm mới: yêu cầu cung cấp mật khẩu
-                if (!accountId && !password) {
-                    toastr.warning("Vui lòng điền mật khẩu trước khi quét", "Cảnh báo", {
-                        "timeOut": "8000"
-                    });
-                    return;
-                }
-                
-                // Kiểm tra và hiển thị cảnh báo nếu username có vẻ đã được mã hóa
-                // Đây là mục đích kiểm tra nhanh, không phải phân tích chính xác
-                const isUsernameLikelyEncrypted = username && username.length > 20 && username.includes('=') && !username.includes(' ');
-                if (isUsernameLikelyEncrypted) {
-                    console.warn("Username có vẻ đã được mã hóa, điều này có thể dẫn đến lỗi: ", username.substring(0, 10) + "...");
-                }
-
-                // Hiển thị thông báo đang quét
-                const scanBtn = $(appIdsSelector).closest(".mb-3").find("#btnScanSteamAccount, #btnScanEditSteamAccount");
-                const originalHtml = scanBtn.html();
-                scanBtn.html('<i class="bi bi-hourglass-split"></i> Đang quét game...');
-                scanBtn.prop('disabled', true);
-
-                // Thêm lớp overlay cho form
-                const formCard = $(usernameSelector).closest(".card");
-                formCard.append('<div class="position-absolute top-0 start-0 w-100 h-100 bg-dark bg-opacity-25 d-flex justify-content-center align-items-center scan-overlay"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div><div class="ms-2 text-white">Đang quét danh sách game từ Steam...</div></div>');
-                
-                // Thực hiện quét danh sách game
-                $.ajax({
-                    url: "?handler=ScanAccountGames",
-                    type: "POST",
-                    data: { 
-                        username: username,
-                        password: password,
-                        accountId: accountId
-                    },
-                    headers: {
-                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
-                    },
-                    success: function (response) {
-                        // Xóa overlay
-                        formCard.find(".scan-overlay").remove();
-                        scanBtn.html(originalHtml);
-                        scanBtn.prop('disabled', false);
-
-                        if (response.success) {
-                            // Cập nhật AppIds và GameNames
-                            $(appIdsSelector).val(response.appIds);
-                            
-                            // Cập nhật tên game nếu có
-                            if (gameNamesSelector) {
-                                $(gameNamesSelector).val(response.gameNames);
-                            }
-
-                            // Hiển thị thông tin game đã quét được
-                            let resultHtml = '<div class="mt-3 mb-2 p-2 border rounded bg-light">';
-                            resultHtml += `<div class="d-flex justify-content-between align-items-center mb-2">
-                                <strong>Đã tìm thấy ${response.count} game:</strong>
-                                <span class="text-success"><i class="bi bi-check-circle-fill"></i> Đã tự động điền AppIDs</span>
-                            </div>`;
-                            resultHtml += '<div style="max-height: 200px; overflow-y: auto;">';
-                            
-                            response.results.forEach(function(result) {
-                                resultHtml += `<span class="badge bg-success me-1 mb-1">${result.appId}: ${result.gameName}</span>`;
-                            });
-                            
-                            resultHtml += '</div></div>';
-                            
-                            // Thêm hoặc cập nhật kết quả
-                            const resultElementId = `${appIdsSelector.replace('#', '')}-account-result`;
-                            if ($(`#${resultElementId}`).length) {
-                                $(`#${resultElementId}`).html(resultHtml);
-                            } else {
-                                $(appIdsSelector).parent().after(`<div id="${resultElementId}" class="scan-result">${resultHtml}</div>`);
-                            }
-
-                            if (response.message) {
-                                toastr.info(response.message, "Thông báo", {
-                                    "timeOut": "8000"
-                                });
-                            } else {
-                                toastr.success(`Đã quét thành công ${response.count} game từ tài khoản và tự động điền vào AppIDs`, "Thành công", {
-                                    "timeOut": "30000",
-                                    "positionClass": "toast-top-center"
-                                });
-                            }
-                        } else {
-                            let errorMsg = response.message || "Có lỗi xảy ra khi quét tài khoản";
-                            if (errorMsg.includes("timeout") || errorMsg.includes("timed out")) {
-                                errorMsg += ". Đây là hiện tượng bình thường khi tài khoản có nhiều game, hãy thử quét lại.";
-                                toastr.error(errorMsg, "Lỗi timeout", {
-                                    "closeButton": true,
-                                    "timeOut": "30000",
-                                    "extendedTimeOut": "10000",
-                                    "positionClass": "toast-top-center"
-                                });
-                            } else {
-                                toastr.error(errorMsg);
-                            }
-                        }
-                    },
-                    error: function (xhr) {
-                        // Xóa overlay
-                        formCard.find(".scan-overlay").remove();
-                        scanBtn.html(originalHtml);
-                        scanBtn.prop('disabled', false);
-                        
-                        let errorMsg = xhr.responseJSON?.message || "Có lỗi xảy ra khi gửi yêu cầu quét tài khoản";
-                        if (errorMsg.includes("timeout") || errorMsg.includes("timed out")) {
-                            errorMsg += ". Đây là hiện tượng bình thường khi tài khoản có nhiều game, hãy thử quét lại.";
-                            toastr.error(errorMsg, "Lỗi timeout", {
-                                "closeButton": true,
-                                "timeOut": "15000",
-                                "extendedTimeOut": "7000",
-                                "positionClass": "toast-top-center"
-                            });
-                        } else {
-                            toastr.error(errorMsg);
-                        }
-                    }
-                });
-            }
-
-            // Hàm quét AppID
-            function scanAppIds(appIdsSelector, gameNamesSelector = null) {
-                const appIds = $(appIdsSelector).val();
-                
-                if (!appIds) {
-                    toastr.warning("Vui lòng nhập AppID trước khi quét", "Cảnh báo", {
-                        "timeOut": "8000"
-                    });
-                    return;
-                }
-
-                // Hiển thị thông báo đang quét
-                const scanBtn = $(appIdsSelector).siblings("button");
-                const originalHtml = scanBtn.html();
-                scanBtn.html('<i class="bi bi-hourglass-split"></i> Đang quét...');
-                scanBtn.prop('disabled', true);
-
-                $.ajax({
-                    url: "?handler=ScanAppIds",
-                    type: "POST",
-                    data: { appIds: appIds },
-                    headers: {
-                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
-                    },
-                    success: function (response) {
-                        scanBtn.html(originalHtml);
-                        scanBtn.prop('disabled', false);
-
-                        if (response.success) {
-                            // Cập nhật AppIds đã được làm sạch
-                            $(appIdsSelector).val(response.appIds);
-                            
-                            // Cập nhật tên game nếu có
-                            if (gameNamesSelector) {
-                                $(gameNamesSelector).val(response.gameNames);
-                            }
-
-                            // Hiển thị thông tin game đã quét được
-                            let resultHtml = '<div class="mt-2">';
-                            response.results.forEach(function(result) {
-                                resultHtml += `<span class="badge bg-success me-1 mb-1">${result.appId}: ${result.gameName}</span>`;
-                            });
-                            resultHtml += '</div>';
-                            
-                            // Thêm hoặc cập nhật kết quả
-                            const resultElementId = `${appIdsSelector.replace('#', '')}-result`;
-                            if ($(`#${resultElementId}`).length) {
-                                $(`#${resultElementId}`).html(resultHtml);
-                            } else {
-                                $(appIdsSelector).parent().after(`<div id="${resultElementId}" class="scan-result">${resultHtml}</div>`);
-                            }
-
-                            toastr.success(`Đã quét thành công ${response.results.length} AppID`, "Thành công", {
-                                "timeOut": "30000",
-                                "positionClass": "toast-top-center"
-                            });
-                        } else {
-                            toastr.error(response.message || "Có lỗi xảy ra khi quét AppID", "Lỗi", {
-                                "timeOut": "8000"
-                            });
-                        }
-                    },
-                    error: function () {
-                        scanBtn.html(originalHtml);
-                        scanBtn.prop('disabled', false);
-                        toastr.error("Có lỗi xảy ra khi gửi yêu cầu quét", "Lỗi", {
-                            "timeOut": "30000"
-                        });
-                    }
-                });
-            }
         });
 
         // Hàm sửa tài khoản
-        function editAccount(id) {
+            window.editAccount = function(id, event) {
+                // Ngăn chặn hành vi mặc định của trình duyệt
+                if (event) {
+                    event.preventDefault();
+                }
+                
             $.ajax({
                 url: `?handler=GetAccount&id=${id}`,
                 type: "GET",
@@ -739,6 +832,19 @@
                         $("#editPassword").val(''); // Để trống password
                         $("#editAppIds").val(account.appIds);
                         $("#editGameNames").val(account.gameNames);
+                            
+                            // Lấy trạng thái hiện tại từ bảng thay vì từ dữ liệu API
+                            const currentAutoScanEnabled = $(`#autoScanToggle_${account.id}`).prop("checked");
+                            console.log(`Trạng thái hiện tại của AutoScanEnabled cho tài khoản ${account.id}: ${currentAutoScanEnabled}`);
+                            
+                            // Sử dụng trạng thái từ UI để đảm bảo tính nhất quán
+                            $("#editAutoScanEnabled").val(currentAutoScanEnabled ? "true" : "false");
+                            
+                            // Lấy khoảng thời gian từ data-interval của nút cài đặt
+                            const currentInterval = $(`.btn-set-interval[data-account-id="${account.id}"]`).data("interval") || 6;
+                            $("#editScanIntervalHours").val(currentInterval);
+                            
+                            console.log(`Đang chỉnh sửa tài khoản ${account.id} - AutoScanEnabled: ${currentAutoScanEnabled}, Interval: ${currentInterval}`);
                         
                         // Xóa kết quả scan cũ nếu có
                         $("#editAppIds-result, #editAppIds-account-result").remove();
@@ -760,55 +866,166 @@
                     });
                 }
             });
-        }
-
-        // Hàm xóa tài khoản
-        function deleteAccount(id, profileName) {
-            if (confirm(`Bạn có chắc chắn muốn xóa tài khoản "${profileName}" không?`)) {
+                
+                // Trả về false để ngăn chặn hành vi mặc định
+                return false;
+            }
+            
+            // Lưu tài khoản mới
+            $("#btnSaveAccount").click(function(event) {
+                // Ngăn chặn hành vi mặc định của sự kiện click
+                event.preventDefault();
+                
+                // Kiểm tra dữ liệu
+                var isValid = true;
+                if (!$("#profileName").val().trim()) {
+                    $("#profileName").addClass("is-invalid");
+                    isValid = false;
+                } else {
+                    $("#profileName").removeClass("is-invalid");
+                }
+                
+                if (!$("#username").val().trim()) {
+                    $("#username").addClass("is-invalid");
+                    isValid = false;
+                } else {
+                    $("#username").removeClass("is-invalid");
+                }
+                
+                if (!$("#password").val().trim()) {
+                    $("#password").addClass("is-invalid");
+                    isValid = false;
+                } else {
+                    $("#password").removeClass("is-invalid");
+                }
+                
+                if (!isValid) {
+                    toastr.error("Vui lòng điền đầy đủ thông tin bắt buộc", "Lỗi");
+                    return;
+                }
+                
+                // Hiển thị loading
+                $(this).prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang lưu...');
+                
+                // Gửi dữ liệu
                 $.ajax({
-                    url: "?handler=DeleteAccount",
+                    url: "?handler=AddAccount",
                     type: "POST",
-                    data: { id: id },
+                    data: $("#addAccountForm").serialize(),
                     headers: {
                         "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
                     },
-                    success: function (response) {
+                    success: function(response) {
+                        $("#btnSaveAccount").prop("disabled", false).html('Lưu');
+                        
                         if (response.success) {
-                            toastr.success("Đã xóa tài khoản thành công", "Thành công", {
-                                "timeOut": "60000",
-                                "positionClass": "toast-top-center",
-                                "extendedTimeOut": "15000"
-                            });
+                            toastr.success("Đã thêm tài khoản thành công!", "Thành công");
                             
-                            // Hiển thị đếm ngược tự động tải lại
-                            let countdownTimeDelete = 60;
-                            let countdownElemDelete = $('<div class="alert alert-success mt-2 text-center">Đã xóa tài khoản thành công! Trang sẽ tự động tải lại sau <span id="countdown-delete">60</span> giây</div>');
-                            $(".card-body:first").prepend(countdownElemDelete);
-                            
-                            let countdownIntervalDelete = setInterval(function() {
-                                countdownTimeDelete--;
-                                $("#countdown-delete").text(countdownTimeDelete);
-                                if (countdownTimeDelete <= 0) {
-                                    clearInterval(countdownIntervalDelete);
-                                }
-                            }, 1000);
-                            
-                            setTimeout(function () {
+                            // Ẩn form và tải lại trang
+                            $("#formAddAccount").slideUp();
+                            setTimeout(function() {
                                 window.location.reload();
-                            }, 60000);
+                            }, 1000);
                         } else {
-                            toastr.error(response.message || "Có lỗi xảy ra khi xóa tài khoản", "Lỗi", {
-                                "timeOut": "30000"
-                            });
+                            toastr.error(response.message || "Có lỗi xảy ra khi thêm tài khoản", "Lỗi");
                         }
                     },
-                    error: function () {
-                        toastr.error("Có lỗi xảy ra khi gửi yêu cầu", "Lỗi", {
-                            "timeOut": "30000"
-                        });
+                    error: function() {
+                        $("#btnSaveAccount").prop("disabled", false).html('Lưu');
+                        toastr.error("Không thể thêm tài khoản. Vui lòng thử lại sau.", "Lỗi");
                     }
                 });
-            }
-        }
+                            });
+                            
+            // Cập nhật tài khoản
+            $("#btnUpdateAccount").click(function(event) {
+                // Ngăn chặn hành vi mặc định của sự kiện click
+                event.preventDefault();
+                
+                // Kiểm tra dữ liệu
+                var isValid = true;
+                if (!$("#editProfileName").val().trim()) {
+                    $("#editProfileName").addClass("is-invalid");
+                    isValid = false;
+                } else {
+                    $("#editProfileName").removeClass("is-invalid");
+                }
+                
+                if (!isValid) {
+                    toastr.error("Vui lòng điền tên profile", "Lỗi");
+                    return;
+                }
+                
+                // Hiển thị loading
+                $(this).prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang cập nhật...');
+                
+                // Tạo đối tượng dữ liệu để gửi đi
+                const autoScanEnabled = $("#editAutoScanEnabled").val() === "true";
+                const scanIntervalHours = parseInt($("#editScanIntervalHours").val()) || 6;
+                
+                var accountData = {
+                    Account: {
+                        Id: parseInt($("#editId").val()),
+                        ProfileName: $("#editProfileName").val(),
+                        Username: $("#editUsername").val(),
+                        Password: $("#editPassword").val(),
+                        AppIds: $("#editAppIds").val(),
+                        GameNames: $("#editGameNames").val(),
+                        AutoScanEnabled: autoScanEnabled,
+                        ScanIntervalHours: scanIntervalHours
+                    }
+                };
+                
+                // Ghi log dữ liệu để debug
+                console.log("Sending account data:", JSON.stringify(accountData));
+                
+                // Gửi dữ liệu với Content-Type application/json
+                $.ajax({
+                    url: "?handler=UpdateAccount",
+                    type: "POST",
+                    contentType: "application/json",
+                    data: JSON.stringify(accountData),
+                    headers: {
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function(response) {
+                        $("#btnUpdateAccount").prop("disabled", false).html('Cập nhật');
+                        
+                        if (response.success) {
+                            toastr.success("Đã cập nhật tài khoản thành công!", "Thành công");
+                            
+                            // Ẩn form và tải lại trang
+                            $("#formEditAccount").slideUp();
+                            setTimeout(function() {
+                                window.location.reload();
+                            }, 1000);
+                        } else {
+                            toastr.error(response.message || "Có lỗi xảy ra khi cập nhật tài khoản", "Lỗi");
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        $("#btnUpdateAccount").prop("disabled", false).html('Cập nhật');
+                        console.error("AJAX Error:", status, error);
+                        if (xhr.responseJSON && xhr.responseJSON.message) {
+                            toastr.error(xhr.responseJSON.message, "Lỗi");
+                        } else {
+                            toastr.error("Không thể cập nhật tài khoản. Vui lòng thử lại sau.", "Lỗi");
+                        }
+                    }
+                });
+            });
+            
+            // Thêm nút quét tất cả tài khoản
+            const scanAllButton = $('<button class="btn btn-warning me-2 mb-3"><i class="bi bi-search"></i> Quét tất cả tài khoản</button>');
+            $("#btnAddAccount").before(scanAllButton);
+            
+            // Gắn sự kiện cho nút quét tất cả
+            scanAllButton.click(function(event) {
+                // Ngăn chặn hành vi mặc định của sự kiện click
+                event.preventDefault();
+                
+                scanAllAccounts();
+            });
+        });
     </script>
 }

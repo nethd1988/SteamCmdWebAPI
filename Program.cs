@@ -149,6 +149,9 @@ namespace SteamCmdWebAPI
 
             // Đăng ký dịch vụ mã hóa tài khoản khi khởi động
             builder.Services.AddHostedService<AccountEncryptionService>();
+            
+            // Đăng ký dịch vụ quét tự động tài khoản Steam
+            builder.Services.AddHostedService<AutoScanBackgroundService>();
 
             // Đăng ký model mới
             builder.Services.Configure<Models.UpdateCheckSettings>(builder.Configuration.GetSection("UpdateCheckSettings"));
