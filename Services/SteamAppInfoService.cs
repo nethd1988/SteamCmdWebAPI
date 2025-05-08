@@ -1179,8 +1179,20 @@ namespace SteamCmdWebAPI.Services
             return results;
         }
 
+        public void ClearCache()
+        {
+            _logger.LogInformation("Đang xóa cache thông tin ứng dụng Steam...");
+            _appInfoCache.Clear();
+            _licenses.Clear();
+            _ownedAppIds.Clear();
+            _logger.LogInformation("Đã xóa sạch cache thông tin ứng dụng Steam");
+        }
+
         public async Task<List<(string AppId, string GameName)>> ScanAccountGames(string username, string password)
         {
+            // Xóa cache trước khi bắt đầu quét
+            ClearCache();
+            
             // Đơn giản hóa - gọi thẳng đến hàm xử lý chính
             try
             {
