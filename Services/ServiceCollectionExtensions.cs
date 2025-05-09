@@ -41,7 +41,12 @@ namespace SteamCmdWebAPI.Services
             services.AddSingleton<ServerSettingsService>();
             services.AddSingleton<LogFileReader>();
             services.AddSingleton<SteamApiService>();
-            services.AddSingleton<LogService>();
+            // Cập nhật LogService với các phụ thuộc mới
+            services.AddSingleton<LogService>(sp => new LogService(
+                sp.GetRequiredService<ILogger<LogService>>(),
+                sp.GetRequiredService<ProfileService>(),
+                sp.GetRequiredService<EncryptionService>()
+            ));
             services.AddSingleton<DependencyManagerService>();
 
             // Đảm bảo QueueService được đăng ký TRƯỚC SteamCmdService
@@ -59,7 +64,8 @@ namespace SteamCmdWebAPI.Services
                 sp.GetRequiredService<DependencyManagerService>(),
                 sp.GetRequiredService<LogService>(),
                 sp.GetRequiredService<LicenseService>(),
-                sp // Truyền IServiceProvider
+                sp, // Truyền IServiceProvider
+                sp.GetRequiredService<SteamAccountService>() // Thêm SteamAccountService
             ));
 
             services.AddSingleton<TcpClientService>();
@@ -99,7 +105,11 @@ namespace SteamCmdWebAPI.Services
             });
 
             // Đăng ký các dịch vụ mới, nếu cần
-            services.AddSingleton<LogService>();
+            services.AddSingleton<LogService>(sp => new LogService(
+                sp.GetRequiredService<ILogger<LogService>>(),
+                sp.GetRequiredService<ProfileService>(),
+                sp.GetRequiredService<EncryptionService>()
+            ));
             services.AddSingleton<UpdateCheckService>();
 
             // Đảm bảo sử dụng đúng UpdateCheckSettings từ Models namespace

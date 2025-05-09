@@ -533,11 +533,17 @@
                     "positionClass": "toast-top-center"
                 });
                 
+                // Lấy giá trị của checkbox Thay thế ID cũ
+                const replaceExistingIds = $("#replaceExistingAppIds").is(":checked");
+                
                 // Thực hiện quét
                 $.ajax({
                     url: "?handler=ScanNow",
                     type: "POST",
-                    data: { accountId: accountId },
+                    data: { 
+                        accountId: accountId,
+                        replaceExistingIds: replaceExistingIds
+                    },
                     headers: {
                         "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
                     },

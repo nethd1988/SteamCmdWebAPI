@@ -416,6 +416,125 @@ namespace SteamCmdWebAPI.Services
                                             success = true;
                                             currentItem.Error = null;
                                         }
+                                        else 
+                                        {
+                                            // Phân tích loại lỗi và quyết định thử lại nếu cần
+                                            var errorLogs = logService.GetRecentLogs(100)
+                                                .Where(log => (log.Level.Equals("ERROR", StringComparison.OrdinalIgnoreCase) || 
+                                                              log.Status.Equals("Error", StringComparison.OrdinalIgnoreCase)) &&
+                                                              (log.Message.Contains(currentItem.AppId) || 
+                                                               log.Message.Contains("Invalid Password") ||
+                                                               log.Message.Contains("No subscription") ||
+                                                               log.Message.Contains("Error! App") ||
+                                                               log.Message.Contains("state is 0x") ||
+                                                               log.Message.Contains("Rate Limit Exceeded") ||
+                                                               log.Message.Contains("Sai tên đăng nhập")))
+                                                .Take(10)
+                                                .ToList();
+                                                
+                                            bool shouldRetry = false;
+                                            bool shouldUseAltAccount = false;
+                                            bool shouldValidate = false;
+                                            string errorReason = "Lỗi không xác định";
+                                            
+                                            // Phân tích loại lỗi
+                                            foreach (var log in errorLogs)
+                                            {
+                                                string message = log.Message;
+                                                
+                                                // Phát hiện lỗi đăng nhập
+                                                if (message.Contains("Invalid Password") || 
+                                                    message.Contains("Sai tên đăng nhập") || 
+                                                    message.Contains("Rate Limit Exceeded"))
+                                                {
+                                                    shouldRetry = true;
+                                                    shouldUseAltAccount = true;
+                                                    errorReason = "Lỗi đăng nhập Steam";
+                                                    break;
+                                                }
+                                                
+                                                // Phát hiện lỗi No subscription
+                                                if (message.Contains("No subscription") || message.Contains("không có quyền truy cập"))
+                                                {
+                                                    shouldRetry = true;
+                                                    shouldUseAltAccount = true;
+                                                    errorReason = "Tài khoản không có quyền truy cập ứng dụng";
+                                                    break;
+                                                }
+                                                
+                                                // Phát hiện lỗi state 0x606 hoặc tương tự
+                                                if (message.Contains("state is 0x") || 
+                                                    message.Contains("Error! App") && message.Contains("state"))
+                                                {
+                                                    shouldRetry = true;
+                                                    shouldValidate = true;
+                                                    errorReason = "Lỗi trạng thái cập nhật, cần validate";
+                                                    break;
+                                                }
+                                            }
+                                            
+                                            // Quyết định thử lại
+                                            if (shouldRetry && currentItem.RetryCount < 3)
+                                            {
+                                                currentItem.RetryCount++;
+                                                currentItem.LastRetryTime = DateTime.Now;
+                                                currentItem.Status = "Đang chờ";
+                                                currentItem.Error = $"{errorReason}. Đang thử lại lần {currentItem.RetryCount}/3";
+                                                currentItem.ProcessingStatus = "Đang chuẩn bị thử lại";
+                                                
+                                                // Ghi log
+                                                _logger.LogInformation(
+                                                    "Lên lịch thử lại cho {0} (AppID: {1}). Lần thử: {2}/3. Lý do: {3}. UseAltAccount: {4}, Validate: {5}", 
+                                                    currentItem.AppName, currentItem.AppId, currentItem.RetryCount, errorReason, 
+                                                    shouldUseAltAccount, shouldValidate);
+                                                
+                                                await _hubContext.Clients.All.SendAsync("ReceiveLog", 
+                                                    $"Lên lịch thử lại cho {currentItem.AppName} (AppID: {currentItem.AppId}). Lý do: {errorReason}");
+                                                
+                                                // Thông báo cho SteamCmdService về việc cần thử lại với validate hoặc tài khoản khác
+                                                if (shouldUseAltAccount || shouldValidate)
+                                                {
+                                                    using (var retryScope = _serviceProvider.CreateScope())
+                                                    {
+                                                        var steamCmdSvc = retryScope.ServiceProvider.GetRequiredService<SteamCmdService>();
+                                                        
+                                                        if (shouldValidate)
+                                                        {
+                                                            await _hubContext.Clients.All.SendAsync("ReceiveLog", 
+                                                                $"Thử lại với validate=true cho {currentItem.AppName} (AppID: {currentItem.AppId})");
+                                                                
+                                                            // Đánh dấu appId với tiền tố validate: để thử lại với validate=true
+                                                            steamCmdSvc.AddAppToRetryList($"validate:{currentItem.AppId}", currentItem.ProfileId);
+                                                        }
+                                                        else if (shouldUseAltAccount)
+                                                        {
+                                                            await _hubContext.Clients.All.SendAsync("ReceiveLog", 
+                                                                $"Thử lại với tài khoản khác cho {currentItem.AppName} (AppID: {currentItem.AppId})");
+                                                                
+                                                            // Đánh dấu appId để thử lại với tài khoản khác
+                                                            steamCmdSvc.AddAppToRetryList(currentItem.AppId, currentItem.ProfileId);
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                lock (_queueLock)
+                                                {
+                                                    // Đưa lại vào hàng đợi chờ với order cao hơn để ưu tiên thấp hơn các mục mới
+                                                    currentItem.Order = GetNextOrder() + 100;
+                                                    SaveQueueToFile();
+                                                }
+                                                
+                                                // Skip updating queue history since we're retrying
+                                                continue;
+                                            }
+                                            else if (currentItem.RetryCount >= 3)
+                                            {
+                                                // Đã thử lại quá nhiều lần
+                                                currentItem.Error = $"{errorReason}. Đã thử lại {currentItem.RetryCount} lần nhưng không thành công.";
+                                                _logger.LogWarning("Đã thử lại {0} lần cho {1} (AppID: {2}) nhưng vẫn thất bại. Lý do: {3}", 
+                                                    currentItem.RetryCount, currentItem.AppName, currentItem.AppId, errorReason);
+                                            }
+                                        }
                                     }
                                 }
                             }

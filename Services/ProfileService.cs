@@ -412,6 +412,75 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        public async Task<List<SteamAccount>> GetAvailableSteamAccountsForAppIdAsync(string appId)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(appId))
+                {
+                    _logger.LogWarning("GetAvailableSteamAccountsForAppIdAsync: AppID trống");
+                    return new List<SteamAccount>();
+                }
+
+                // Lấy dịch vụ tài khoản
+                SteamAccountService steamAccountService = null;
+                try
+                {
+                    steamAccountService = _serviceProvider.GetRequiredService<SteamAccountService>();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "GetAvailableSteamAccountsForAppIdAsync: Lỗi khi lấy SteamAccountService");
+                    return new List<SteamAccount>();
+                }
+
+                if (steamAccountService == null)
+                {
+                    _logger.LogError("GetAvailableSteamAccountsForAppIdAsync: SteamAccountService không khả dụng");
+                    return new List<SteamAccount>();
+                }
+
+                // Lấy tất cả tài khoản
+                var allAccounts = await steamAccountService.GetAllAccountsAsync();
+                
+                // Lọc ra các tài khoản có trạng thái bình thường và chứa AppID này
+                var matchingAccounts = allAccounts
+                    .Where(account => 
+                        // Kiểm tra AppIds có chứa appId cần tìm
+                        !string.IsNullOrEmpty(account.AppIds) && 
+                        account.AppIds.Split(',')
+                            .Select(id => id.Trim())
+                            .Any(id => id == appId))
+                    // Sắp xếp theo ID tăng dần để luôn duyệt theo thứ tự cố định
+                    .OrderBy(a => a.Id)
+                    .ToList();
+                
+                if (matchingAccounts.Count == 0)
+                {
+                    _logger.LogWarning("GetAvailableSteamAccountsForAppIdAsync: Không tìm thấy tài khoản Steam nào cho AppID {AppId}", appId);
+                }
+                else
+                {
+                    _logger.LogInformation("GetAvailableSteamAccountsForAppIdAsync: Tìm thấy {Count} tài khoản Steam cho AppID {AppId}", 
+                        matchingAccounts.Count, appId);
+                }
+                
+                return matchingAccounts;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi tìm tài khoản Steam cho AppID {AppId}", appId);
+                return new List<SteamAccount>();
+            }
+        }
+
+        // Giữ lại phương thức cũ để tránh lỗi biên dịch với các phần code khác có thể đang sử dụng
+        [Obsolete("Sử dụng GetAvailableSteamAccountsForAppIdAsync thay thế")]
+        public async Task<List<SteamAccount>> GetAvailableSteamAccountsForAppId(string appId)
+        {
+            return await GetAvailableSteamAccountsForAppIdAsync(appId);
+        }
+
         public async Task<AutoRunSettings> LoadAutoRunSettings()
         {
             try

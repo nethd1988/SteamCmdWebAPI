@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using System.Linq;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace SteamCmdWebAPI.Services
 {
@@ -19,6 +20,11 @@ namespace SteamCmdWebAPI.Services
         private readonly object _lockObject = new object();
         private readonly List<LogEntry> _logs = new List<LogEntry>();
         private const int MaxLogEntries = 5000;
+        private static ConcurrentDictionary<string, (int profileId, DateTime timeAdded, HashSet<string> failedAccounts)> _appsToRetryWithValidate;
+        
+        // Thêm dịch vụ cần thiết
+        private readonly ProfileService _profileService;
+        private readonly EncryptionService _encryptionService;
 
         public class LogEntry
         {
@@ -35,9 +41,11 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        public LogService(ILogger<LogService> logger)
+        public LogService(ILogger<LogService> logger, ProfileService profileService, EncryptionService encryptionService)
         {
             _logger = logger;
+            _profileService = profileService;
+            _encryptionService = encryptionService;
             _logDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
             _currentLogFile = Path.Combine(_logDirectory, $"app_{DateTime.Now:yyyy-MM-dd}.log");
             _logQueue = new ConcurrentQueue<LogEntry>();
@@ -202,6 +210,18 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
+        public List<LogEntry> GetRecentLogs(string profileName, int count)
+        {
+            lock (_lockObject)
+            {
+                return _logs
+                    .Where(l => l.ProfileName.Equals(profileName, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(l => l.Timestamp)
+                    .Take(count)
+                    .ToList();
+            }
+        }
+
         public int GetTotalLogsCount()
         {
             lock (_lockObject)
@@ -335,7 +355,25 @@ namespace SteamCmdWebAPI.Services
                 // Lấy 100 log gần nhất để kiểm tra
                 var recentLogs = _logs.OrderByDescending(l => l.Timestamp).Take(100).ToList();
                 
-                // Tìm log có chứa AppID và có Level tương ứng
+                // Trước tiên, kiểm tra xem có lỗi "No subscription" hoặc "Invalid Password" liên quan đến AppID này không
+                bool hasLoginOrSubscriptionError = recentLogs.Any(log => 
+                    (log.Level.Equals("ERROR", StringComparison.OrdinalIgnoreCase) ||
+                     log.Status.Equals("Error", StringComparison.OrdinalIgnoreCase)) &&
+                    (log.Message.Contains("No subscription") || 
+                     log.Message.Contains("Invalid Password") ||
+                     log.Message.Contains("Sai mật khẩu") ||
+                     log.Message.Contains("không có quyền truy cập")) &&
+                    (log.Message.Contains(appId) ||
+                     log.Message.Contains($"AppID: {appId}"))
+                );
+                
+                // Nếu có lỗi đăng nhập hoặc subscription, luôn trả về false
+                if (hasLoginOrSubscriptionError)
+                {
+                    return Task.FromResult(false);
+                }
+                
+                // Tìm log thành công liên quan đến AppID
                 return Task.FromResult(recentLogs.Any(log => 
                     (log.Level.Equals(level, StringComparison.OrdinalIgnoreCase) ||
                      log.Status.Equals(level, StringComparison.OrdinalIgnoreCase)) &&
@@ -344,6 +382,80 @@ namespace SteamCmdWebAPI.Services
                      log.Message.Contains($"fully installed") && log.Message.Contains(appId) ||
                      log.Message.Contains($"already up to date") && log.Message.Contains(appId))
                 ));
+            }
+        }
+        
+        // Phương thức kiểm tra xem có lỗi nào chứa từ khóa cụ thể liên quan đến AppID không
+        public Task<bool> HasErrorWithKeywordsAsync(string appId, string errorKeyword)
+        {
+            if (string.IsNullOrEmpty(appId) || string.IsNullOrEmpty(errorKeyword))
+                return Task.FromResult(false);
+                
+            lock (_lockObject)
+            {
+                // Lấy 100 log gần nhất để kiểm tra (thời gian giảm dần)
+                var recentLogs = _logs.OrderByDescending(l => l.Timestamp).Take(100).ToList();
+                
+                // Kiểm tra xem có log lỗi nào chứa từ khóa cần tìm và liên quan đến AppID cụ thể không
+                return Task.FromResult(recentLogs.Any(log => 
+                    // Kiểm tra level hoặc status là ERROR/Error
+                    (log.Level.Equals("ERROR", StringComparison.OrdinalIgnoreCase) ||
+                     log.Status.Equals("Error", StringComparison.OrdinalIgnoreCase)) &&
+                    
+                    // Kiểm tra message chứa từ khóa lỗi
+                    log.Message.Contains(errorKeyword, StringComparison.OrdinalIgnoreCase) &&
+                    
+                    // Liên quan đến AppID cụ thể
+                    (log.Message.Contains(appId) ||
+                     log.Message.Contains($"AppID: {appId}") ||
+                     log.Message.Contains($"App '{appId}'"))
+                ));
+            }
+        }
+
+        public void AddAppToRetryList(string appId, int profileId, string failedAccount = null)
+        {
+            try
+            {
+                _logger.LogInformation("AddAppToRetryList được gọi với AppId: {AppId}, ProfileId: {ProfileId}, FailedAccount: {Account}", 
+                    appId, profileId, failedAccount ?? "null");
+                
+                if (_appsToRetryWithValidate == null)
+                {
+                    _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded, HashSet<string> failedAccounts)>();
+                }
+                
+                if (_appsToRetryWithValidate.TryGetValue(appId, out var existingValue))
+                {
+                    var (existingProfileId, existingTimeAdded, failedAccounts) = existingValue;
+                    
+                    // Thêm tài khoản thất bại nếu được chỉ định
+                    if (!string.IsNullOrEmpty(failedAccount) && !failedAccounts.Contains(failedAccount))
+                    {
+                        failedAccounts.Add(failedAccount);
+                        _logger.LogInformation("Đã thêm tài khoản {Account} vào danh sách thất bại cho App {AppId}", 
+                            failedAccount, appId);
+                    }
+                    
+                    _appsToRetryWithValidate[appId] = (profileId, DateTime.Now, failedAccounts);
+                }
+                else
+                {
+                    var failedAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    if (!string.IsNullOrEmpty(failedAccount))
+                    {
+                        failedAccounts.Add(failedAccount);
+                    }
+                    
+                    _appsToRetryWithValidate[appId] = (profileId, DateTime.Now, failedAccounts);
+                }
+                
+                _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry cho Profile {ProfileId}, số tài khoản đã thất bại: {Count}", 
+                    appId, profileId, _appsToRetryWithValidate[appId].failedAccounts.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi thêm App {AppId} vào danh sách retry", appId);
             }
         }
     }

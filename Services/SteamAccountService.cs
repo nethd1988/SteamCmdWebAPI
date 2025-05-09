@@ -659,7 +659,6 @@ namespace SteamCmdWebAPI.Services
                             Arguments = string.Empty,
                             ValidateFiles = false,
                             AutoRun = false,
-                            AnonymousLogin = false,
                             Status = "Ready",
                             StartTime = DateTime.Now,
                             StopTime = DateTime.Now,
@@ -933,6 +932,96 @@ namespace SteamCmdWebAPI.Services
             {
                 _logger.LogError(ex, "Lỗi khi mã hóa lại tài khoản: {Message}", ex.Message);
                 throw;
+            }
+        }
+
+        public async Task<List<SteamAccount>> GetAllAvailableAccounts()
+        {
+            try
+            {
+                var accounts = await GetAllAccountsAsync();
+                var availableAccounts = new List<SteamAccount>();
+
+                foreach (var account in accounts)
+                {
+                    try
+                    {
+                        // Tạo bản sao để không ảnh hưởng đến object gốc
+                        var processedAccount = new SteamAccount
+                        {
+                            Id = account.Id,
+                            ProfileName = account.ProfileName,
+                            Username = account.Username,
+                            Password = account.Password,
+                            AppIds = account.AppIds,
+                            GameNames = account.GameNames,
+                            CreatedAt = account.CreatedAt,
+                            UpdatedAt = account.UpdatedAt,
+                            AutoScanEnabled = account.AutoScanEnabled,
+                            LastScanTime = account.LastScanTime,
+                            NextScanTime = account.NextScanTime,
+                            ScanIntervalHours = account.ScanIntervalHours
+                        };
+
+                        // Giải mã username
+                        if (!string.IsNullOrEmpty(processedAccount.Username))
+                        {
+                            try
+                            {
+                                processedAccount.Username = _encryptionService.Decrypt(processedAccount.Username);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning("Không thể giải mã username: {Error}", ex.Message);
+                                // Bỏ qua tài khoản này nếu không giải mã được username
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            // Bỏ qua tài khoản không có username
+                            continue;
+                        }
+
+                        // Giải mã password
+                        if (!string.IsNullOrEmpty(processedAccount.Password))
+                        {
+                            try
+                            {
+                                processedAccount.Password = _encryptionService.Decrypt(processedAccount.Password);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning("Không thể giải mã password: {Error}", ex.Message);
+                                // Bỏ qua tài khoản này nếu không giải mã được password
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            // Bỏ qua tài khoản không có password
+                            continue;
+                        }
+
+                        // Chỉ thêm các tài khoản có đủ thông tin đăng nhập hợp lệ
+                        if (!string.IsNullOrEmpty(processedAccount.Username) && !string.IsNullOrEmpty(processedAccount.Password))
+                        {
+                            availableAccounts.Add(processedAccount);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi xử lý tài khoản {Id}: {Error}", account.Id, ex.Message);
+                    }
+                }
+
+                _logger.LogInformation("Tìm thấy {Count} tài khoản khả dụng", availableAccounts.Count);
+                return availableAccounts;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy danh sách tài khoản khả dụng: {Error}", ex.Message);
+                return new List<SteamAccount>();
             }
         }
     }

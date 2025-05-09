@@ -32,6 +32,7 @@ namespace SteamCmdWebAPI.Services
         private readonly LogService _logService;
         private readonly LicenseService _licenseService;
         private readonly IServiceProvider _serviceProvider;
+        private readonly SteamAccountService _steamAccountService;
 
 
         private const int MaxLogEntries = 5000;
@@ -123,7 +124,8 @@ namespace SteamCmdWebAPI.Services
             DependencyManagerService dependencyManagerService,
             LogService logService,
             LicenseService licenseService,
-            IServiceProvider serviceProvider)
+            IServiceProvider serviceProvider,
+            SteamAccountService steamAccountService)
             
         {
             _logger = logger;
@@ -137,6 +139,19 @@ namespace SteamCmdWebAPI.Services
             _logService = logService;
             _licenseService = licenseService;
             _serviceProvider = serviceProvider;
+            _steamAccountService = steamAccountService;
+
+            // Đảm bảo _appsToRetryWithValidate được khởi tạo
+            if (_appsToRetryWithValidate == null)
+            {
+                _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+            }
+
+            // Khởi tạo Queue Processor
+            StartQueueProcessorIfNotRunning();
+
+            // Thử xử lý các ứng dụng cần validate lại khi khởi động
+            Task.Run(async () => await TryProcessRetryApps());
 
             _logFilePath = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "steamcmd.log");
             var logDir = Path.GetDirectoryName(_logFilePath);
@@ -780,37 +795,76 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<bool> QueueProfileForUpdate(int profileId)
         {
-            if (await IsAlreadyInQueueAsync(profileId, null))
+            if (!await _licenseService.CheckLicenseBeforeOperationAsync())
             {
-                _logger.LogWarning("Profile {ProfileId} đã trong queue, bỏ qua yêu cầu", profileId);
+                _logger.LogError("License không hợp lệ, không thể thực hiện thao tác");
                 return false;
             }
 
-                var profile = await _profileService.GetProfileById(profileId);
-                if (profile == null)
-                {
-                _logger.LogError("Không tìm thấy profile {ProfileId}", profileId);
-                    return false;
-                }
-
-            // Kiểm tra xem có process nào đang chạy cho profile này không
-            if (_steamCmdProcesses.TryGetValue(profileId, out var existingProcess))
+            if (await IsAlreadyInQueueAsync(profileId, null))
             {
-                if (!existingProcess.HasExited)
+                _logger.LogWarning("Profile ID {ProfileId} đã có trong hàng đợi. Bỏ qua.", profileId);
+                return false;
+            }
+
+            _updateQueue.Enqueue(profileId);
+            _logger.LogInformation("Đã thêm profile ID {ProfileId} vào hàng đợi cập nhật. Hiện có {Count} mục.", profileId, _updateQueue.Count);
+
+            // Kiểm tra ngay xem có app cần thử lại không, nếu có thì xử lý
+            if (_appsToRetryWithValidate != null && !_appsToRetryWithValidate.IsEmpty)
+            {
+                Console.WriteLine($"DEBUG: QueueProfileForUpdate thấy có {_appsToRetryWithValidate.Count} app cần thử lại");
+                // Khởi động bộ xử lý retry nếu cần
+                if (!_isProcessingQueue)
                 {
-                    _logger.LogWarning("Profile {ProfileId} đang chạy, không thể thêm vào queue", profileId);
-                    return false;
-                }
-                else
-                {
-                    _steamCmdProcesses.TryRemove(profileId, out _);
+                    Task.Run(TryProcessRetryApps);
                 }
             }
 
-                _updateQueue.Enqueue(profileId);
-            _logger.LogInformation("Đã thêm profile {ProfileId} vào queue", profileId);
-                StartQueueProcessorIfNotRunning();
-                return true;
+            StartQueueProcessorIfNotRunning();
+            return true;
+        }
+        
+        // Thêm phương thức mới để thử xử lý các app cần retry ngay lập tức
+        private async Task TryProcessRetryApps()
+        {
+            try
+            {
+                // Nếu không có license hợp lệ, bỏ qua
+                if (!await _licenseService.CheckLicenseBeforeOperationAsync())
+                {
+                    _logger.LogWarning("TryProcessRetryApps: License không hợp lệ, bỏ qua xử lý retry");
+                    return;
+                }
+                
+                // Nếu đang xử lý hàng đợi chính, đợi cho đến khi hoàn thành
+                if (_isProcessingQueue)
+                {
+                    _logger.LogInformation("TryProcessRetryApps: Đang xử lý hàng đợi chính, đợi trước khi xử lý retry");
+                    await Task.Delay(5000); // Đợi 5 giây
+                    
+                    // Kiểm tra lại xem đã hoàn thành xử lý hàng đợi chưa
+                    if (_isProcessingQueue)
+                    {
+                        _logger.LogInformation("TryProcessRetryApps: Vẫn đang xử lý hàng đợi chính, gạt bỏ xử lý retry");
+                        return;
+                    }
+                }
+                
+                if (_appsToRetryWithValidate != null && !_appsToRetryWithValidate.IsEmpty)
+                {
+                    _logger.LogInformation("TryProcessRetryApps: Bắt đầu xử lý {0} app cần thử lại", _appsToRetryWithValidate.Count);
+                    await ProcessAppsToRetryWithValidateAsync();
+                }
+                else
+                {
+                    _logger.LogInformation("TryProcessRetryApps: Không có app nào cần thử lại");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "TryProcessRetryApps: Lỗi khi thử xử lý retry apps");
+            }
         }
 
         private void StartQueueProcessorIfNotRunning()
@@ -820,12 +874,21 @@ namespace SteamCmdWebAPI.Services
                 if (_queueProcessorTask == null || _queueProcessorTask.IsCompleted)
                 {
                     _logger.LogInformation("Khởi động bộ xử lý hàng đợi...");
+                    Console.WriteLine("DEBUG: Khởi động bộ xử lý hàng đợi mới");
                     _queueProcessorTask = Task.Run(ProcessUpdateQueueAsync);
                 }
                 else
                 {
                     _logger.LogInformation("Bộ xử lý hàng đợi đã đang chạy...");
+                    Console.WriteLine("DEBUG: Bộ xử lý hàng đợi đã đang chạy, không khởi động lại");
                 }
+            }
+            
+            // Kiểm tra xem có app đang đợi retry không
+            if (_appsToRetryWithValidate != null && !_appsToRetryWithValidate.IsEmpty)
+            {
+                Console.WriteLine($"DEBUG: Hiện có {_appsToRetryWithValidate.Count} app đang đợi thử lại");
+                Console.WriteLine($"DEBUG: Danh sách apps: {string.Join(", ", _appsToRetryWithValidate.Keys)}");
             }
         }
 
@@ -876,6 +939,42 @@ namespace SteamCmdWebAPI.Services
                         {
                             _logger.LogWarning("Cập nhật không thành công cho profile '{0}'", profile.Name);
                             await SafeSendLogAsync(profile.Name, "Error", $"Cập nhật không thành công. Kiểm tra log.");
+                            
+                            // Kiểm tra xem đã đánh dấu lỗi đăng nhập chưa
+                            if (_lastRunHadLoginError)
+                            {
+                                _logger.LogWarning("Phát hiện lỗi đăng nhập cho profile '{0}'. Sẽ thử lại với tài khoản khác", profile.Name);
+                                await SafeSendLogAsync(profile.Name, "Warning", "Phát hiện lỗi đăng nhập. Sẽ thử lại với tài khoản khác sau khi hàng đợi hoàn tất.");
+                                
+                                // Kiểm tra lại xem profile có log lỗi đăng nhập hay không
+                                var logs = _logService.GetRecentLogs(50)
+                                    .Where(log => log.ProfileName.Equals(profile.Name, StringComparison.OrdinalIgnoreCase))
+                                    .Take(10)
+                                    .ToList();
+                                foreach (var log in logs)
+                                {
+                                    if (log.Message.Contains("Sai tên đăng nhập") || 
+                                        log.Message.Contains("Lỗi đăng nhập") || 
+                                        log.Message.Contains("ERROR (Rate Limit Exceeded)"))
+                                    {
+                                        Console.WriteLine($"DEBUG: Tìm thấy log lỗi đăng nhập cho profile {profile.Name}: {log.Message}");
+                                        
+                                        // Nếu profile có AppID, thêm vào danh sách retry
+                                        if (!string.IsNullOrEmpty(profile.AppID))
+                                        {
+                                            if (_appsToRetryWithValidate == null)
+                                            {
+                                                _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                                            }
+                                            
+                                            _appsToRetryWithValidate[profile.AppID] = (profileId, DateTime.Now);
+                                            _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry với tài khoản khác (từ log lỗi đăng nhập)", profile.AppID);
+                                            Console.WriteLine($"DEBUG: Đã thêm App {profile.AppID} vào danh sách retry từ logs");
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
                         }
 
                         // Tăng thời gian đợi giữa các profile để tránh xung đột
@@ -894,7 +993,25 @@ namespace SteamCmdWebAPI.Services
                 }
                 
                 // Khi hàng đợi đã xử lý xong, kiểm tra và xử lý các app cần retry với validate
-                await ProcessAppsToRetryWithValidateAsync();
+                _logger.LogInformation("Kiểm tra xem có app nào cần thử lại không: _appsToRetryWithValidate = {0}", 
+                    _appsToRetryWithValidate == null ? "null" : 
+                    (_appsToRetryWithValidate.IsEmpty ? "Empty" : $"Có {_appsToRetryWithValidate.Count} app"));
+                
+                if (_appsToRetryWithValidate != null && !_appsToRetryWithValidate.IsEmpty)
+                {
+                    _logger.LogInformation("Hàng đợi chính đã hoàn thành, bắt đầu xử lý {0} ứng dụng cần thử lại", _appsToRetryWithValidate.Count);
+                    await SafeSendLogAsync("System", "Info", $"Bắt đầu xử lý {_appsToRetryWithValidate.Count} ứng dụng cần thử lại với tài khoản khác hoặc validate");
+                    
+                    // Log danh sách các app cần thử lại
+                    var appList = string.Join(", ", _appsToRetryWithValidate.Keys);
+                    _logger.LogInformation("Danh sách app cần thử lại: {0}", appList);
+                    
+                    await ProcessAppsToRetryWithValidateAsync();
+                }
+                else
+                {
+                    _logger.LogInformation("Hàng đợi đã xử lý xong, không có ứng dụng nào cần thử lại");
+                }
             }
             catch (Exception ex)
             {
@@ -910,75 +1027,163 @@ namespace SteamCmdWebAPI.Services
             }
         }
 
-        // Hàm mới xử lý các app cần retry với validate
+        // Hàm xử lý các app cần retry với validate
         private async Task ProcessAppsToRetryWithValidateAsync()
         {
             if (_appsToRetryWithValidate == null || _appsToRetryWithValidate.IsEmpty)
             {
-                _logger.LogInformation("Không có app nào cần retry với validate");
                 return;
             }
-
-            _logger.LogInformation("Bắt đầu xử lý {Count} app cần retry với validate", _appsToRetryWithValidate.Count);
             
-            // Tạo bản sao để tránh lỗi khi xử lý
-            var appsToRetry = _appsToRetryWithValidate.ToArray();
+            // Đánh dấu đang xử lý hàng đợi, tránh các hàm gọi song song
+            _isProcessingQueue = true;
             
-            foreach (var appEntry in appsToRetry)
+            try
             {
-                string appId = appEntry.Key;
-                (int profileId, DateTime timeAdded) = appEntry.Value;
-                
-                // Chỉ xử lý các app được thêm trong 24 giờ qua
-                if (DateTime.Now - timeAdded > TimeSpan.FromHours(24))
+                foreach (var kvp in _appsToRetryWithValidate.ToArray())
                 {
-                    _logger.LogWarning("App {AppId} đã quá 24 giờ trong danh sách retry, bỏ qua", appId);
-                    _appsToRetryWithValidate.TryRemove(appId, out _);
-                    continue;
-                }
-                
-                _logger.LogInformation("Đang thử lại App {AppId} với tùy chọn validate cho Profile {ProfileId}", appId, profileId);
-                
-                try
-                {
-                    var profile = await _profileService.GetProfileById(profileId);
-                    if (profile == null)
+                    string appIdWithPrefix = kvp.Key;
+                    var (profileId, timeAdded) = kvp.Value;
+                    
+                    bool isValidateRequest = appIdWithPrefix.StartsWith("validate:");
+                    string actualAppId = isValidateRequest ? appIdWithPrefix.Substring(9) : appIdWithPrefix;
+                    
+                    _logger.LogInformation("Đang xử lý app cần thử lại: {AppId}, ProfileId={ProfileId}, Validate={Validate}", 
+                        actualAppId, profileId, isValidateRequest);
+                    
+                    try
                     {
-                        _logger.LogWarning("Không tìm thấy Profile {ProfileId} cho App {AppId}, bỏ qua", profileId, appId);
-                        _appsToRetryWithValidate.TryRemove(appId, out _);
-                        continue;
+                        // Đảm bảo profile tồn tại
+                        var profile = await _profileService.GetProfileById(profileId);
+                        if (profile == null)
+                        {
+                            _logger.LogWarning("Không tìm thấy profile ID {ProfileId} cho app {AppId}, bỏ qua", profileId, actualAppId);
+                            _appsToRetryWithValidate.TryRemove(appIdWithPrefix, out _);
+                            continue;
+                        }
+                        
+                        // Lấy tên tài khoản đã sử dụng gần đây nhất cho profile này
+                        string currentUsername = string.Empty;
+                        try
+                        {
+                            // Đọc log gần đây để tìm tài khoản đã sử dụng
+                            var recentLogs = _logService.GetRecentLogs(50);
+                            foreach (var log in recentLogs.OrderByDescending(l => l.Timestamp))
+                            {
+                                if (log.ProfileName.Equals(profile.Name, StringComparison.OrdinalIgnoreCase) &&
+                                    log.Message.Contains("Đang sử dụng tài khoản"))
+                                {
+                                    // Trích xuất tên tài khoản từ message log
+                                    var usernameMatch = Regex.Match(log.Message, @"Đang sử dụng tài khoản: (.+?)($|\s)");
+                                    if (usernameMatch.Success)
+                                    {
+                                        currentUsername = usernameMatch.Groups[1].Value.Trim();
+                                        _logger.LogInformation("Phát hiện tài khoản đã sử dụng cho profile {0}: {1}", 
+                                            profile.Name, currentUsername);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Lỗi khi tìm tài khoản đã sử dụng: {Error}", ex.Message);
+                        }
+                        
+                        // Tìm tài khoản thay thế
+                        var availableAccounts = await _steamAccountService.GetAllAvailableAccounts();
+                        if (availableAccounts == null || availableAccounts.Count == 0)
+                        {
+                            _logger.LogWarning("Không tìm thấy tài khoản Steam nào cho App {0}", actualAppId);
+                            _appsToRetryWithValidate.TryRemove(appIdWithPrefix, out _);
+                            continue;
+                        }
+                        else
+                        {
+                            _logger.LogInformation("Tìm thấy {0} tài khoản có thể dùng cho App {1}", availableAccounts.Count, actualAppId);
+                            
+                            // Loại bỏ tài khoản hiện tại đã thử không thành công
+                            availableAccounts = availableAccounts
+                                .Where(a => !a.Username.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+                                
+                            if (availableAccounts.Count > 0)
+                            {
+                                // Thử từng tài khoản cho đến khi thành công hoặc hết tài khoản
+                                bool success = false;
+                                foreach (var account in availableAccounts)
+                                {
+                                    _logger.LogInformation("Thử lại với tài khoản {0} cho App {1}, Validate={2}", 
+                                        account.Username, actualAppId, isValidateRequest);
+                                    
+                                    // Ghi log cho biết đang thử với tài khoản mới
+                                    await SafeSendLogAsync(profile.Name, "Info", $"Đang thử lại với tài khoản {account.Username} cho App {actualAppId}");
+                                    
+                                    // Chạy cập nhật SteamCMD với tài khoản mới
+                                    if (await RunSteamCmdUpdateAsync(profile, actualAppId, account, isValidateRequest))
+                                    {
+                                        success = true;
+                                        _logger.LogInformation("Cập nhật thành công với tài khoản thay thế {0} cho App {1}", 
+                                            account.Username, actualAppId);
+                                        await SafeSendLogAsync("System", "Success", 
+                                            $"Đã cập nhật thành công App {actualAppId} với tài khoản {account.Username}");
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        _logger.LogWarning("Thử lại không thành công với tài khoản {0} cho App {1}, tiếp tục thử tài khoản khác", 
+                                            account.Username, actualAppId);
+                                        await SafeSendLogAsync("System", "Warning", 
+                                            $"Thử lại không thành công với tài khoản {account.Username} cho App {actualAppId}");
+                                    }
+                                    
+                                    // Đợi 2 giây trước khi thử tài khoản tiếp theo
+                                    await Task.Delay(2000);
+                                }
+                                
+                                if (success)
+                                {
+                                    // Đánh dấu đã xử lý thành công
+                                    _appsToRetryWithValidate.TryRemove(appIdWithPrefix, out _);
+                                }
+                                else
+                                {
+                                    // Đã thử tất cả tài khoản nhưng không thành công
+                                    _logger.LogError("Đã thử tất cả tài khoản có sẵn nhưng không thành công cho App {0}", actualAppId);
+                                    await SafeSendLogAsync("System", "Error", 
+                                        $"Đã thử tất cả tài khoản có sẵn nhưng không thành công cho App {actualAppId}");
+                                    
+                                    // Vẫn xóa khỏi danh sách retry vì đã thử tất cả các tài khoản
+                                    _appsToRetryWithValidate.TryRemove(appIdWithPrefix, out _);
+                                }
+                            }
+                            else
+                            {
+                                _logger.LogWarning("Không còn tài khoản thay thế sau khi loại bỏ {0}", currentUsername);
+                                await SafeSendLogAsync("System", "Warning", 
+                                    $"Không còn tài khoản thay thế sau khi loại bỏ {currentUsername} cho App {actualAppId}");
+                                
+                                // Xóa khỏi danh sách retry
+                                _appsToRetryWithValidate.TryRemove(appIdWithPrefix, out _);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi xử lý app cần thử lại: {AppId}, Error: {Error}", actualAppId, ex.Message);
+                        
+                        // Xóa khỏi danh sách retry nếu xử lý lỗi
+                        _appsToRetryWithValidate.TryRemove(appIdWithPrefix, out _);
                     }
                     
-                    await SafeSendLogAsync(profile.Name, "Info", $"═══════════════════════════════════════════════════════");
-                    await SafeSendLogAsync(profile.Name, "Info", $"   ĐANG THỬ LẠI App {appId} VỚI TÙY CHỌN VALIDATE    ");
-                    await SafeSendLogAsync(profile.Name, "Info", $"═══════════════════════════════════════════════════════");
-                    
-                    // Thực hiện cập nhật với forceValidate = true
-                    bool success = await ExecuteProfileUpdateAsync(profileId, appId, true);
-                    
-                    if (success)
-                    {
-                        _logger.LogInformation("Đã thử lại thành công App {AppId} với validate", appId);
-                        await SafeSendLogAsync(profile.Name, "Success", $"Đã thử lại thành công App {appId} với tùy chọn validate");
-                        _appsToRetryWithValidate.TryRemove(appId, out _);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Thử lại với validate không thành công cho App {AppId}", appId);
-                        await SafeSendLogAsync(profile.Name, "Warning", $"Thử lại với validate không thành công cho App {appId}");
-                        // Vẫn giữ trong danh sách để có thể thử lại sau
-                    }
+                    // Đợi 1 giây trước khi xử lý app tiếp theo
+                    await Task.Delay(1000);
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Lỗi khi thử lại App {AppId} với validate: {Error}", appId, ex.Message);
-                }
-                
-                // Đợi giữa các lần thử để tránh quá tải
-                await Task.Delay(10000);
             }
-            
-            _logger.LogInformation("Hoàn thành xử lý apps cần retry với validate. Còn lại: {Count} app", _appsToRetryWithValidate.Count);
+            finally
+            {
+                _isProcessingQueue = false;
+            }
         }
 
         public async Task<bool> RunProfileAsync(int id)
@@ -2284,7 +2489,146 @@ namespace SteamCmdWebAPI.Services
                     }
 
                     _logger.LogError("SteamCMD Error ({ProfileName}): {Data}", profile.Name, errorLine);
-                    await SafeSendLogAsync(profile.Name, "Error", $"LỖI SteamCMD: {errorLine}");
+                    
+                    // Phân loại lỗi thành hai nhóm:
+                    // 1. Lỗi liên quan đến tài khoản - cần thay đổi tài khoản
+                    // 2. Lỗi liên quan đến cập nhật - cần validate
+
+                    // Lỗi 1: No subscription - Tài khoản không có quyền truy cập game
+                    if (errorLine.Contains("ERROR! Failed to install app") && errorLine.Contains("No subscription"))
+                    {
+                        hasError = true;
+                        string appIdPattern = @"app '(\d+)'";
+                        Match match = Regex.Match(errorLine, appIdPattern);
+                        string problematicAppId = match.Success ? match.Groups[1].Value : appIdsToUpdate.FirstOrDefault() ?? profile.AppID;
+                        
+                        // Ghi log lỗi cụ thể
+                        string errorMessage = $"Lỗi: Tài khoản không có quyền truy cập vào game (AppID: {problematicAppId}) - No subscription";
+                        await SafeSendLogAsync(profile.Name, "Error", errorMessage);
+                        _logService.AddLog("ERROR", errorMessage, profile.Name, "Error");
+                        
+                        // Đánh dấu để tìm tài khoản khác cho appId này
+                        if (_appsToRetryWithValidate == null)
+                        {
+                            _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                        }
+                        
+                        _appsToRetryWithValidate[problematicAppId] = (profileId, DateTime.Now);
+                        _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry VỚI TÀI KHOẢN KHÁC (No subscription)", problematicAppId);
+                    }
+                    // Lỗi 2: Invalid Password - Sai mật khẩu
+                    else if (errorLine.Contains("ERROR (Invalid Password)"))
+                    {
+                        hasError = true;
+                        _lastRunHadLoginError = true;
+                        
+                        // Ghi log lỗi cụ thể
+                        string errorMessage = $"Lỗi: Sai mật khẩu Steam - Invalid Password";
+                        await SafeSendLogAsync(profile.Name, "Error", errorMessage);
+                        _logService.AddLog("ERROR", errorMessage, profile.Name, "Error");
+                        
+                        // Đánh dấu để tìm tài khoản khác cho tất cả appIds
+                        if (_appsToRetryWithValidate == null)
+                        {
+                            _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                        }
+                        
+                        foreach(var appId in appIdsToUpdate)
+                        {
+                            _appsToRetryWithValidate[appId] = (profileId, DateTime.Now);
+                            _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry VỚI TÀI KHOẢN KHÁC (Invalid Password)", appId);
+                        }
+                    }
+                    // Lỗi 3: Rate Limit Exceeded - Giới hạn đăng nhập
+                    else if (errorLine.Contains("ERROR (Rate Limit Exceeded)"))
+                    {
+                        hasError = true;
+                        _lastRunHadLoginError = true; // Đánh dấu đây là lỗi đăng nhập
+                        
+                        // Ghi log lỗi cụ thể
+                        string errorMessage = $"Lỗi: Tài khoản bị giới hạn đăng nhập - Rate Limit Exceeded";
+                        await SafeSendLogAsync(profile.Name, "Error", errorMessage);
+                        _logService.AddLog("ERROR", errorMessage, profile.Name, "Error");
+                        
+                        Console.WriteLine($"DEBUG: Phát hiện lỗi RATE LIMIT cho profile {profile.Name}");
+                        
+                        // Đánh dấu để tìm tài khoản khác cho tất cả appIds
+                        if (_appsToRetryWithValidate == null)
+                        {
+                            _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                        }
+                        
+                        foreach(var appId in appIdsToUpdate)
+                        {
+                            _appsToRetryWithValidate[appId] = (profileId, DateTime.Now);
+                            _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry VỚI TÀI KHOẢN KHÁC (Rate Limit)", appId);
+                            Console.WriteLine($"DEBUG: Đã thêm App {appId} vào danh sách retry do RATE LIMIT trong RunSteamCmdProcessAsync");
+                        }
+                    }
+                    // Lỗi 4: App state error - Lỗi trạng thái ứng dụng, cần validate
+                    else if (errorLine.Contains("Error! App") && errorLine.Contains("state is 0x") && errorLine.Contains("after update job"))
+                    {
+                        var appStateErrorMatch = Regex.Match(errorLine, @"Error! App '(\d+)' state is (0x[0-9A-Fa-f]+) after update job");
+                        if (appStateErrorMatch.Success)
+                        {
+                            string errorAppId = appStateErrorMatch.Groups[1].Value;
+                            string errorState = appStateErrorMatch.Groups[2].Value;
+                            
+                            hasError = true;
+                            await SafeSendLogAsync(profile.Name, "Error", $"Lỗi cập nhật App {errorAppId} (state: {errorState}). Sẽ thử lại với tùy chọn validate sau khi hàng đợi hoàn tất.");
+                            _logger.LogWarning("Phát hiện lỗi state {ErrorState} cho App {AppId}. Sẽ thêm vào hàng đợi với validate=true", errorState, errorAppId);
+                            
+                            // Thêm AppID và profileId vào danh sách để thử lại sau với validate
+                            try 
+                            {
+                                // Sử dụng static field để lưu trữ danh sách các app cần thử lại
+                                if (_appsToRetryWithValidate == null)
+                                {
+                                    _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                                }
+                                
+                                // Thêm vào danh sách với FLAG là validate (khác với lỗi tài khoản)
+                                // Thêm vào với key có tiền tố "validate:" để phân biệt
+                                _appsToRetryWithValidate["validate:" + errorAppId] = (profileId, DateTime.Now);
+                                _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry với VALIDATE (không thay đổi tài khoản)", errorAppId);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Lỗi khi thêm App {AppId} vào danh sách retry", errorAppId);
+                            }
+                        }
+                    }
+                    // Thêm lỗi 5: Lỗi cơ bản khi login
+                    else if (errorLine.Contains("FAILED with result code") || 
+                             errorLine.Contains("Login Failure:") || 
+                             errorLine.Contains("[Error] [Apex Legends] Lỗi đăng nhập") ||
+                             errorLine.Contains("Sai tên đăng nhập hoặc mật khẩu"))
+                    {
+                        hasError = true;
+                        _lastRunHadLoginError = true;
+                        
+                        // Ghi log lỗi
+                        string errorMessage = $"Lỗi đăng nhập Steam: {errorLine}";
+                        await SafeSendLogAsync(profile.Name, "Error", errorMessage);
+                        Console.WriteLine($"DEBUG: Phát hiện lỗi đăng nhập trong RunSteamCmdProcessAsync: {errorLine}");
+                        
+                        // Đánh dấu để tìm tài khoản khác cho tất cả appIds
+                        if (_appsToRetryWithValidate == null)
+                        {
+                            _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                        }
+                        
+                        foreach(var appId in appIdsToUpdate)
+                        {
+                            _appsToRetryWithValidate[appId] = (profileId, DateTime.Now);
+                            _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry VỚI TÀI KHOẢN KHÁC (Login Failure)", appId);
+                            Console.WriteLine($"DEBUG: Đã thêm App {appId} vào danh sách retry do lỗi đăng nhập trong RunSteamCmdProcessAsync");
+                        }
+                    }
+                    else
+                    {
+                        await SafeSendLogAsync(profile.Name, "Error", $"LỖI SteamCMD: {errorLine}");
+                    }
                 };
 
                 // Bắt đầu process
@@ -2443,21 +2787,37 @@ namespace SteamCmdWebAPI.Services
                 {
                     // QUAN TRỌNG: Kiểm tra xem có log thành công trong _logService
                     string appIdToCheck = appIdsToUpdate.FirstOrDefault() ?? profile.AppID;
-                    bool hasSuccessLog = await HasSuccessLogForAppIdAsync(appIdToCheck);
                     
-                    if (hasSuccessLog)
+                    // Kiểm tra có xuất hiện lỗi No subscription hoặc Invalid Password trong errorBuffer không
+                    bool hasNoSubscriptionError = errorBuffer.ToString().Contains("No subscription");
+                    bool hasPasswordError = errorBuffer.ToString().Contains("Invalid Password");
+                    
+                    if (hasNoSubscriptionError || hasPasswordError)
                     {
-                        _logger.LogWarning("Phát hiện log thành công cho AppID {AppId} mặc dù Exit Code: {ExitCode}", appIdToCheck, steamCmdProcess.ExitCode);
-                        await SafeSendLogAsync(profile.Name, "Success", $"Có lỗi khi thoát nhưng phát hiện ứng dụng đã được cập nhật thành công");
-                        runResult.Success = true;
-                        runResult.ExitCode = 0; // Ghi đè exit code với 0
+                        _logger.LogWarning("Phát hiện lỗi {0} trong output của SteamCMD", 
+                            hasNoSubscriptionError ? "No subscription" : "Invalid Password");
+                        // Đánh dấu thất bại, không cần kiểm tra log thành công
+                        runResult.Success = false;
+                        runResult.ExitCode = hasPasswordError ? -2 : -3; // -2: lỗi mật khẩu, -3: lỗi subscription
                     }
                     else
                     {
-                        _logger.LogError($"Quá trình kết thúc với Exit Code: {steamCmdProcess.ExitCode}");
-                        await SafeSendLogAsync(profile.Name, "Error", $"Quá trình kết thúc với Exit Code: {steamCmdProcess.ExitCode}");
-                        runResult.Success = false;
-                        runResult.ExitCode = steamCmdProcess.ExitCode;
+                        bool hasSuccessLog = await HasSuccessLogForAppIdAsync(appIdToCheck);
+                        
+                        if (hasSuccessLog)
+                        {
+                            _logger.LogWarning("Phát hiện log thành công cho AppID {AppId} mặc dù Exit Code: {ExitCode}", appIdToCheck, steamCmdProcess.ExitCode);
+                            await SafeSendLogAsync(profile.Name, "Success", $"Có lỗi khi thoát nhưng phát hiện ứng dụng đã được cập nhật thành công");
+                            runResult.Success = true;
+                            runResult.ExitCode = 0; // Ghi đè exit code với 0
+                        }
+                        else
+                        {
+                            _logger.LogError($"Quá trình kết thúc với Exit Code: {steamCmdProcess.ExitCode}");
+                            await SafeSendLogAsync(profile.Name, "Error", $"Quá trình kết thúc với Exit Code: {steamCmdProcess.ExitCode}");
+                            runResult.Success = false;
+                            runResult.ExitCode = steamCmdProcess.ExitCode;
+                        }
                     }
                 }
 
@@ -2806,32 +3166,79 @@ namespace SteamCmdWebAPI.Services
                 return;
             }
 
-            _logger.LogInformation("StopAllProfilesAsync: Đang dừng tất cả các profile và xóa hàng đợi...");
-            await SafeSendLogAsync("System", "Info", "Đang dừng tất cả các profile và xóa hàng đợi.");
-
-            // Xóa hàng đợi
-            int clearedCount = 0;
-            while (_updateQueue.TryDequeue(out _)) { clearedCount++; }
-            if (clearedCount > 0)
-                _logger.LogInformation("StopAllProfilesAsync: Đã xóa {Count} mục khỏi hàng đợi cập nhật.", clearedCount);
-
-            // Reset các cờ, nhưng không reset _isRunningAllProfiles để không ảnh hưởng đến việc đang chạy
-            _cancelAutoRun = false;
-            _lastRunHadLoginError = false;
-
-            // Dừng tất cả tiến trình
-            await KillAllSteamCmdProcessesAsync();
-            await Task.Delay(1000);
-
-            // Cập nhật trạng thái các profile đang chạy
-            var profiles = await _profileService.GetAllProfiles();
-            foreach (var profile in profiles.Where(p => p.Status == "Running"))
+            try
             {
-                _logger.LogInformation("StopAllProfilesAsync: Cập nhật trạng thái profile '{ProfileName}' thành Stopped do StopAll.", profile.Name);
-                profile.Status = "Stopped";
-                profile.StopTime = DateTime.Now;
-                profile.Pid = 0;
-                await _profileService.UpdateProfile(profile);
+                // Kiểm tra xem có app đang đợi retry không trước khi dừng tất cả
+                if (_appsToRetryWithValidate != null && !_appsToRetryWithValidate.IsEmpty)
+                {
+                    _logger.LogWarning("Có {0} ứng dụng đang đợi thử lại khi dừng tất cả profiles", _appsToRetryWithValidate.Count);
+                    Console.WriteLine($"DEBUG: Dừng tất cả profiles khi có {_appsToRetryWithValidate?.Count ?? 0} app đang đợi thử lại");
+                    Console.WriteLine($"DEBUG: Danh sách apps: {string.Join(", ", _appsToRetryWithValidate.Keys)}");
+                    
+                    // Ghi log danh sách đang chờ retry
+                    await SafeSendLogAsync("System", "Warning", $"Dừng tất cả profiles khi có {_appsToRetryWithValidate.Count} ứng dụng đang đợi thử lại với tài khoản khác hoặc validate");
+                }
+
+                // Dừng tiến trình xử lý hàng đợi hiện tại
+                _cancelAutoRun = true;
+                _isRunningAllProfiles = false;
+                _isProcessingQueue = false;
+
+                // Đảm bảo hàng đợi sạch
+                while (_updateQueue.TryDequeue(out _)) { }
+
+                // Thêm lưu backup của apps cần thử lại trước khi dừng
+                var appsToRetryBackup = _appsToRetryWithValidate?.ToArray();
+
+                // Dừng tất cả các tiến trình SteamCMD đang chạy
+                foreach (var kv in _steamCmdProcesses)
+                {
+                    try
+                    {
+                        int profileId = kv.Key;
+                        var process = kv.Value;
+
+                        var profile = await _profileService.GetProfileById(profileId);
+                        string profileName = profile?.Name ?? $"ID {profileId}";
+
+                        await KillProcessAsync(process, profileName);
+                        
+                        if (profile != null)
+                        {
+                            profile.Status = "Stopped";
+                            profile.StopTime = DateTime.Now;
+                            profile.Pid = 0;
+                            await _profileService.UpdateProfile(profile);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi dừng tiến trình SteamCMD");
+                    }
+                }
+
+                _steamCmdProcesses.Clear();
+
+                // Phục hồi lại danh sách cần thử lại sau khi đã dừng tất cả
+                if (appsToRetryBackup != null && appsToRetryBackup.Length > 0)
+                {
+                    if (_appsToRetryWithValidate == null)
+                    {
+                        _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                    }
+                    
+                    foreach (var kv in appsToRetryBackup)
+                    {
+                        _appsToRetryWithValidate[kv.Key] = kv.Value;
+                    }
+                    
+                    _logger.LogInformation("Đã khôi phục {0} ứng dụng cần thử lại sau khi dừng tất cả profiles", appsToRetryBackup.Length);
+                    Console.WriteLine($"DEBUG: Đã khôi phục {appsToRetryBackup.Length} ứng dụng cần thử lại sau khi dừng tất cả");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi dừng tất cả profiles");
             }
 
             await SafeSendLogAsync("System", "Success", "Đã dừng tất cả các profile và xóa hàng đợi.");
@@ -3558,16 +3965,613 @@ namespace SteamCmdWebAPI.Services
             {
                 if (string.IsNullOrEmpty(appId))
                     return false;
-                    
-                // Kiểm tra trong LogService cho 2 mẫu (Success! App và already up to date)
-                bool hasSuccessLog = await _logService.HasLogForAppIdAsync(appId, "Success");
                 
-                _logger.LogInformation("Kiểm tra log thành công cho AppID {AppId}: {Result}", appId, hasSuccessLog);
-                return hasSuccessLog;
+                // Đầu tiên, kiểm tra xem có bất kỳ lỗi nghiêm trọng nào liên quan đến AppID này không
+                // Các lỗi nghiêm trọng bao gồm "No subscription", "Invalid Password", "Tài khoản không có quyền truy cập"
+                
+                // Tạo danh sách các từ khóa lỗi nghiêm trọng cần kiểm tra
+                string[] criticalErrorKeywords = new[] {
+                    "No subscription",
+                    "Invalid Password",
+                    "Sai mật khẩu",
+                    "không có quyền truy cập",
+                    "Rate Limit Exceeded"
+                };
+                
+                // Kiểm tra từng từ khóa lỗi
+                foreach (var keyword in criticalErrorKeywords)
+                {
+                    // Nếu tìm thấy bất kỳ lỗi nghiêm trọng nào, trả về false
+                    if (await _logService.HasErrorWithKeywordsAsync(appId, keyword))
+                    {
+                        _logger.LogWarning("Phát hiện lỗi nghiêm trọng '{Keyword}' cho AppID {AppId}, không coi là thành công", keyword, appId);
+                        return false;
+                    }
+                }
+                
+                // Nếu không có lỗi nghiêm trọng, kiểm tra log thành công
+                return await _logService.HasLogForAppIdAsync(appId, "Success");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Lỗi khi kiểm tra log thành công cho AppID {AppId}", appId);
+                return false;
+            }
+        }
+        
+        /// <summary>
+        /// Cập nhật một appId cụ thể với thông tin tài khoản được cung cấp
+        /// </summary>
+        private async Task<bool> UpdateAppAsync(int profileId, string profileName, string steamCmdPath, 
+                                               string steamAppState, string encryptedUsername, string encryptedPassword, 
+                                               string[] appIdsToUpdate, bool forceValidate)
+        {
+            try
+            {
+                _logger.LogInformation("UpdateAppAsync: Bắt đầu cập nhật cho profile ID {ProfileId} với {Count} AppID, validate={ForceValidate}", 
+                                       profileId, appIdsToUpdate.Length, forceValidate);
+                
+                // Lấy profile đầy đủ
+                var profile = await _profileService.GetProfileById(profileId);
+                if (profile == null)
+                {
+                    _logger.LogError("UpdateAppAsync: Không tìm thấy profile ID {ProfileId}", profileId);
+                    return false;
+                }
+                
+                // Tạo profile tạm thời với thông tin tài khoản được cung cấp
+                var tempProfile = new SteamCmdProfile
+                {
+                    Id = profileId,
+                    Name = profileName,
+                    InstallDirectory = profile.InstallDirectory,
+                    AppID = profile.AppID,
+                    Status = "Running",
+                    SteamUsername = encryptedUsername,
+                    SteamPassword = encryptedPassword
+                };
+                
+                // Cập nhật trạng thái của profile
+                profile.Status = "Running";
+                profile.StartTime = DateTime.Now;
+                await _profileService.UpdateProfile(profile);
+                
+                // Thông báo bắt đầu cập nhật
+                await SafeSendLogAsync(profileName, "Info", $"Bắt đầu cập nhật {appIdsToUpdate.Length} AppIDs: {string.Join(", ", appIdsToUpdate)}");
+                
+                // Sử dụng thông tin đăng nhập đã được cung cấp để chạy SteamCMD
+                bool success = false;
+                
+                try
+                {
+                    // Tạo list các appIds từ mảng
+                    var appIds = appIdsToUpdate.ToList();
+                    
+                    // Sử dụng giải thuật retry với SteamCMD
+                    var result = await RunSteamCmdProcessAsync(tempProfile, profileId, appIds, forceValidate);
+                    success = result.Success;
+                    
+                    if (success)
+                    {
+                        await SafeSendLogAsync(profileName, "Success", $"Cập nhật thành công {appIdsToUpdate.Length} AppIDs");
+                        
+                        // Cập nhật lại thời gian cập nhật thành công
+                        if (profile != null)
+                        {
+                            profile.LastRun = DateTime.Now;
+                            profile.Status = "Success";
+                            profile.StopTime = DateTime.Now;
+                            await _profileService.UpdateProfile(profile);
+                        }
+                    }
+                    else
+                    {
+                        // Thông báo lỗi dựa vào exit code
+                        string errorMessage = "Cập nhật không thành công";
+                        
+                        switch (result.ExitCode)
+                        {
+                            case -2:
+                                errorMessage = "Cập nhật không thành công: Sai mật khẩu Steam";
+                                break;
+                            case -3:
+                                errorMessage = "Cập nhật không thành công: Tài khoản không có quyền truy cập vào game này";
+                                break;
+                            default:
+                                errorMessage = $"Cập nhật không thành công: Exit Code = {result.ExitCode}";
+                                break;
+                        }
+                        
+                        await SafeSendLogAsync(profileName, "Error", errorMessage);
+                        
+                        if (profile != null)
+                        {
+                            profile.Status = "Error";
+                            profile.StopTime = DateTime.Now;
+                            await _profileService.UpdateProfile(profile);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "UpdateAppAsync: Lỗi khi cập nhật AppIDs {AppIds} cho profile {ProfileName}", 
+                                    string.Join(", ", appIdsToUpdate), profileName);
+                    
+                    await SafeSendLogAsync(profileName, "Error", $"Lỗi khi cập nhật: {ex.Message}");
+                    
+                    if (profile != null)
+                    {
+                        profile.Status = "Error";
+                        profile.StopTime = DateTime.Now;
+                        await _profileService.UpdateProfile(profile);
+                    }
+                    
+                    success = false;
+                }
+                
+                return success;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "UpdateAppAsync: Lỗi nghiêm trọng khi cập nhật AppIDs {AppIds} cho profile {ProfileName}", 
+                                string.Join(", ", appIdsToUpdate), profileName);
+                await SafeSendLogAsync(profileName, "Error", $"Lỗi nghiêm trọng: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task<bool> ParseSteamCmdOutputAsync(string output, int profileId, string profileName, string[] appIdsToUpdate)
+        {
+            if (string.IsNullOrEmpty(output))
+                return false;
+
+            bool hasSuccess = false;
+            bool hasError = false;
+            bool hasLoginError = false;
+            var errors = new List<string>();
+
+            // Tạo AppIDs Dictionary để theo dõi trạng thái của từng app
+            var appStatusDict = new Dictionary<string, bool>();
+            foreach (var appId in appIdsToUpdate)
+            {
+                appStatusDict[appId] = false; // Khởi tạo tất cả appIds là chưa thành công
+            }
+
+            // Chia output thành các dòng để phân tích
+            var lines = output.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+            foreach (var line in lines)
+            {
+                // Kiểm tra thông tin Success
+                var successMatch = Regex.Match(line, @"Success! App '(\d+)' already up to date");
+                var updateSuccessMatch = Regex.Match(line, @"Success! App '(\d+)' fully installed");
+                
+                if (successMatch.Success || updateSuccessMatch.Success)
+                {
+                    string appId = successMatch.Success ? successMatch.Groups[1].Value : updateSuccessMatch.Groups[1].Value;
+                    hasSuccess = true;
+                    
+                    // Đánh dấu app này đã thành công
+                    if (appStatusDict.ContainsKey(appId))
+                    {
+                        appStatusDict[appId] = true;
+                    }
+                    
+                    _logger.LogInformation("Cập nhật thành công cho App {AppId}", appId);
+                    await SafeSendLogAsync(profileName, "Success", $"Ứng dụng {appId} đã cập nhật thành công");
+                }
+
+                // Kiểm tra lỗi đăng nhập
+                if (line.Contains("FAILED with result code") || line.Contains("Invalid Password") || line.Contains("Login Failure:"))
+                {
+                    hasError = true;
+                    hasLoginError = true;
+                    _lastRunHadLoginError = true;
+                    
+                    errors.Add(line);
+                    
+                    _logger.LogError("Lỗi đăng nhập cho profile {ProfileName}: {Error}", profileName, line);
+                    await SafeSendLogAsync(profileName, "Error", $"Lỗi đăng nhập: {line}");
+                    
+                    // Add debug info
+                    Console.WriteLine($"DEBUG: Phát hiện lỗi đăng nhập cho profile {profileName}");
+                    Console.WriteLine($"DEBUG: AppIDs cần thử lại: {string.Join(",", appIdsToUpdate)}");
+                    
+                    // Đánh dấu để thử lại với tài khoản khác cho tất cả appIds
+                    if (_appsToRetryWithValidate == null)
+                    {
+                        _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                    }
+                    
+                    foreach(var appId in appIdsToUpdate)
+                    {
+                        _appsToRetryWithValidate[appId] = (profileId, DateTime.Now);
+                        _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry với tài khoản khác (lỗi đăng nhập)", appId);
+                        Console.WriteLine($"DEBUG: Đã thêm App {appId} vào danh sách retry");
+                    }
+                }
+                
+                // Kiểm tra lỗi sai mật khẩu Steam
+                if (line.Contains("Lỗi đăng nhập: Sai tên đăng nhập hoặc mật khẩu Steam") || 
+                    line.Contains("Incorrect login") || 
+                    line.Contains("rate limit exceeded") ||
+                    line.Contains("ERROR (Rate Limit Exceeded)") ||
+                    line.Contains("Sai tên đăng nhập hoặc mật khẩu Steam"))
+                {
+                    hasError = true;
+                    hasLoginError = true;
+                    _lastRunHadLoginError = true;
+                    
+                    errors.Add(line);
+                    
+                    _logger.LogError("Lỗi mật khẩu/rate limit cho profile {ProfileName}: {Error}", profileName, line);
+                    await SafeSendLogAsync(profileName, "Error", $"Lỗi mật khẩu/rate limit: {line}");
+                    
+                    // Add debug info for rate limit
+                    Console.WriteLine($"DEBUG: Phát hiện lỗi đăng nhập cho profile {profileName}: {line}");
+                    Console.WriteLine($"DEBUG: AppIDs cần thử lại: {string.Join(",", appIdsToUpdate)}");
+                    
+                    // Đánh dấu để thử lại với tài khoản khác cho tất cả appIds
+                    if (_appsToRetryWithValidate == null)
+                    {
+                        _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                    }
+                    
+                    foreach(var appId in appIdsToUpdate)
+                    {
+                        _appsToRetryWithValidate[appId] = (profileId, DateTime.Now);
+                        _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry với tài khoản khác (lỗi đăng nhập)", appId);
+                        Console.WriteLine($"DEBUG: Đã thêm App {appId} vào danh sách retry do lỗi đăng nhập");
+                    }
+                }
+
+                // Kiểm tra lỗi "No subscription"
+                var noSubscriptionMatch = Regex.Match(line, @"ERROR! Failed to install app '(\d+)' \(No subscription\)");
+                if (noSubscriptionMatch.Success)
+                {
+                    string appId = noSubscriptionMatch.Groups[1].Value;
+                    hasError = true;
+                    
+                    errors.Add(line);
+                    
+                    _logger.LogError("Tài khoản không có quyền truy cập App {AppId}: {Error}", appId, line);
+                    await SafeSendLogAsync(profileName, "Error", $"Tài khoản không có quyền truy cập App {appId}");
+                    
+                    // Đánh dấu để thử lại với tài khoản khác cho app này
+                    if (_appsToRetryWithValidate == null)
+                    {
+                        _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                    }
+                    
+                    _appsToRetryWithValidate[appId] = (profileId, DateTime.Now);
+                    _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry với tài khoản khác (No subscription)", appId);
+                }
+
+                // Kiểm tra lỗi state sau khi cập nhật
+                var appStateErrorMatch = Regex.Match(line, @"Error! App '(\d+)' state is (0x[0-9A-Fa-f]+) after update job");
+                if (appStateErrorMatch.Success)
+                {
+                    string appId = appStateErrorMatch.Groups[1].Value;
+                    string errorState = appStateErrorMatch.Groups[2].Value;
+                    
+                    hasError = true;
+                    errors.Add(line);
+                    
+                    _logger.LogError("Lỗi state cho App {AppId}: {Error}", appId, line);
+                    await SafeSendLogAsync(profileName, "Error", $"Lỗi cập nhật App {appId} (state: {errorState})");
+                    
+                    // Đánh dấu để thử lại với validate cho app này
+                    if (_appsToRetryWithValidate == null)
+                    {
+                        _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                    }
+                    
+                    _appsToRetryWithValidate["validate:" + appId] = (profileId, DateTime.Now);
+                    _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry với validate (lỗi state)", appId);
+                }
+                
+                // Kiểm tra thêm các lỗi khác
+                if (line.Contains("ERROR! Access denied") || line.Contains("failed (Access is denied.)"))
+                {
+                    hasError = true;
+                    errors.Add(line);
+                    
+                    _logger.LogError("Lỗi quyền truy cập khi cập nhật: {Error}", line);
+                    await SafeSendLogAsync(profileName, "Error", $"Lỗi quyền truy cập: {line}");
+                    
+                    // Phân tích lỗi quyền truy cập - có thể cần đảm bảo thư mục cài đặt có quyền ghi
+                    var appMatches = Regex.Matches(line, @"app '(\d+)'");
+                    if (appMatches.Count > 0)
+                    {
+                        string affectedAppId = appMatches[0].Groups[1].Value;
+                        _appsToRetryWithValidate["validate:" + affectedAppId] = (profileId, DateTime.Now);
+                        _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry với validate (lỗi quyền truy cập)", affectedAppId);
+                    }
+                }
+                
+                // Kiểm tra lỗi kết nối mạng
+                if (line.Contains("Connection failure") || line.Contains("Connection timed out") || 
+                    line.Contains("Network unreachable") || line.Contains("Broken pipe"))
+                {
+                    hasError = true;
+                    errors.Add(line);
+                    
+                    _logger.LogError("Lỗi kết nối mạng khi cập nhật: {Error}", line);
+                    await SafeSendLogAsync(profileName, "Error", $"Lỗi kết nối mạng: {line}");
+                    
+                    // Với lỗi kết nối mạng, thử lại sau một khoảng thời gian
+                    var appMatches = Regex.Matches(line, @"app '(\d+)'");
+                    if (appMatches.Count > 0)
+                    {
+                        string affectedAppId = appMatches[0].Groups[1].Value;
+                        _appsToRetryWithValidate[affectedAppId] = (profileId, DateTime.Now);
+                        _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry sau (lỗi kết nối mạng)", affectedAppId);
+                    }
+                    else
+                    {
+                        // Nếu không thể trích xuất appId cụ thể, thử lại tất cả appIds
+                        foreach (var appId in appIdsToUpdate)
+                        {
+                            _appsToRetryWithValidate[appId] = (profileId, DateTime.Now);
+                            _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry từ lỗi kết nối", appId);
+                        }
+                        
+                        // Gọi ProcessRetryApps
+                        if (!_isProcessingQueue)
+                        {
+                            Task.Run(TryProcessRetryApps);
+                        }
+                        return false;
+                    }
+                }
+            }
+
+            // Kiểm tra lỗi Apex Legends đặc biệt cho Origin
+            try
+            {
+                // Kiểm tra nếu có AppID 1172470 (Apex Legends)
+                if (appIdsToUpdate.Contains("1172470"))
+                {
+                    // Kiểm tra lỗi đặc biệt của Apex Legends
+                    bool hasApexError = output.Contains("Origin login") || 
+                                       output.Contains("Game ownership") || 
+                                       output.Contains("DRM");
+                    
+                    if (hasApexError)
+                    {
+                        _logger.LogWarning("Phát hiện lỗi đặc biệt khi cập nhật Apex Legends");
+                        
+                        // Thêm tất cả AppIDs vào retry với tài khoản khác
+                        foreach (var appId in appIdsToUpdate)
+                        {
+                            _appsToRetryWithValidate[appId] = (profileId, DateTime.Now);
+                            _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry từ lỗi Apex Legends", appId);
+                        }
+                        
+                        // Gọi ProcessRetryApps
+                        if (!_isProcessingQueue)
+                        {
+                            Task.Run(TryProcessRetryApps);
+                        }
+                        return false;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi kiểm tra lỗi đăng nhập Apex Legends");
+            }
+
+            // Kiểm tra ngược lại AppStatus Dictionary để xem có app nào cần thử lại với validate không
+            foreach (var pair in appStatusDict)
+            {
+                if (!pair.Value)
+                {
+                    string appId = pair.Key;
+                    _logger.LogWarning("App {AppId} chưa được xác nhận thành công qua output, đánh dấu để thử lại với validate", appId);
+                    
+                    // Đánh dấu app này cần thử lại với validate
+                    if (_appsToRetryWithValidate == null)
+                    {
+                        _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                    }
+                    
+                    _appsToRetryWithValidate["validate:" + appId] = (profileId, DateTime.Now);
+                }
+            }
+
+            // Nếu không có lỗi, hoặc có success nhưng không có lỗi đăng nhập, coi như thành công
+            return hasSuccess || (!hasError && appIdsToUpdate.Length > 0);
+        }
+
+        private async Task ProcessSteamCmdOutputLineAsync(string line, string profileName, int profileId, string[] appIdsToUpdate)
+        {
+            if (string.IsNullOrEmpty(line))
+                return;
+            
+            try
+            {
+                // Ghi log nếu là dòng quan trọng
+                if (line.Contains("ERROR") || line.Contains("Error") || 
+                    line.Contains("Success") || line.Contains("success") ||
+                    line.Contains("WARNING") || line.Contains("Warning") ||
+                    line.Contains("fully installed"))
+                {
+                    // Đừng gửi log cho các thông báo thường gặp
+                    if (!line.Contains("This program comes with") &&
+                        !line.Contains("Click Cancel to exit") &&
+                        !line.Contains("Connecting anonymously"))
+                    {
+                        if (line.Contains("ERROR") || line.Contains("Error"))
+                        {
+                            await SafeSendLogAsync(profileName, "Error", line);
+                        }
+                        else if (line.Contains("WARNING") || line.Contains("Warning"))
+                        {
+                            await SafeSendLogAsync(profileName, "Warning", line);
+                        }
+                        else
+                        {
+                            await SafeSendLogAsync(profileName, "Info", line);
+                        }
+                    }
+                }
+                
+                // Kiểm tra các lỗi cụ thể và phản ứng ngay lập tức
+                
+                // Lỗi đăng nhập
+                if (line.Contains("Invalid Password") || line.Contains("Sai tên đăng nhập") || 
+                    line.Contains("Rate Limit Exceeded") || line.Contains("FAILED login with result code"))
+                {
+                    _lastRunHadLoginError = true;
+                    await SafeSendLogAsync(profileName, "Error", "Lỗi đăng nhập Steam: " + line);
+                    _logger.LogError("Lỗi đăng nhập Steam cho profile {ProfileName}: {Error}", profileName, line);
+                }
+                
+                // Lỗi No subscription
+                if (line.Contains("No subscription") || line.Contains("không có quyền truy cập"))
+                {
+                    _lastRunHadLoginError = true;
+                    await SafeSendLogAsync(profileName, "Error", "Tài khoản không có quyền truy cập: " + line);
+                    _logger.LogError("Tài khoản không có quyền truy cập cho profile {ProfileName}: {Error}", profileName, line);
+                    
+                    // Đánh dấu các appIds để thử lại với tài khoản khác
+                    foreach (var appId in appIdsToUpdate)
+                    {
+                        if (_appsToRetryWithValidate == null)
+                        {
+                            _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                        }
+                        
+                        _appsToRetryWithValidate[appId] = (profileId, DateTime.Now);
+                        _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry với tài khoản khác (No subscription)", appId);
+                    }
+                }
+                
+                // Lỗi state
+                var appStateErrorMatch = Regex.Match(line, @"Error! App '(\d+)' state is (0x[0-9A-Fa-f]+) after update job");
+                if (appStateErrorMatch.Success)
+                {
+                    string appId = appStateErrorMatch.Groups[1].Value;
+                    string errorState = appStateErrorMatch.Groups[2].Value;
+                    
+                    await SafeSendLogAsync(profileName, "Error", $"Lỗi cập nhật App {appId} (state: {errorState})");
+                    _logger.LogError("Lỗi state cho App {AppId}: {Error}", appId, line);
+                    
+                    // Đánh dấu để thử lại với validate cho app này
+                    if (_appsToRetryWithValidate == null)
+                    {
+                        _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                    }
+                    
+                    _appsToRetryWithValidate["validate:" + appId] = (profileId, DateTime.Now);
+                    _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry với validate (lỗi state: {State})", appId, errorState);
+                }
+                
+                // Lỗi quyền truy cập
+                if (line.Contains("ERROR! Access denied") || line.Contains("failed (Access is denied.)"))
+                {
+                    await SafeSendLogAsync(profileName, "Error", $"Lỗi quyền truy cập: {line}");
+                    _logger.LogError("Lỗi quyền truy cập khi cập nhật: {Error}", line);
+                }
+                
+                // Lỗi kết nối mạng
+                if (line.Contains("Connection failure") || line.Contains("Connection timed out") || 
+                    line.Contains("Network unreachable") || line.Contains("Broken pipe"))
+                {
+                    await SafeSendLogAsync(profileName, "Error", $"Lỗi kết nối mạng: {line}");
+                    _logger.LogError("Lỗi kết nối mạng khi cập nhật: {Error}", line);
+                }
+                
+                // Phát hiện thành công cập nhật
+                if (line.Contains("Success! App") || 
+                    line.Contains("fully installed") ||
+                    line.Contains("already up to date"))
+                {
+                    var appSuccessMatch = Regex.Match(line, @"App '(\d+)'");
+                    if (appSuccessMatch.Success)
+                    {
+                        string appId = appSuccessMatch.Groups[1].Value;
+                        await SafeSendLogAsync(profileName, "Success", $"Cập nhật thành công App {appId}");
+                        _logger.LogInformation("Cập nhật thành công App {AppId} cho profile {ProfileName}", appId, profileName);
+                    }
+                    else
+                    {
+                        await SafeSendLogAsync(profileName, "Success", "Cập nhật thành công");
+                        _logger.LogInformation("Cập nhật thành công cho profile {ProfileName}", profileName);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xử lý dòng output SteamCMD: {Error}", ex.Message);
+            }
+        }
+
+        // Phương thức để thêm app vào danh sách retry
+        public void AddAppToRetryList(string appId, int profileId)
+        {
+            try
+            {
+                _logger.LogInformation("AddAppToRetryList được gọi với AppId: {AppId}, ProfileId: {ProfileId}", appId, profileId);
+                
+                if (_appsToRetryWithValidate == null)
+                {
+                    _appsToRetryWithValidate = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded)>();
+                }
+                
+                _appsToRetryWithValidate[appId] = (profileId, DateTime.Now);
+                _logger.LogInformation("Đã thêm App {AppId} vào danh sách retry cho Profile {ProfileId}", appId, profileId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi thêm App {AppId} vào danh sách retry", appId);
+            }
+        }
+        
+        // Phương thức để chạy SteamCmd update cho app cụ thể với tài khoản cụ thể
+        private async Task<bool> RunSteamCmdUpdateAsync(SteamCmdProfile profile, string appId, SteamAccount account, bool isValidateRequest)
+        {
+            try
+            {
+                if (profile == null)
+                {
+                    _logger.LogError("RunSteamCmdUpdateAsync: Profile là null");
+                    return false;
+                }
+                
+                if (account == null)
+                {
+                    _logger.LogError("RunSteamCmdUpdateAsync: Account là null");
+                    return false;
+                }
+                
+                string steamCmdPath = GetSteamCmdPath();
+                
+                if (string.IsNullOrEmpty(profile.InstallDirectory))
+                {
+                    _logger.LogError("RunSteamCmdUpdateAsync: Thư mục cài đặt không được cấu hình");
+                    await SafeSendLogAsync(profile.Name, "Error", "Thư mục cài đặt không được cấu hình");
+                    return false;
+                }
+                
+                _logger.LogInformation("RunSteamCmdUpdateAsync: Đang chạy cập nhật cho App {AppId} với tài khoản {Username}, validate={Validate}",
+                    appId, account.Username, isValidateRequest);
+                    
+                // Gọi đến UpdateAppAsync để thực hiện cập nhật
+                return await UpdateAppAsync(
+                    profile.Id,
+                    profile.Name,
+                    steamCmdPath,
+                    profile.InstallDirectory,
+                    account.Username,
+                    account.Password,
+                    new[] { appId },
+                    isValidateRequest);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "RunSteamCmdUpdateAsync: Lỗi khi chạy cập nhật cho App {AppId}", appId);
                 return false;
             }
         }
