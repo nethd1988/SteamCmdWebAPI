@@ -156,8 +156,14 @@
                     </div>
                     <div class="input-group">
                         <textarea class="form-control" id="appIds" name="Account.AppIds" rows="3" placeholder="Nhập AppIDs của game, cách nhau bởi dấu phẩy (ví dụ: 570,730,440)"></textarea>
+                        <button class="btn btn-outline-primary" type="button" id="btnScanAppIds">Scan AppIDs</button>
                     </div>
                     <small class="form-text text-muted">Ví dụ nhập thủ công: 570,730,440</small>
+                </div>
+                <div class="mb-3">
+                    <label for="gameNames" class="form-label">Tên game</label>
+                    <textarea class="form-control" id="gameNames" name="Account.GameNames" rows="3" readonly></textarea>
+                    <small class="form-text text-muted">Tên game sẽ tự động được lấy theo AppIDs</small>
                 </div>
                 <div class="d-flex justify-content-end gap-2">
                     <button type="button" class="btn btn-secondary" id="btnCancelAdd">Đóng</button>
@@ -203,6 +209,7 @@
                     </div>
                     <div class="input-group">
                         <textarea class="form-control" id="editAppIds" name="Account.AppIds" rows="3" placeholder="Nhập AppIDs của game, cách nhau bởi dấu phẩy (ví dụ: 570,730,440)"></textarea>
+                        <button class="btn btn-outline-primary" type="button" id="btnEditScanAppIds">Scan AppIDs</button>
                     </div>
                     <small class="form-text text-muted">Ví dụ nhập thủ công: 570,730,440</small>
                 </div>
@@ -948,39 +955,62 @@
                     return;
                 }
                 
-                // Hiển thị loading
-                $(this).prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang lưu...');
-                
-                // Gửi dữ liệu
-                $.ajax({
-                    url: "?handler=AddAccount",
-                    type: "POST",
-                    data: $("#addAccountForm").serialize(),
-                    headers: {
-                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
-                    },
-                    success: function(response) {
-                        $("#btnSaveAccount").prop("disabled", false).html('Lưu');
-                        
-                        if (response.success) {
-                            toastr.success("Đã thêm tài khoản thành công!", "Thành công");
-                            
-                            // Ẩn form và tải lại trang
-                            $("#formAddAccount").slideUp();
-                            setTimeout(function() {
-                                window.location.reload();
-                            }, 1000);
-                        } else {
-                            toastr.error(response.message || "Có lỗi xảy ra khi thêm tài khoản", "Lỗi");
+                // Nếu có nhập AppIds nhưng chưa có GameNames, tự động lấy
+                if ($("#appIds").val().trim() && !$("#gameNames").val().trim()) {
+                    toastr.info("Đang lấy thông tin tên game trước khi lưu...", "Vui lòng đợi");
+                    getGameNames($("#appIds").val().trim(), "#gameNames");
+                    
+                    // Đợi 2 giây để API lấy tên game hoàn thành
+                    setTimeout(function() {
+                        if (!$("#gameNames").val().trim()) {
+                            if (!confirm("Chưa có thông tin tên game. Bạn có muốn lưu mà không có tên game không?")) {
+                                $("#btnSaveAccount").prop("disabled", false).html('Lưu');
+                                return;
+                            }
                         }
-                    },
-                    error: function() {
-                        $("#btnSaveAccount").prop("disabled", false).html('Lưu');
-                        toastr.error("Không thể thêm tài khoản. Vui lòng thử lại sau.", "Lỗi");
-                    }
-                });
-                            });
+                        // Tiếp tục lưu tài khoản
+                        saveAccount();
+                    }, 2000);
+                } else {
+                    // Tiếp tục lưu tài khoản ngay
+                    saveAccount();
+                }
+                
+                function saveAccount() {
+                    // Hiển thị loading
+                    $("#btnSaveAccount").prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang lưu...');
+                    
+                    // Gửi dữ liệu
+                    $.ajax({
+                        url: "?handler=AddAccount",
+                        type: "POST",
+                        data: $("#addAccountForm").serialize(),
+                        headers: {
+                            "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                        },
+                        success: function(response) {
+                            $("#btnSaveAccount").prop("disabled", false).html('Lưu');
                             
+                            if (response.success) {
+                                toastr.success("Đã thêm tài khoản thành công!", "Thành công");
+                                
+                                // Ẩn form và tải lại trang
+                                $("#formAddAccount").slideUp();
+                                setTimeout(function() {
+                                    window.location.reload();
+                                }, 1000);
+                            } else {
+                                toastr.error(response.message || "Có lỗi xảy ra khi thêm tài khoản", "Lỗi");
+                            }
+                        },
+                        error: function() {
+                            $("#btnSaveAccount").prop("disabled", false).html('Lưu');
+                            toastr.error("Không thể thêm tài khoản. Vui lòng thử lại sau.", "Lỗi");
+                        }
+                    });
+                }
+            });
+            
             // Cập nhật tài khoản
             $("#btnUpdateAccount").click(function(event) {
                 // Ngăn chặn hành vi mặc định của sự kiện click
@@ -1000,63 +1030,90 @@
                     return;
                 }
                 
-                // Hiển thị loading
-                $(this).prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang cập nhật...');
+                // Nếu có nhập AppIds nhưng chưa có GameNames, tự động lấy
+                if ($("#editAppIds").val().trim() && !$("#editGameNames").val().trim()) {
+                    toastr.info("Đang lấy thông tin tên game trước khi cập nhật...", "Vui lòng đợi");
+                    getGameNames($("#editAppIds").val().trim(), "#editGameNames");
+                    
+                    // Đợi 3 giây để API lấy tên game hoàn thành
+                    setTimeout(function() {
+                        if (!$("#editGameNames").val().trim()) {
+                            if (!confirm("Chưa có thông tin tên game. Bạn có muốn cập nhật mà không có tên game không?")) {
+                                $("#btnUpdateAccount").prop("disabled", false).html('Cập nhật');
+                                return;
+                            }
+                        }
+                        // Tiếp tục cập nhật tài khoản
+                        updateAccount();
+                    }, 3000);
+                } else {
+                    // Tiếp tục cập nhật tài khoản ngay
+                    updateAccount();
+                }
                 
-                // Tạo đối tượng dữ liệu để gửi đi
-                const autoScanEnabled = $("#editAutoScanEnabled").val() === "true";
-                const scanIntervalHours = parseInt($("#editScanIntervalHours").val()) || 6;
-                
-                var accountData = {
-                    Account: {
-                        Id: parseInt($("#editId").val()),
-                        ProfileName: $("#editProfileName").val(),
-                        Username: $("#editUsername").val(),
-                        Password: $("#editPassword").val(),
-                        AppIds: $("#editAppIds").val(),
-                        GameNames: $("#editGameNames").val(),
-                        AutoScanEnabled: autoScanEnabled,
-                        ScanIntervalHours: scanIntervalHours
-                    }
-                };
-                
-                // Ghi log dữ liệu để debug
-                console.log("Sending account data:", JSON.stringify(accountData));
-                
-                // Gửi dữ liệu với Content-Type application/json
-                $.ajax({
-                    url: "?handler=UpdateAccount",
-                    type: "POST",
-                    contentType: "application/json",
-                    data: JSON.stringify(accountData),
-                    headers: {
-                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
-                    },
-                    success: function(response) {
-                        $("#btnUpdateAccount").prop("disabled", false).html('Cập nhật');
-                        
-                        if (response.success) {
-                            toastr.success("Đã cập nhật tài khoản thành công!", "Thành công");
+                function updateAccount() {
+                    // Hiển thị loading
+                    $("#btnUpdateAccount").prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang cập nhật...');
+                    
+                    // Lấy dữ liệu GameNames từ textarea
+                    const gameNames = $("#editGameNames").val();
+                    
+                    // Tạo đối tượng dữ liệu để gửi đi
+                    const autoScanEnabled = $("#editAutoScanEnabled").val() === "true";
+                    const scanIntervalHours = parseInt($("#editScanIntervalHours").val()) || 6;
+                    
+                    var accountData = {
+                        Account: {
+                            Id: parseInt($("#editId").val()),
+                            ProfileName: $("#editProfileName").val(),
+                            Username: $("#editUsername").val(),
+                            Password: $("#editPassword").val(),
+                            AppIds: $("#editAppIds").val(),
+                            GameNames: gameNames,
+                            AutoScanEnabled: autoScanEnabled,
+                            ScanIntervalHours: scanIntervalHours
+                        }
+                    };
+                    
+                    // Ghi log dữ liệu để debug
+                    console.log("Sending account data:", JSON.stringify(accountData));
+                    console.log("Game names being sent:", gameNames);
+                    
+                    // Gửi dữ liệu với Content-Type application/json
+                    $.ajax({
+                        url: "?handler=UpdateAccount",
+                        type: "POST",
+                        contentType: "application/json",
+                        data: JSON.stringify(accountData),
+                        headers: {
+                            "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                        },
+                        success: function(response) {
+                            $("#btnUpdateAccount").prop("disabled", false).html('Cập nhật');
                             
-                            // Ẩn form và tải lại trang
-                            $("#formEditAccount").slideUp();
-                            setTimeout(function() {
-                                window.location.reload();
-                            }, 1000);
-                        } else {
-                            toastr.error(response.message || "Có lỗi xảy ra khi cập nhật tài khoản", "Lỗi");
+                            if (response.success) {
+                                toastr.success("Đã cập nhật tài khoản thành công!", "Thành công");
+                                
+                                // Ẩn form và tải lại trang
+                                $("#formEditAccount").slideUp();
+                                setTimeout(function() {
+                                    window.location.reload();
+                                }, 1000);
+                            } else {
+                                toastr.error(response.message || "Có lỗi xảy ra khi cập nhật tài khoản", "Lỗi");
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            $("#btnUpdateAccount").prop("disabled", false).html('Cập nhật');
+                            console.error("AJAX Error:", status, error);
+                            if (xhr.responseJSON && xhr.responseJSON.message) {
+                                toastr.error(xhr.responseJSON.message, "Lỗi");
+                            } else {
+                                toastr.error("Không thể cập nhật tài khoản. Vui lòng thử lại sau.", "Lỗi");
+                            }
                         }
-                    },
-                    error: function(xhr, status, error) {
-                        $("#btnUpdateAccount").prop("disabled", false).html('Cập nhật');
-                        console.error("AJAX Error:", status, error);
-                        if (xhr.responseJSON && xhr.responseJSON.message) {
-                            toastr.error(xhr.responseJSON.message, "Lỗi");
-                        } else {
-                            toastr.error("Không thể cập nhật tài khoản. Vui lòng thử lại sau.", "Lỗi");
-                        }
-                    }
-                });
+                    });
+                }
             });
             
             // Thêm nút quét tất cả tài khoản
@@ -1069,6 +1126,186 @@
                 event.preventDefault();
                 
                 scanAllAccounts();
+            });
+            
+            // Hàm lấy tên game dựa trên App IDs nhập vào
+            function getGameNames(appIds, targetField) {
+                if (!appIds || appIds.trim() === "") {
+                    $(targetField).val("");
+                    return;
+                }
+                
+                // Hiển thị trạng thái loading
+                const originalText = $(targetField).val();
+                $(targetField).val("Đang lấy thông tin game...");
+                
+                // Gọi API và hiển thị thông báo quá trình đang thực hiện
+                toastr.info("Đang tìm thông tin tên game, vui lòng đợi...", "Đang xử lý", {
+                    timeOut: 0,
+                    extendedTimeOut: 0,
+                    progressBar: true,
+                    closeButton: true
+                });
+                
+                $.ajax({
+                    url: "?handler=GetGameNames",
+                    type: "POST",
+                    contentType: "application/json",
+                    data: JSON.stringify({ appIds: appIds }),
+                    headers: {
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function(response) {
+                        // Xóa thông báo loading
+                        toastr.clear();
+                        
+                        if (response.success) {
+                            $(targetField).val(response.gameNames);
+                            toastr.success("Đã lấy thông tin tên game thành công", "Thành công", {
+                                timeOut: 3000
+                            });
+                            
+                            // Ghi log thông tin game đã lấy được
+                            console.log("Tên game đã lấy được:", response.gameNames);
+                            console.log("Chi tiết:", response.details);
+                        } else {
+                            $(targetField).val(originalText || "Không thể lấy tên game");
+                            toastr.warning(response.message || "Không thể lấy tên game", "Cảnh báo");
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        // Xóa thông báo loading
+                        toastr.clear();
+                        
+                        $(targetField).val(originalText || "");
+                        toastr.warning("Có lỗi xảy ra khi lấy tên game: " + error, "Cảnh báo");
+                        console.error("Lỗi khi lấy tên game:", xhr, status, error);
+                    }
+                });
+            }
+            
+            // Xử lý khi nhập App IDs trong form thêm mới
+            var appIdsTimer;
+            $("#appIds").on("input", function() {
+                clearTimeout(appIdsTimer);
+                appIdsTimer = setTimeout(function() {
+                    getGameNames($("#appIds").val(), "#gameNames");
+                }, 1500); // Đợi 1.5 giây sau khi nhập xong
+            });
+            
+            // Xử lý khi focus ra khỏi trường AppIds trong form thêm mới
+            $("#appIds").on("blur", function() {
+                const appIds = $(this).val().trim();
+                if (appIds && !$("#gameNames").val().trim()) {
+                    getGameNames(appIds, "#gameNames");
+                }
+            });
+            
+            // Xử lý khi nhập App IDs trong form chỉnh sửa
+            var editAppIdsTimer;
+            $("#editAppIds").on("input", function() {
+                clearTimeout(editAppIdsTimer);
+                editAppIdsTimer = setTimeout(function() {
+                    getGameNames($("#editAppIds").val(), "#editGameNames");
+                }, 1500); // Đợi 1.5 giây sau khi nhập xong
+            });
+            
+            // Xử lý khi focus ra khỏi trường AppIds trong form sửa
+            $("#editAppIds").on("blur", function() {
+                const appIds = $(this).val().trim();
+                if (appIds && !$("#editGameNames").val().trim()) {
+                    getGameNames(appIds, "#editGameNames");
+                }
+            });
+            
+            // Xử lý khi dán App IDs
+            $("#appIds, #editAppIds").on("paste", function() {
+                const element = this;
+                setTimeout(function() {
+                    if ($(element).attr("id") === "appIds") {
+                        getGameNames($(element).val(), "#gameNames");
+                    } else {
+                        getGameNames($(element).val(), "#editGameNames");
+                    }
+                }, 100);
+            });
+            
+            // Xử lý nút Scan AppIDs trong form thêm tài khoản
+            $("#btnScanAppIds").click(function(event) {
+                event.preventDefault();
+                const appIds = $("#appIds").val().trim();
+                if (!appIds) {
+                    toastr.warning("Vui lòng nhập AppIDs trước khi quét", "Cảnh báo");
+                    return;
+                }
+                
+                // Hiển thị trạng thái đang xử lý
+                const originalText = $(this).html();
+                $(this).prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang quét...');
+                
+                // Gọi API để quét AppIDs
+                $.ajax({
+                    url: "?handler=ScanAppIds",
+                    type: "POST",
+                    data: { appIds: appIds },
+                    headers: {
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function(response) {
+                        $("#btnScanAppIds").prop("disabled", false).html(originalText);
+                        
+                        if (response.success) {
+                            // Cập nhật trường GameNames
+                            $("#gameNames").val(response.gameNames);
+                            toastr.success(`Đã quét thành công ${response.results.length} game!`, "Thành công");
+                        } else {
+                            toastr.error(response.message || "Không thể quét AppIDs", "Lỗi");
+                        }
+                    },
+                    error: function() {
+                        $("#btnScanAppIds").prop("disabled", false).html(originalText);
+                        toastr.error("Có lỗi xảy ra khi quét AppIDs", "Lỗi");
+                    }
+                });
+            });
+            
+            // Xử lý nút Scan AppIDs trong form sửa tài khoản
+            $("#btnEditScanAppIds").click(function(event) {
+                event.preventDefault();
+                const appIds = $("#editAppIds").val().trim();
+                if (!appIds) {
+                    toastr.warning("Vui lòng nhập AppIDs trước khi quét", "Cảnh báo");
+                    return;
+                }
+                
+                // Hiển thị trạng thái đang xử lý
+                const originalText = $(this).html();
+                $(this).prop("disabled", true).html('<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Đang quét...');
+                
+                // Gọi API để quét AppIDs
+                $.ajax({
+                    url: "?handler=ScanAppIds",
+                    type: "POST",
+                    data: { appIds: appIds },
+                    headers: {
+                        "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function(response) {
+                        $("#btnEditScanAppIds").prop("disabled", false).html(originalText);
+                        
+                        if (response.success) {
+                            // Cập nhật trường GameNames
+                            $("#editGameNames").val(response.gameNames);
+                            toastr.success(`Đã quét thành công ${response.results.length} game!`, "Thành công");
+                        } else {
+                            toastr.error(response.message || "Không thể quét AppIDs", "Lỗi");
+                        }
+                    },
+                    error: function() {
+                        $("#btnEditScanAppIds").prop("disabled", false).html(originalText);
+                        toastr.error("Có lỗi xảy ra khi quét AppIDs", "Lỗi");
+                    }
+                });
             });
         });
     </script>

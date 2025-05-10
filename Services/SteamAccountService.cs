@@ -488,10 +488,14 @@ namespace SteamCmdWebAPI.Services
             // Ghi log trạng thái tự động quét
             _logger.LogInformation("UpdateAccountAsync: AutoScanEnabled trước khi cập nhật: {Old}, sau khi cập nhật: {New}", 
                 accounts[index].AutoScanEnabled, account.AutoScanEnabled);
+                
+            // Ghi log thông tin GameNames
+            _logger.LogInformation("UpdateAccountAsync: GameNames hiện tại: {GameNames}", account.GameNames);
 
-            // Nếu có AppId mới, tự động lấy thông tin tên game
-            if (!string.IsNullOrEmpty(account.AppIds))
+            // Chỉ tự động lấy thông tin tên game nếu AppId mới được cung cấp và GameNames trống
+            if (!string.IsNullOrEmpty(account.AppIds) && string.IsNullOrEmpty(account.GameNames))
             {
+                _logger.LogInformation("UpdateAccountAsync: AppIds có dữ liệu nhưng GameNames trống, tự động lấy thông tin game");
                 try
                 {
                     // Chỉ xử lý các AppId chưa có trong GameNames
@@ -522,6 +526,7 @@ namespace SteamCmdWebAPI.Services
                             }
                             
                             account.GameNames = string.Join(",", gameNames.Distinct());
+                            _logger.LogInformation("UpdateAccountAsync: GameNames sau khi lấy thông tin: {GameNames}", account.GameNames);
                         }
                     }
                     else
@@ -533,6 +538,10 @@ namespace SteamCmdWebAPI.Services
                 {
                     _logger.LogError(ex, "Lỗi khi tự động lấy thông tin game từ AppID: {0}", account.AppIds);
                 }
+            }
+            else
+            {
+                _logger.LogInformation("UpdateAccountAsync: Giữ nguyên GameNames hiện tại vì đã được cung cấp hoặc AppIds trống");
             }
 
             // Mã hóa thông tin tài khoản trước khi cập nhật

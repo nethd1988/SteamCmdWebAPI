@@ -8,6 +8,7 @@ using SteamCmdWebAPI.Models;
 using SteamCmdWebAPI.Services;
 using System.Linq;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace SteamCmdWebAPI.Pages
 {
@@ -18,6 +19,7 @@ namespace SteamCmdWebAPI.Pages
         private readonly SteamApiService _steamApiService;
         private readonly EncryptionService _encryptionService;
         private readonly SteamAppInfoService _steamAppInfoService;
+        private readonly IServiceProvider _serviceProvider;
 
         public List<SteamAccount> Accounts { get; set; } = new List<SteamAccount>();
 
@@ -35,13 +37,15 @@ namespace SteamCmdWebAPI.Pages
             SteamAccountService accountService,
             SteamApiService steamApiService,
             EncryptionService encryptionService,
-            SteamAppInfoService steamAppInfoService)
+            SteamAppInfoService steamAppInfoService,
+            IServiceProvider serviceProvider)
         {
             _logger = logger;
             _accountService = accountService;
             _steamApiService = steamApiService;
             _encryptionService = encryptionService;
             _steamAppInfoService = steamAppInfoService;
+            _serviceProvider = serviceProvider;
         }
 
         public async Task OnGetAsync()
@@ -144,32 +148,47 @@ namespace SteamCmdWebAPI.Pages
                 if (!string.IsNullOrWhiteSpace(Account.AppIds))
                 {
                     var appIds = Account.AppIds.Split(',').Select(id => id.Trim()).Where(id => !string.IsNullOrEmpty(id)).ToList();
-                    var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(appIds);
-                    var gameNames = new List<string>();
                     
-                    foreach (var (appId, gameName) in gameInfos)
+                    // Sử dụng SteamCmdService để lấy tên game từ api.steamcmd.net
+                    var steamCmdService = _serviceProvider.GetService<SteamCmdService>();
+                    if (steamCmdService != null)
                     {
-                        if (!string.IsNullOrEmpty(gameName))
-                        {
-                            gameNames.Add(gameName);
-                            _logger.LogInformation("Retrieved game info: AppID {0} -> {1}", appId, gameName);
-                        }
-                        else
-                        {
-                            // Try using SteamApiService if SteamAppInfoService doesn't have the info
-                            try
-                            {
-                                var appInfo = await _steamApiService.GetAppUpdateInfo(appId);
-                                gameNames.Add(appInfo?.Name ?? $"AppID {appId}");
-                            }
-                            catch
-                            {
-                                gameNames.Add($"AppID {appId}");
-                            }
-                        }
+                        _logger.LogInformation("Lấy tên game từ api.steamcmd.net cho tài khoản mới");
+                        var gameNamesDict = await steamCmdService.GetGameNamesFromSteamCmdNet(appIds);
+                        Account.GameNames = string.Join(", ", gameNamesDict.Values);
+                        _logger.LogInformation("Đã lấy được {0} tên game từ api.steamcmd.net", gameNamesDict.Count);
                     }
-                    
-                    Account.GameNames = string.Join(", ", gameNames);
+                    else 
+                    {
+                        // Fallback to older method if SteamCmdService is not available
+                        _logger.LogWarning("Không thể lấy SteamCmdService, sử dụng phương thức cũ");
+                        var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(appIds);
+                        var gameNames = new List<string>();
+                        
+                        foreach (var (appId, gameName) in gameInfos)
+                        {
+                            if (!string.IsNullOrEmpty(gameName))
+                            {
+                                gameNames.Add(gameName);
+                                _logger.LogInformation("Retrieved game info: AppID {0} -> {1}", appId, gameName);
+                            }
+                            else
+                            {
+                                // Try using SteamApiService if SteamAppInfoService doesn't have the info
+                                try
+                                {
+                                    var appInfo = await _steamApiService.GetAppUpdateInfo(appId);
+                                    gameNames.Add(appInfo?.Name ?? $"AppID {appId}");
+                                }
+                                catch
+                                {
+                                    gameNames.Add($"AppID {appId}");
+                                }
+                            }
+                        }
+                        
+                        Account.GameNames = string.Join(", ", gameNames);
+                    }
                 }
 
                 await _accountService.AddAccountAsync(Account);
@@ -194,8 +213,8 @@ namespace SteamCmdWebAPI.Pages
             {
                 Account = request.Account;
                 
-                _logger.LogInformation("OnPostUpdateAccountAsync: Nhận yêu cầu cập nhật tài khoản {AccountId}, AutoScanEnabled: {AutoScanEnabled}, ScanInterval: {ScanInterval}",
-                    Account.Id, Account.AutoScanEnabled, Account.ScanIntervalHours);
+                _logger.LogInformation("OnPostUpdateAccountAsync: Nhận yêu cầu cập nhật tài khoản {AccountId}, AutoScanEnabled: {AutoScanEnabled}, ScanInterval: {ScanInterval}, GameNames: {GameNames}",
+                    Account.Id, Account.AutoScanEnabled, Account.ScanIntervalHours, Account.GameNames);
                 
                 // Không cần kiểm tra request.Form vì chúng ta đang dùng JSON binding
                 
@@ -225,51 +244,81 @@ namespace SteamCmdWebAPI.Pages
                 // Sử dụng GameNames hiện tại nếu AppIds không thay đổi
                 if (Account.AppIds == existingAccount.AppIds)
                 {
-                    Account.GameNames = existingAccount.GameNames;
-                    _logger.LogInformation("AppIds không thay đổi, giữ nguyên GameNames");
+                    // QUAN TRỌNG: Kiểm tra GameNames có dữ liệu không, nếu rỗng thì mới dùng giá trị cũ
+                    if (string.IsNullOrWhiteSpace(Account.GameNames))
+                    {
+                        Account.GameNames = existingAccount.GameNames;
+                        _logger.LogInformation("AppIds không thay đổi, GameNames đang trống, giữ nguyên GameNames cũ");
+                    }
+                    else
+                    {
+                        _logger.LogInformation("AppIds không thay đổi, nhưng GameNames đã được cập nhật");
+                    }
                 }
                 // Chỉ cập nhật GameNames nếu AppIds thay đổi và AppIds không rỗng
                 else if (!string.IsNullOrWhiteSpace(Account.AppIds))
                 {
-                    // Ghi log để theo dõi
-                    _logger.LogInformation("AppIds thay đổi, cập nhật GameNames");
-                    
-                    // Thực hiện trong Task riêng biệt để không chặn luồng chính
-                    await Task.Run(async () => {
+                    // QUAN TRỌNG: Nếu đã có tên game từ client, ưu tiên sử dụng
+                    if (!string.IsNullOrWhiteSpace(Account.GameNames))
+                    {
+                        _logger.LogInformation("Sử dụng GameNames đã được cung cấp từ form: {GameNames}", Account.GameNames);
+                    }
+                    else
+                    {
+                        // Ghi log để theo dõi
+                        _logger.LogInformation("AppIds thay đổi, cập nhật GameNames từ api.steamcmd.net");
+                        
+                        // Lấy tên game ngay lập tức, không dùng Task.Run để đảm bảo GameNames được lưu đúng
                         try {
                             var appIds = Account.AppIds.Split(',').Select(id => id.Trim()).Where(id => !string.IsNullOrEmpty(id)).ToList();
-                            var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(appIds);
-                            var gameNames = new List<string>();
                             
-                            foreach (var (appId, gameName) in gameInfos)
+                            // Sử dụng SteamCmdService để lấy tên game từ api.steamcmd.net
+                            var steamCmdService = _serviceProvider.GetService<SteamCmdService>();
+                            if (steamCmdService != null)
                             {
-                                if (!string.IsNullOrEmpty(gameName))
-                                {
-                                    gameNames.Add(gameName);
-                                }
-                                else
-                                {
-                                    // Thử dùng SteamApiService nếu không có thông tin trong SteamAppInfoService
-                                    try
-                                    {
-                                        var appInfo = await _steamApiService.GetAppUpdateInfo(appId);
-                                        gameNames.Add(appInfo?.Name ?? $"AppID {appId}");
-                                    }
-                                    catch
-                                    {
-                                        gameNames.Add($"AppID {appId}");
-                                    }
-                                }
+                                _logger.LogInformation("Lấy tên game từ api.steamcmd.net cho tài khoản ID {0}", Account.Id);
+                                var gameNamesDict = await steamCmdService.GetGameNamesFromSteamCmdNet(appIds);
+                                Account.GameNames = string.Join(", ", gameNamesDict.Values);
+                                _logger.LogInformation("Đã lấy được {0} tên game từ api.steamcmd.net: {1}", 
+                                    gameNamesDict.Count, Account.GameNames);
                             }
-                            
-                            Account.GameNames = string.Join(", ", gameNames);
+                            else
+                            {
+                                // Fallback to older method
+                                _logger.LogWarning("Không thể lấy SteamCmdService, sử dụng phương thức cũ");
+                                var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(appIds);
+                                var gameNames = new List<string>();
+                                
+                                foreach (var (appId, gameName) in gameInfos)
+                                {
+                                    if (!string.IsNullOrEmpty(gameName))
+                                    {
+                                        gameNames.Add(gameName);
+                                    }
+                                    else
+                                    {
+                                        // Thử dùng SteamApiService nếu không có thông tin trong SteamAppInfoService
+                                        try
+                                        {
+                                            var appInfo = await _steamApiService.GetAppUpdateInfo(appId);
+                                            gameNames.Add(appInfo?.Name ?? $"AppID {appId}");
+                                        }
+                                        catch
+                                        {
+                                            gameNames.Add($"AppID {appId}");
+                                        }
+                                    }
+                                }
+                                
+                                Account.GameNames = string.Join(", ", gameNames);
+                            }
                         }
                         catch (Exception ex) {
                             _logger.LogError(ex, "Lỗi khi lấy thông tin game: {Error}", ex.Message);
                             // Nếu có lỗi, giữ GameNames cũ
                             Account.GameNames = existingAccount.GameNames;
                         }
-                    });
+                    }
                 }
                 else
                 {
@@ -300,51 +349,15 @@ namespace SteamCmdWebAPI.Pages
                     _logger.LogInformation("Quét tự động đã bị tắt");
                 }
 
-                // Lưu tài khoản ngay lập tức
-                await _accountService.UpdateAccountAsync(Account);
+                // Ghi log GameNames trước khi lưu
+                _logger.LogInformation("GameNames trước khi lưu: {GameNames}", Account.GameNames);
 
-                // Sau khi lưu xong, bắt đầu một Task riêng để cập nhật thông tin game
-                if (Account.AppIds != existingAccount.AppIds && !string.IsNullOrWhiteSpace(Account.AppIds))
-                {
-                    // Chạy các nhiệm vụ dưới nền mà không chờ kết quả
-                    Task.Run(async () => {
-                        try 
-                        {
-                            _logger.LogInformation("Đang cập nhật thông tin game dưới nền...");
-                            var updatedAccount = await _accountService.GetAccountByIdAsync(Account.Id);
-                            
-                            if (updatedAccount != null)
-                            {
-                                var appIds = updatedAccount.AppIds.Split(',').Select(id => id.Trim()).Where(id => !string.IsNullOrEmpty(id)).ToList();
-                                var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(appIds);
-                                
-                                if (gameInfos.Count > 0)
-                                {
-                                    var gameNames = new List<string>();
-                                    foreach (var (appId, gameName) in gameInfos)
-                                    {
-                                        if (!string.IsNullOrEmpty(gameName))
-                                        {
-                                            gameNames.Add(gameName);
-                                        }
-                                        else
-                                        {
-                                            gameNames.Add($"AppID {appId}");
-                                        }
-                                    }
-                                    
-                                    updatedAccount.GameNames = string.Join(", ", gameNames);
-                                    await _accountService.UpdateAccountAsync(updatedAccount);
-                                    _logger.LogInformation("Đã cập nhật thông tin game dưới nền thành công");
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Lỗi khi cập nhật thông tin game dưới nền: {Error}", ex.Message);
-                        }
-                    });
-                }
+                // Lưu tài khoản
+                await _accountService.UpdateAccountAsync(Account);
+                
+                // Kiểm tra lại sau khi lưu
+                var savedAccount = await _accountService.GetAccountByIdAsync(Account.Id);
+                _logger.LogInformation("GameNames sau khi lưu: {GameNames}", savedAccount?.GameNames);
 
                 return new JsonResult(new { success = true });
             }
@@ -400,17 +413,25 @@ namespace SteamCmdWebAPI.Pages
                     return new JsonResult(new { success = false, message = "No valid AppIDs found" });
                 }
 
-                _logger.LogInformation("Scanning info for {Count} AppIDs: {AppIds}", appIdsList.Count, string.Join(", ", appIdsList));
+                _logger.LogInformation("Scanning info for {Count} AppIDs from api.steamcmd.net: {AppIds}", appIdsList.Count, string.Join(", ", appIdsList));
 
-                // Use SteamAppInfoService to get game info
-                var gameInfos = await _steamAppInfoService.GetAppInfoBatchAsync(appIdsList);
+                // Sử dụng SteamCmdService để lấy tên game từ api.steamcmd.net
+                var steamCmdService = _serviceProvider.GetService<SteamCmdService>();
+                if (steamCmdService == null)
+                {
+                    _logger.LogError("Không thể lấy SteamCmdService");
+                    return new JsonResult(new { success = false, message = "Lỗi hệ thống: SteamCmdService không khả dụng" });
+                }
+                
+                // Gọi phương thức lấy tên game từ api.steamcmd.net
+                var gameNames = await steamCmdService.GetGameNamesFromSteamCmdNet(appIdsList);
                 var results = new List<object>();
 
-                foreach (var (appId, gameName) in gameInfos)
+                foreach (var pair in gameNames)
                 {
                     results.Add(new {
-                        appId,
-                        gameName = !string.IsNullOrEmpty(gameName) ? gameName : $"AppID {appId}"
+                        appId = pair.Key,
+                        gameName = pair.Value
                     });
                 }
 
@@ -423,8 +444,63 @@ namespace SteamCmdWebAPI.Pages
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error scanning AppIDs: {AppIds}", appIds);
+                _logger.LogError(ex, "Error scanning AppIDs from api.steamcmd.net: {AppIds}", appIds);
                 return new JsonResult(new { success = false, message = $"Scan error: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// Handler để lấy tên game từ danh sách App IDs
+        /// </summary>
+        public async Task<IActionResult> OnPostGetGameNamesAsync([FromBody] GetGameNamesRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(request?.AppIds))
+                    return new JsonResult(new { success = false, message = "Không có App IDs nào được cung cấp" });
+
+                var appIdList = request.AppIds.Split(',')
+                    .Select(id => id.Trim())
+                    .Where(id => !string.IsNullOrEmpty(id))
+                    .ToList();
+
+                if (appIdList.Count == 0)
+                    return new JsonResult(new { success = false, message = "Không có App IDs hợp lệ nào được tìm thấy" });
+
+                _logger.LogInformation("Đang lấy tên game cho {0} App IDs từ api.steamcmd.net", appIdList.Count);
+                
+                // Sử dụng SteamCmdService để lấy tên game
+                var steamCmdService = _serviceProvider.GetService<SteamCmdService>();
+                if (steamCmdService == null)
+                {
+                    _logger.LogError("Không thể lấy SteamCmdService");
+                    return new JsonResult(new { success = false, message = "Lỗi hệ thống: SteamCmdService không khả dụng" });
+                }
+                
+                // Sử dụng phương thức lấy tên game từ api.steamcmd.net
+                var gameNamesDict = await steamCmdService.GetGameNamesFromSteamCmdNet(appIdList);
+                
+                if (gameNamesDict.Count == 0)
+                {
+                    return new JsonResult(new { success = false, message = "Không thể lấy tên game cho bất kỳ App ID nào" });
+                }
+
+                // Tạo chuỗi tên game cho UI
+                var gameNamesFormatted = string.Join(", ", gameNamesDict.Values);
+                
+                _logger.LogInformation("Đã lấy được tên game cho {0} App IDs từ api.steamcmd.net: {1}", gameNamesDict.Count, gameNamesFormatted);
+                
+                return new JsonResult(new 
+                { 
+                    success = true, 
+                    gameNames = gameNamesFormatted,
+                    details = gameNamesDict
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy tên game từ api.steamcmd.net: {0}", ex.Message);
+                return new JsonResult(new { success = false, message = $"Lỗi khi lấy tên game: {ex.Message}" });
             }
         }
 
@@ -950,5 +1026,10 @@ namespace SteamCmdWebAPI.Pages
     public class UpdateAccountRequest
     {
         public SteamAccount Account { get; set; }
+    }
+
+    public class GetGameNamesRequest
+    {
+        public string AppIds { get; set; }
     }
 }

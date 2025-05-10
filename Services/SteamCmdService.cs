@@ -4013,6 +4013,33 @@ namespace SteamCmdWebAPI.Services
         }
 
         /// <summary>
+        /// Lấy tên game từ AppID - phương thức public để sử dụng từ bên ngoài
+        /// </summary>
+        public async Task<string> GetGameName(string appId)
+        {
+            return await GetGameNameFromAppId(appId);
+        }
+
+        /// <summary>
+        /// Lấy tên game cho nhiều AppID
+        /// </summary>
+        public async Task<Dictionary<string, string>> GetGameNames(List<string> appIds)
+        {
+            var results = new Dictionary<string, string>();
+            
+            foreach (var appId in appIds)
+            {
+                if (string.IsNullOrWhiteSpace(appId))
+                    continue;
+                    
+                string gameName = await GetGameNameFromAppId(appId.Trim());
+                results[appId.Trim()] = gameName;
+            }
+            
+            return results;
+        }
+
+        /// <summary>
         /// Xóa cache thông tin cập nhật của một ứng dụng cụ thể
         /// </summary>
         public async Task<bool> InvalidateAppUpdateCache(string appId)
@@ -5064,6 +5091,88 @@ namespace SteamCmdWebAPI.Services
                 _logger.LogError(ex, "Lỗi khi giải mã username từ profile");
                 return profile.SteamUsername; // Trả về username mã hóa nếu không giải mã được
             }
+        }
+
+        /// <summary>
+        /// Lấy tên game từ AppID sử dụng api.steamcmd.net
+        /// </summary>
+        public async Task<string> GetGameNameFromSteamCmdNet(string appId)
+        {
+            if (string.IsNullOrEmpty(appId))
+                return "Unknown Game";
+                
+            try
+            {
+                _logger.LogInformation("Đang lấy tên game từ api.steamcmd.net cho AppID {AppId}", appId);
+                
+                // Sử dụng HttpClient để gọi API
+                using (HttpClient client = new HttpClient())
+                {
+                    // Đặt timeout cho request
+                    client.Timeout = TimeSpan.FromSeconds(10);
+                    
+                    // URL của API 
+                    string apiUrl = $"https://api.steamcmd.net/v1/info/{appId}";
+                    
+                    // Thực hiện request
+                    HttpResponseMessage response = await client.GetAsync(apiUrl);
+                    
+                    // Kiểm tra response thành công
+                    if (response.IsSuccessStatusCode)
+                    {
+                        // Đọc nội dung JSON từ response
+                        string jsonContent = await response.Content.ReadAsStringAsync();
+                        
+                        // Parse JSON
+                        using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(jsonContent))
+                        {
+                            // Cấu trúc JSON của api.steamcmd.net là {"data": {"<appId>": {"common": {"name": "Game Name"}}}}
+                            if (document.RootElement.TryGetProperty("data", out var dataElement) &&
+                                dataElement.TryGetProperty(appId, out var appElement) &&
+                                appElement.TryGetProperty("common", out var commonElement) &&
+                                commonElement.TryGetProperty("name", out var nameElement))
+                            {
+                                string gameName = nameElement.GetString();
+                                _logger.LogInformation("Đã lấy được tên game từ api.steamcmd.net: {GameName} cho AppID {AppId}", gameName, appId);
+                                return gameName;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Không thể lấy thông tin từ api.steamcmd.net cho AppID {AppId}. Status code: {StatusCode}", 
+                            appId, (int)response.StatusCode);
+                    }
+                }
+                
+                // Nếu không lấy được từ API, quay lại phương thức mặc định
+                return await GetGameNameFromAppId(appId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi lấy tên game từ api.steamcmd.net cho AppID {AppId}: {Error}", appId, ex.Message);
+                // Nếu có lỗi, thử lại với phương thức mặc định
+                return await GetGameNameFromAppId(appId);
+            }
+        }
+
+        /// <summary>
+        /// Lấy tên game cho nhiều AppID từ api.steamcmd.net
+        /// </summary>
+        public async Task<Dictionary<string, string>> GetGameNamesFromSteamCmdNet(List<string> appIds)
+        {
+            var results = new Dictionary<string, string>();
+            
+            foreach (var appId in appIds)
+            {
+                if (string.IsNullOrWhiteSpace(appId))
+                    continue;
+                    
+                string gameName = await GetGameNameFromSteamCmdNet(appId.Trim());
+                results[appId.Trim()] = gameName;
+            }
+            
+            return results;
         }
     }
 }
