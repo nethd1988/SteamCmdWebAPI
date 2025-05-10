@@ -40,7 +40,22 @@ namespace SteamCmdWebAPI.Services
 
             services.AddSingleton<ServerSettingsService>();
             services.AddSingleton<LogFileReader>();
-            services.AddSingleton<SteamApiService>();
+            
+            // Đăng ký IconCacheService trước SteamIconService vì SteamIconService phụ thuộc vào nó
+            services.AddSingleton<IconCacheService>();
+            
+            // Đăng ký SteamIconService trước SteamApiService và truyền IconCacheService
+            services.AddSingleton<SteamIconService>(sp => new SteamIconService(
+                sp.GetRequiredService<ILogger<SteamIconService>>(),
+                sp.GetRequiredService<IconCacheService>()
+            ));
+            
+            // Cập nhật đăng ký SteamApiService với SteamIconService
+            services.AddSingleton<SteamApiService>(sp => new SteamApiService(
+                sp.GetRequiredService<ILogger<SteamApiService>>(),
+                sp.GetRequiredService<SteamIconService>()
+            ));
+            
             // Cập nhật LogService với các phụ thuộc mới
             services.AddSingleton<LogService>(sp => new LogService(
                 sp.GetRequiredService<ILogger<LogService>>(),

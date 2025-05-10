@@ -28,6 +28,11 @@ namespace SteamCmdWebAPI.Services
         private bool _isProcessing = false;
         private CancellationTokenSource _cancellationTokenSource;
 
+        // Add a list to keep recent logs
+        private readonly List<string> _recentLogs = new List<string>();
+        private readonly object _logLock = new object();
+        private readonly int _maxLogItems = 200;
+
         // Thay đổi từ private class thành public class
         public class QueueData
         {
@@ -330,288 +335,270 @@ namespace SteamCmdWebAPI.Services
         {
             try
             {
+                _logger.LogInformation("Bắt đầu xử lý hàng đợi");
+                AddLog("Bắt đầu xử lý hàng đợi cập nhật");
+
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    QueueItem currentItem = null;
+                    QueueItem nextItem = null;
 
-                    // Lấy mục tiếp theo cần xử lý
                     lock (_queueLock)
                     {
-                        currentItem = _queue
-                            .Where(q => q.Status == "Đang chờ")
-                            .OrderBy(q => q.Order)
-                            .FirstOrDefault();
-
-                        if (currentItem != null)
+                        // Lấy mục tiếp theo cần xử lý
+                        nextItem = _queue.FirstOrDefault(q => q.Status == "Đang chờ");
+                        
+                        if (nextItem != null)
                         {
-                            currentItem.Status = "Đang xử lý";
-                            currentItem.StartedAt = DateTime.Now;
-                            currentItem.ProcessingStatus = "Đang khởi động";
+                            nextItem.Status = "Đang xử lý";
+                            nextItem.StartedAt = DateTime.Now;
+                            nextItem.ProcessingStatus = "Đang chuẩn bị";
                             SaveQueueToFile();
                         }
                     }
 
-                    if (currentItem == null)
+                    if (nextItem == null)
                     {
-                        // Không còn mục cần xử lý, thoát vòng lặp
+                        // Không còn mục nào để xử lý
+                        _isProcessing = false;
+                        _logger.LogInformation("Không còn mục nào trong hàng đợi, dừng xử lý");
+                        AddLog("Đã hoàn thành tất cả các mục trong hàng đợi");
                         break;
                     }
 
-                    // Thông báo ngay cập nhật trạng thái
-                    await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
-                        new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
-                    
-                    _logger.LogInformation("Đang xử lý cập nhật {0} (AppID: {1}) cho Profile {2}",
-                        currentItem.AppName, currentItem.AppId, currentItem.ProfileName);
-
-                    // QUAN TRỌNG: Đánh dấu thời gian bắt đầu xử lý
-                    DateTime startTime = DateTime.Now;
-                    bool success = false;
-
                     try
                     {
-                        // Đảm bảo các tiến trình SteamCMD cũ đã dừng trước khi bắt đầu mục mới
-                        using (var scope = _serviceProvider.CreateScope())
-                        {
-                            var steamCmdService = scope.ServiceProvider.GetRequiredService<SteamCmdService>();
-                            await steamCmdService.KillAllSteamCmdProcessesAsync();
-                            await Task.Delay(2000); // Đợi 2 giây để đảm bảo tiến trình đã dừng hoàn toàn
-                        }
-                        
-                        // Sử dụng SteamCmdService để cập nhật
-                        using (var scope = _serviceProvider.CreateScope())
-                        {
-                            var steamCmdService = scope.ServiceProvider.GetRequiredService<SteamCmdService>();
-                            var profile = await _profileService.GetProfileById(currentItem.ProfileId);
-                            if (profile != null)
-                            {
-                                currentItem.ProcessingStatus = "Đang chạy SteamCMD";
-                                await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
-                                    new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
+                        _logger.LogInformation("Bắt đầu cập nhật {AppName} (AppID: {AppId})", 
+                            nextItem.AppName, nextItem.AppId);
+                        AddLog($"[{DateTime.Now:HH:mm:ss}] Bắt đầu cập nhật {nextItem.AppName} (AppID: {nextItem.AppId})");
 
-                                var result = await steamCmdService.ExecuteProfileUpdateAsync(currentItem.ProfileId, currentItem.AppId);
-                                success = result;
+                        // Gửi thông báo cập nhật hàng đợi sau khi đã cập nhật trạng thái
+                    await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
+                            new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() }, 
+                            cancellationToken);
+
+                        // Lấy profile
+                        var profile = await _profileService.GetProfileById(nextItem.ProfileId);
+                        if (profile == null)
+                        {
+                            throw new Exception($"Không tìm thấy profile ID {nextItem.ProfileId}");
+                        }
+
+                        // Thực hiện cập nhật
+                        using (var scope = _serviceProvider.CreateScope())
+                        {
+                            var steamCmdService = scope.ServiceProvider.GetRequiredService<SteamCmdService>();
+                            
+                            nextItem.ProcessingStatus = "Đang cập nhật";
+                            
+                            // Thực hiện cập nhật app
+                            bool updateSuccess = false;
+                            try
+                            {
+                                // Đảm bảo tài khoản đăng nhập đúng
+                                string steamUsername = null;
+                                string steamPassword = null;
                                 
-                                // Thêm kiểm tra bổ sung nếu ExecuteProfileUpdateAsync trả về false
-                                if (!success)
+                                // Giải mã thông tin đăng nhập nếu cần
+                                var encryptionService = scope.ServiceProvider.GetRequiredService<EncryptionService>();
+                                
+                                if (!string.IsNullOrEmpty(profile.SteamUsername))
                                 {
-                                    // Kiểm tra trong LogService có log thành công cho AppID này không
-                                    using (var logScope = _serviceProvider.CreateScope())
+                                    try
                                     {
-                                        var logService = logScope.ServiceProvider.GetRequiredService<LogService>();
-                                        var recentLogs = logService.GetRecentLogs(50);
+                                        steamUsername = encryptionService.Decrypt(profile.SteamUsername);
+                                        _logger.LogInformation("Đã giải mã tên đăng nhập cho profile {ProfileName}", profile.Name);
+                                        AddLog($"Đã giải mã tên đăng nhập cho profile {profile.Name}");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, "Lỗi khi giải mã tên đăng nhập Steam");
+                                        AddLog($"Lỗi khi giải mã tên đăng nhập Steam: {ex.Message}");
+                                    }
+                                }
+                                
+                                if (!string.IsNullOrEmpty(profile.SteamPassword))
+                                {
+                                    try
+                                    {
+                                        steamPassword = encryptionService.Decrypt(profile.SteamPassword);
+                                        _logger.LogInformation("Đã giải mã mật khẩu cho profile {ProfileName}", profile.Name);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, "Lỗi khi giải mã mật khẩu Steam");
+                                        AddLog($"Lỗi khi giải mã mật khẩu Steam: {ex.Message}");
+                                    }
+                                }
+                                
+                                // Bước 1: Cài đặt app
+                                _logger.LogInformation("Thực hiện cập nhật cho {AppName} (AppID: {AppId}) với profile {ProfileName}",
+                                    nextItem.AppName, nextItem.AppId, profile.Name);
+                                AddLog($"Thực hiện cập nhật cho {nextItem.AppName} (AppID: {nextItem.AppId}) với profile {profile.Name}");
+                                
+                                updateSuccess = await steamCmdService.ExecuteProfileUpdateAsync(
+                                    profile.Id,
+                                    nextItem.AppId);
+                                    
+                                if (updateSuccess)
+                                {
+                                    _logger.LogInformation("Cập nhật thành công {AppName} (AppID: {AppId})", 
+                                        nextItem.AppName, nextItem.AppId);
+                                    AddLog($"Cập nhật thành công {nextItem.AppName} (AppID: {nextItem.AppId})");
+                                    
+                                    // Cập nhật trạng thái
+                                    lock (_queueLock)
+                                    {
+                                        nextItem.Status = "Hoàn thành";
+                                        nextItem.CompletedAt = DateTime.Now;
+                                        nextItem.ProcessingTime = nextItem.CompletedAt - nextItem.StartedAt;
+                                        nextItem.ProcessingStatus = "Hoàn thành";
+                                        SaveQueueToFile();
                                         
-                                        // Kiểm tra nếu có bất kỳ log Success nào chứa AppID này
-                                        var successLogs = recentLogs.Where(log => 
-                                            log.Level.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase) &&
-                                            (log.Message.Contains($"App '{currentItem.AppId}'") || 
-                                             log.Message.Contains($"AppID: {currentItem.AppId}") ||
-                                             log.Message.Contains($"fully installed") && log.Message.Contains(currentItem.AppId) ||
-                                             log.Message.Contains($"already up to date") && log.Message.Contains(currentItem.AppId)));
+                                        // Di chuyển vào lịch sử
+                                        _queue.Remove(nextItem);
+                                        _queueHistory.Add(nextItem);
                                         
-                                        if (successLogs.Any())
+                                        // Giới hạn kích thước lịch sử
+                                        if (_queueHistory.Count > _maxHistoryItems)
                                         {
-                                            _logger.LogInformation("Phát hiện log thành công cho {0} (AppID: {1}) trong LogService mặc dù ExecuteProfileUpdateAsync trả về false", 
-                                                currentItem.AppName, currentItem.AppId);
-                                            success = true;
-                                            currentItem.Error = null;
-                                        }
-                                        else 
-                                        {
-                                            // Phân tích loại lỗi và quyết định thử lại nếu cần
-                                            var errorLogs = logService.GetRecentLogs(100)
-                                                .Where(log => (log.Level.Equals("ERROR", StringComparison.OrdinalIgnoreCase) || 
-                                                              log.Status.Equals("Error", StringComparison.OrdinalIgnoreCase)) &&
-                                                              (log.Message.Contains(currentItem.AppId) || 
-                                                               log.Message.Contains("Invalid Password") ||
-                                                               log.Message.Contains("No subscription") ||
-                                                               log.Message.Contains("Error! App") ||
-                                                               log.Message.Contains("state is 0x") ||
-                                                               log.Message.Contains("Rate Limit Exceeded") ||
-                                                               log.Message.Contains("Sai tên đăng nhập")))
-                                                .Take(10)
+                                            _queueHistory = _queueHistory
+                                                .OrderByDescending(h => h.CompletedAt ?? h.CreatedAt)
+                                                .Take(_maxHistoryItems)
                                                 .ToList();
-                                                
-                                            bool shouldRetry = false;
-                                            bool shouldUseAltAccount = false;
-                                            bool shouldValidate = false;
-                                            string errorReason = "Lỗi không xác định";
-                                            
-                                            // Phân tích loại lỗi
-                                            foreach (var log in errorLogs)
-                                            {
-                                                string message = log.Message;
-                                                
-                                                // Phát hiện lỗi đăng nhập
-                                                if (message.Contains("Invalid Password") || 
-                                                    message.Contains("Sai tên đăng nhập") || 
-                                                    message.Contains("Rate Limit Exceeded"))
-                                                {
-                                                    shouldRetry = true;
-                                                    shouldUseAltAccount = true;
-                                                    errorReason = "Lỗi đăng nhập Steam";
-                                                    break;
-                                                }
-                                                
-                                                // Phát hiện lỗi No subscription
-                                                if (message.Contains("No subscription") || message.Contains("không có quyền truy cập"))
-                                                {
-                                                    shouldRetry = true;
-                                                    shouldUseAltAccount = true;
-                                                    errorReason = "Tài khoản không có quyền truy cập ứng dụng";
-                                                    break;
-                                                }
-                                                
-                                                // Phát hiện lỗi state 0x606 hoặc tương tự
-                                                if (message.Contains("state is 0x") || 
-                                                    message.Contains("Error! App") && message.Contains("state"))
-                                                {
-                                                    shouldRetry = true;
-                                                    shouldValidate = true;
-                                                    errorReason = "Lỗi trạng thái cập nhật, cần validate";
-                                                    break;
-                                                }
-                                            }
-                                            
-                                            // Quyết định thử lại
-                                            if (shouldRetry && currentItem.RetryCount < 3)
-                                            {
-                                                currentItem.RetryCount++;
-                                                currentItem.LastRetryTime = DateTime.Now;
-                                                currentItem.Status = "Đang chờ";
-                                                currentItem.Error = $"{errorReason}. Đang thử lại lần {currentItem.RetryCount}/3";
-                                                currentItem.ProcessingStatus = "Đang chuẩn bị thử lại";
-                                                
-                                                // Ghi log
-                                                _logger.LogInformation(
-                                                    "Lên lịch thử lại cho {0} (AppID: {1}). Lần thử: {2}/3. Lý do: {3}. UseAltAccount: {4}, Validate: {5}", 
-                                                    currentItem.AppName, currentItem.AppId, currentItem.RetryCount, errorReason, 
-                                                    shouldUseAltAccount, shouldValidate);
-                                                
-                                                await _hubContext.Clients.All.SendAsync("ReceiveLog", 
-                                                    $"Lên lịch thử lại cho {currentItem.AppName} (AppID: {currentItem.AppId}). Lý do: {errorReason}");
-                                                
-                                                // Thông báo cho SteamCmdService về việc cần thử lại với validate hoặc tài khoản khác
-                                                if (shouldUseAltAccount || shouldValidate)
-                                                {
-                                                    using (var retryScope = _serviceProvider.CreateScope())
-                                                    {
-                                                        var steamCmdSvc = retryScope.ServiceProvider.GetRequiredService<SteamCmdService>();
-                                                        
-                                                        if (shouldValidate)
-                                                        {
-                                                            await _hubContext.Clients.All.SendAsync("ReceiveLog", 
-                                                                $"Thử lại với validate=true cho {currentItem.AppName} (AppID: {currentItem.AppId})");
-                                                                
-                                                            // Đánh dấu appId với tiền tố validate: để thử lại với validate=true
-                                                            steamCmdSvc.AddAppToRetryList($"validate:{currentItem.AppId}", currentItem.ProfileId);
-                                                        }
-                                                        else if (shouldUseAltAccount)
-                                                        {
-                                                            await _hubContext.Clients.All.SendAsync("ReceiveLog", 
-                                                                $"Thử lại với tài khoản khác cho {currentItem.AppName} (AppID: {currentItem.AppId})");
-                                                                
-                                                            // Đánh dấu appId để thử lại với tài khoản khác
-                                                            steamCmdSvc.AddAppToRetryList(currentItem.AppId, currentItem.ProfileId);
-                                                        }
-                                                    }
-                                                }
+                                        }
+                                        SaveQueueToFile();
+                                    }
+                                    
+                                    // Cập nhật thông tin cache cho app
+                                    try
+                                    {
+                                        var steamApiService = scope.ServiceProvider.GetRequiredService<SteamApiService>();
+                                        await steamApiService.GetAppUpdateInfo(nextItem.AppId, true);
+                                        _logger.LogInformation("Đã cập nhật thông tin cache cho {AppName} (AppID: {AppId})", 
+                                            nextItem.AppName, nextItem.AppId);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, "Lỗi khi cập nhật thông tin cache cho AppID {AppId}", nextItem.AppId);
+                                        AddLog($"Lỗi khi cập nhật thông tin cache cho AppID {nextItem.AppId}: {ex.Message}");
+                                    }
+                                    
+                                    // Gửi thông báo cập nhật hàng đợi
+                                    await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
+                                        new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() }, 
+                                        cancellationToken);
+                                }
+                                else
+                                {
+                                    throw new Exception("Cập nhật không thành công, xem log để biết chi tiết");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                // Xử lý lỗi
+                                _logger.LogError(ex, "Lỗi khi cập nhật {AppName} (AppID: {AppId}): {Error}", 
+                                    nextItem.AppName, nextItem.AppId, ex.Message);
+                                AddLog($"Lỗi khi cập nhật {nextItem.AppName} (AppID: {nextItem.AppId}): {ex.Message}");
                                                 
                                                 lock (_queueLock)
                                                 {
-                                                    // Đưa lại vào hàng đợi chờ với order cao hơn để ưu tiên thấp hơn các mục mới
-                                                    currentItem.Order = GetNextOrder() + 100;
+                                    nextItem.Status = "Lỗi";
+                                    nextItem.Error = ex.Message;
+                                    nextItem.CompletedAt = DateTime.Now;
+                                    nextItem.ProcessingTime = nextItem.CompletedAt - nextItem.StartedAt;
+                                    nextItem.ProcessingStatus = "Lỗi";
                                                     SaveQueueToFile();
-                                                }
-                                                
-                                                // Skip updating queue history since we're retrying
-                                                continue;
-                                            }
-                                            else if (currentItem.RetryCount >= 3)
-                                            {
-                                                // Đã thử lại quá nhiều lần
-                                                currentItem.Error = $"{errorReason}. Đã thử lại {currentItem.RetryCount} lần nhưng không thành công.";
-                                                _logger.LogWarning("Đã thử lại {0} lần cho {1} (AppID: {2}) nhưng vẫn thất bại. Lý do: {3}", 
-                                                    currentItem.RetryCount, currentItem.AppName, currentItem.AppId, errorReason);
-                                            }
-                                        }
+                                    
+                                    // Di chuyển vào lịch sử
+                                    _queue.Remove(nextItem);
+                                    _queueHistory.Add(nextItem);
+                                    
+                                    // Giới hạn kích thước lịch sử
+                                    if (_queueHistory.Count > _maxHistoryItems)
+                                    {
+                                        _queueHistory = _queueHistory
+                                            .OrderByDescending(h => h.CompletedAt ?? h.CreatedAt)
+                                            .Take(_maxHistoryItems)
+                                            .ToList();
                                     }
+                                    SaveQueueToFile();
                                 }
+                                
+                                // Gửi thông báo cập nhật hàng đợi
+                                await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
+                                    new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() }, 
+                                    cancellationToken);
                             }
-                        }
-                        
-                        // QUAN TRỌNG: Kiểm tra nếu xử lý quá nhanh (dưới 10 giây) - có thể có vấn đề
-                        TimeSpan processingTime = DateTime.Now - startTime;
-                        currentItem.ProcessingTime = processingTime;
-                        
-                        if (processingTime.TotalSeconds < 10 && !success)
-                        {
-                            _logger.LogWarning("ProcessQueueAsync: Xử lý quá nhanh ({0} giây) cho {1} (AppID: {2}), đánh dấu không thành công",
-                                processingTime.TotalSeconds, currentItem.AppName, currentItem.AppId);
-                            
-                            success = false;
-                            currentItem.Error = "Xử lý quá nhanh, có thể SteamCMD không chạy đúng cách";
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Lỗi khi cập nhật {0} (AppID: {1})", currentItem.AppName, currentItem.AppId);
-                        currentItem.Error = ex.Message;
-                        currentItem.ProcessingStatus = "Lỗi: " + ex.Message;
-                    }
-
-                    // Cập nhật trạng thái và lưu lịch sử
+                        _logger.LogError(ex, "Lỗi nghiêm trọng khi xử lý mục hàng đợi {QueueItemId}: {Error}", 
+                            nextItem.Id, ex.Message);
+                        AddLog($"Lỗi nghiêm trọng khi xử lý mục hàng đợi {nextItem.Id}: {ex.Message}");
+                        
                     lock (_queueLock)
                     {
-                        currentItem.Status = success ? "Hoàn thành" : "Lỗi";
-                        currentItem.CompletedAt = DateTime.Now;
-                        currentItem.ProcessingStatus = success ? "Hoàn thành" : "Thất bại";
-
-                        _queue.Remove(currentItem);
-                        _queueHistory.Insert(0, currentItem);
-
+                            nextItem.Status = "Lỗi";
+                            nextItem.Error = ex.Message;
+                            nextItem.CompletedAt = DateTime.Now;
+                            nextItem.ProcessingStatus = "Lỗi";
+                            SaveQueueToFile();
+                            
+                            // Di chuyển vào lịch sử
+                            _queue.Remove(nextItem);
+                            _queueHistory.Add(nextItem);
+                            
+                            // Giới hạn kích thước lịch sử
                         if (_queueHistory.Count > _maxHistoryItems)
                         {
-                            _queueHistory.RemoveRange(_maxHistoryItems, _queueHistory.Count - _maxHistoryItems);
+                                _queueHistory = _queueHistory
+                                    .OrderByDescending(h => h.CompletedAt ?? h.CreatedAt)
+                                    .Take(_maxHistoryItems)
+                                    .ToList();
                         }
-
                         SaveQueueToFile();
                     }
 
-                    // QUAN TRỌNG: Thông báo ngay lập tức
+                        // Gửi thông báo cập nhật hàng đợi
                     await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
-                        new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
-
-                    // Thông báo log
-                    if (success)
-                    {
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", 
-                            $"Đã hoàn thành cập nhật {currentItem.AppName} (AppID: {currentItem.AppId}) trong {currentItem.ProcessingTime?.TotalSeconds:F1} giây");
+                            new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() }, 
+                            cancellationToken);
                     }
-                    else
+                    
+                    // Kiểm tra nếu đã bị cancel
+                    if (cancellationToken.IsCancellationRequested)
                     {
-                        await _hubContext.Clients.All.SendAsync("ReceiveLog", 
-                            $"Lỗi khi cập nhật {currentItem.AppName} (AppID: {currentItem.AppId}): {currentItem.Error}");
+                        _logger.LogInformation("Dừng xử lý hàng đợi theo yêu cầu.");
+                        AddLog("Dừng xử lý hàng đợi theo yêu cầu người dùng.");
+                        break;
                     }
-
-                    // Chờ một chút trước khi xử lý mục tiếp theo
-                    await Task.Delay(1000, cancellationToken);
                 }
             }
             catch (OperationCanceledException)
             {
-                // Bỏ qua khi bị hủy
+                _logger.LogInformation("Đã hủy xử lý hàng đợi");
+                AddLog("Đã hủy xử lý hàng đợi.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi xử lý hàng đợi cập nhật");
+                _logger.LogError(ex, "Lỗi khi xử lý hàng đợi: {Error}", ex.Message);
+                AddLog($"Lỗi khi xử lý hàng đợi: {ex.Message}");
             }
             finally
             {
                 _isProcessing = false;
-                await _hubContext.Clients.All.SendAsync("ReceiveLog", "Đã hoàn thành xử lý hàng đợi cập nhật");
+                
+                // Gửi thông báo cập nhật hàng đợi cuối cùng
+                try
+                {
                 await _hubContext.Clients.All.SendAsync("ReceiveQueueUpdate", 
                     new { CurrentQueue = GetQueue(), QueueHistory = GetQueueHistory() });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi khi gửi thông báo cập nhật hàng đợi cuối cùng: {Error}", ex.Message);
+                }
             }
         }
 
@@ -878,6 +865,82 @@ namespace SteamCmdWebAPI.Services
             {
                 _logger.LogError(ex, "Lỗi khi cập nhật tiến trình tải cho QueueItem {Id}", queueItemId);
                 return false;
+            }
+        }
+
+        // Add log method
+        public void AddLog(string message)
+        {
+            if (string.IsNullOrEmpty(message))
+                return;
+                
+            // Ensure message is properly formatted and not an object
+            string formattedMessage = message;
+            
+            // Remove any potential serialization issues
+            if (message.Contains("{") && message.Contains("}"))
+            {
+                // If it looks like JSON, ensure it's just the message part
+                try
+                {
+                    var doc = JsonDocument.Parse(message);
+                    if (doc.RootElement.TryGetProperty("message", out var msgProperty))
+                    {
+                        formattedMessage = msgProperty.GetString();
+                    }
+                    else if (doc.RootElement.TryGetProperty("log", out var logProperty))
+                    {
+                        formattedMessage = logProperty.GetString();
+                    }
+                }
+                catch
+                {
+                    // If parsing fails, keep original message
+                }
+            }
+                
+            lock (_logLock)
+            {
+                // Add timestamp if not already present
+                if (!formattedMessage.StartsWith("[") && !char.IsDigit(formattedMessage[0]))
+                {
+                    formattedMessage = $"[{DateTime.Now.ToString("HH:mm:ss")}] {formattedMessage}";
+                }
+                
+                _recentLogs.Add(formattedMessage);
+                
+                // Keep log size manageable
+                if (_recentLogs.Count > _maxLogItems)
+                {
+                    _recentLogs.RemoveAt(0);
+                }
+                
+                // Log to console as well
+                _logger.LogInformation(formattedMessage);
+            }
+            
+            // Send to clients via SignalR - ALWAYS send just the string
+            try
+            {
+                var sendTask = _hubContext.Clients.All.SendAsync("ReceiveLog", formattedMessage);
+                sendTask.Wait(TimeSpan.FromSeconds(1)); // Avoid indefinite wait
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending log via SignalR: {Message}", ex.Message);
+            }
+        }
+        
+        // Get recent logs
+        public List<string> GetRecentLogs(int count = 100)
+        {
+            lock (_logLock)
+            {
+                // Return the most recent logs up to count
+                return _recentLogs
+                    .Skip(Math.Max(0, _recentLogs.Count - count))
+                    .Take(Math.Min(_recentLogs.Count, count))
+                    .ToList();
             }
         }
     }

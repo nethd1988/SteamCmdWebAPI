@@ -64,14 +64,85 @@
     .status-badge i {
         margin-right: 0.25rem;
     }
+
+    .game-info-container {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .game-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        object-fit: cover;
+    }
+    
+    .game-icon-placeholder {
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        background-color: #f0f0f0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #666;
+        font-size: 18px;
+    }
+    
+    /* Styles for log display */
+    #update-log {
+        height: 400px;
+        overflow-y: auto;
+        background-color: #0a1929;
+        color: #e6e6e6;
+        font-family: 'Consolas', 'Courier New', monospace;
+        font-size: 14px;
+        padding: 10px;
+        border-radius: 0 0 4px 4px;
+    }
+    
+    .log-entries {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .log-entry {
+        margin-bottom: 3px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    
+    .log-timestamp {
+        color: #6cb4ee;
+        margin-right: 10px;
+    }
+    
+    .log-content {
+        color: #e6e6e6;
+    }
+    
+    .log-content.success {
+        color: #4caf50;
+    }
+    
+    .log-content.error {
+        color: #f44336;
+    }
+    
+    .log-content.warning {
+        color: #ff9800;
+    }
+    
+    .log-content.info {
+        color: #2196f3;
+    }
 </style>
 
 <div class="page-header d-flex justify-content-between align-items-center">
     <h1>Quản lý hàng đợi cập nhật</h1>
     <div class="header-actions">
-        <button id="checkUpdatesBtn" class="btn-action btn-primary" type="button">
-            <i class="bi bi-cloud-download"></i> Kiểm tra cập nhật
-        </button>
         <button id="processQueueBtn" class="btn-action btn-success" type="button" @(Model.IsProcessing ? "disabled" : "")>
             <i class="bi bi-play-fill"></i> Xử lý hàng đợi
         </button>
@@ -84,11 +155,18 @@
     </div>
 </div>
 
+<div class="d-flex justify-content-end mb-2">
+    <small class="text-muted">
+        <i class="bi bi-arrow-clockwise"></i> 
+        <span>Tự động làm mới mỗi 5 giây</span>
+    </small>
+</div>
+
 <form id="csrfForm" method="post" style="display:none;">
     @Html.AntiForgeryToken()
 </form>
 
-<!-- Console for log output -->
+<!-- Log updates -->
 <div class="console-container">
     <div class="console-header">
         <h5>Log cập nhật</h5>
@@ -101,7 +179,12 @@
             </button>
         </div>
     </div>
-    <div class="console-body" id="steamcmd-console"></div>
+    <div class="console-body" id="update-log">
+        <div class="log-entries">
+            <!-- Log entries will be added here dynamically -->
+            <div class="log-entry"><span class="log-timestamp">@DateTime.Now.ToString("HH:mm:ss")</span> <span class="log-content">Hệ thống đã sẵn sàng xử lý cập nhật game.</span></div>
+        </div>
+    </div>
 </div>
 
 <!-- Bảng hàng đợi hiện tại -->
@@ -131,7 +214,22 @@
                     <tr data-id="@item.Id" class="@GetRowClass(item.Status)">
                         <td>@item.Order</td>
                         <td>
+                            <div class="game-info-container">
+                                @{
+                                    var iconPath = Model.GetIconPath(item.AppId);
+                                }
+                                @if (!string.IsNullOrEmpty(iconPath))
+                                {
+                                    <img src="@iconPath" alt="@item.AppName" class="game-icon" />
+                                }
+                                else
+                                {
+                                    <div class="game-icon-placeholder">
+                                        <i class="bi bi-controller"></i>
+                                    </div>
+                                }
                             <span title="AppID: @item.AppId">@item.AppName</span>
+                            </div>
                         </td>
                         <td>@GetFormattedCreatedAt(item)</td>
                         <td>@GetFormattedStartedAt(item)</td>
@@ -189,7 +287,24 @@
                     {
                         <tr>
                             <td>@(Model.QueueHistory.IndexOf(item) + 1)</td>
-                            <td><span title="AppID: @item.AppId">@item.AppName</span></td>
+                            <td>
+                                <div class="game-info-container">
+                                    @{
+                                        var iconPath = Model.GetIconPath(item.AppId);
+                                    }
+                                    @if (!string.IsNullOrEmpty(iconPath))
+                                    {
+                                        <img src="@iconPath" alt="@item.AppName" class="game-icon" />
+                                    }
+                                    else
+                                    {
+                                        <div class="game-icon-placeholder">
+                                            <i class="bi bi-controller"></i>
+                                        </div>
+                                    }
+                                    <span title="AppID: @item.AppId">@item.AppName</span>
+                                </div>
+                            </td>
                             <td>@GetFormattedCreatedAt(item)</td>
                             <td>@GetFormattedStartedAt(item)</td>
                             <td>@GetFormattedCompletedAt(item)</td>
@@ -254,396 +369,548 @@
 }
 
 @section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
     <script>
+        let autoRefreshInterval;
+        const REFRESH_INTERVAL = 5000; // 5 seconds
+        let isAutoScrollEnabled = true;
+        
+        // Cache for storing icon paths by appId
+        const iconCache = {};
+        
+        // Initialize SignalR connection
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/logHub")
+            .withAutomaticReconnect()
+            .build();
+            
+        // Debug function to check object structure
+        function debugLogMessage(data) {
+            console.log('Received log data:', data);
+            console.log('Type of data:', typeof data);
+            
+            if (typeof data === 'object') {
+                console.log('Object keys:', Object.keys(data));
+                console.log('Object content:', JSON.stringify(data));
+            }
+        }
+        
+        // Handle receiving logs
+        connection.on("ReceiveLog", function(message) {
+            // Add debug logging
+            debugLogMessage(message);
+            
+            // Convert object to string if necessary
+            if (typeof message === 'object') {
+                // If it's an object with properties, try to extract meaningful text
+                if (message.message) {
+                    message = message.message;
+                } else if (message.log) {
+                    message = message.log;
+                } else {
+                    // If no obvious property, stringify the object
+                    message = JSON.stringify(message);
+                }
+            }
+            
+            addLogEntry(message);
+        });
+        
+        // Start the connection
+        connection.start().catch(function(err) {
+            console.error("Lỗi kết nối với server: ", err);
+            addLogEntry("Lỗi kết nối với server. Tự động làm mới sau 5 giây.", "error");
+        });
+        
         $(document).ready(function() {
-            // Lấy CSRF token từ form
-            var token = $('#csrfForm input[name="__RequestVerificationToken"]').val();
-
-            // Khởi tạo SignalR connection cho cập nhật hàng đợi
-            var connection = new signalR.HubConnectionBuilder()
-                .withUrl("/logHub")
-                .withAutomaticReconnect([0, 1000, 5000, 10000])
-                .configureLogging(signalR.LogLevel.Error)
-                .build();
-
-            // Sự kiện nhận cập nhật hàng đợi
-            connection.on("ReceiveQueueUpdate", function(data) {
-                updateQueueTable(data.currentQueue);
-                updateHistoryTable(data.queueHistory);
-            });
-
-            connection.start()
-                .then(function() {
-                    console.log("Đã kết nối với server");
-                    // Yêu cầu cập nhật hàng đợi
-                    connection.invoke("RequestQueueUpdate");
-                })
-                .catch(function(err) {
-                    console.error("Lỗi kết nối SignalR:", err);
-                });
-
-            // Tự động cập nhật hàng đợi mỗi 10 giây
-            setInterval(function() {
-                $.ajax({
-                    url: "/QueueManager?handler=UpdateQueueStatus",
-                    method: "GET",
-                    success: function(response) {
-                        if (response.success) {
-                            updateQueueTable(response.currentQueue);
-                            updateHistoryTable(response.queueHistory);
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        console.error("Lỗi khi cập nhật hàng đợi:", error);
-                    }
-                });
-            }, 10000);
-
-            // Hàm hỗ trợ định dạng ngày giờ
-            function formatDateTime(date) {
-                if (!(date instanceof Date) || isNaN(date)) return "N/A";
-                
-                var day = date.getDate().toString().padStart(2, '0');
-                var month = (date.getMonth() + 1).toString().padStart(2, '0');
-                var year = date.getFullYear();
-                var hours = date.getHours().toString().padStart(2, '0');
-                var minutes = date.getMinutes().toString().padStart(2, '0');
-                var seconds = date.getSeconds().toString().padStart(2, '0');
-                
-                return day + "/" + month + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
-            }
+            // Initialize auto-refresh
+            startAutoRefresh();
             
-            // Hàm hỗ trợ lấy class cho trạng thái
-            function getStatusClass(status) {
-                switch(status) {
-                    case "Đang chờ": return "waiting";
-                    case "Đang xử lý": return "processing";
-                    case "Hoàn thành": return "success";
-                    case "Lỗi": return "error";
-                    case "Đã hủy": return "cancelled";
-                    default: return "";
+            // Initialize the icon cache from existing icons on the page
+            $('.game-icon').each(function() {
+                const $container = $(this).closest('.game-info-container');
+                const appId = $container.find('span').attr('title').replace('AppID: ', '');
+                if (appId && this.src) {
+                    iconCache[appId] = this.src;
                 }
-            }
-
-            // Hàm hỗ trợ lấy icon cho trạng thái
-            function getStatusIcon(status) {
-                switch(status) {
-                    case "Đang chờ": return "bi-hourglass-split";
-                    case "Đang xử lý": return "bi-arrow-repeat";
-                    case "Hoàn thành": return "bi-check-circle";
-                    case "Lỗi": return "bi-exclamation-triangle";
-                    case "Đã hủy": return "bi-x-circle";
-                    default: return "bi-question-circle";
-                }
-            }
-
-            // Thêm hàm để lấy class CSS tương ứng với trạng thái
-            function getRowClass(status) {
-                switch(status) {
-                    case "Đang xử lý": return "table-primary";
-                    case "Hoàn thành": return "table-success";
-                    case "Lỗi": return "table-danger";
-                    case "Đã hủy": return "table-warning";
-                    default: return "";
-                }
-            }
-
-            // Cập nhật hàm updateQueueTable để sử dụng các hàm định dạng thay vì thuộc tính
-            function updateQueueTable(queueItems) {
-                var tableBody = $("#queueTable tbody");
-                tableBody.empty();
-                
-                if (queueItems && queueItems.length > 0) {
-                    queueItems.forEach(function(item) {
-                        var row = $("<tr>");
-                        row.attr("data-id", item.id);
-                        row.addClass(getRowClass(item.status));
-                        
-                        // STT
-                        row.append($("<td>").text(item.order));
-                        
-                        // Tên app (với tooltip hiển thị AppID)
-                        var appCell = $("<td>");
-                        var appSpan = $("<span>").attr("title", "AppID: " + item.appId).text(item.appName);
-                        appCell.append(appSpan);
-                        row.append(appCell);
-                        
-                        // Thời gian thêm
-                        var createdTime = new Date(item.createdAt);
-                        row.append($("<td>").text(formatDateTime(createdTime)));
-                        
-                        // Thời gian bắt đầu
-                        var startedTime = item.startedAt ? new Date(item.startedAt) : null;
-                        row.append($("<td>").text(startedTime ? formatDateTime(startedTime) : "-"));
-                        
-                        // Trạng thái
-                        var statusCell = $("<td>");
-                        var statusClass = getStatusClass(item.status);
-                        var statusIcon = getStatusIcon(item.status);
-                        
-                        var statusBadge = $("<span>")
-                            .addClass("status-badge " + statusClass)
-                            .append($("<i>").addClass("bi " + statusIcon))
-                            .append(" " + item.status);
-                        
-                        statusCell.append(statusBadge);
-                        row.append(statusCell);
-                        
-                        // Thao tác
-                        var actionsCell = $("<td>");
-                        if (item.status === "Đang chờ") {
-                            var removeButton = $("<button>")
-                                .addClass("btn-icon delete remove-queue-btn")
-                                .attr("title", "Xóa khỏi hàng đợi")
-                                .attr("data-id", item.id)
-                                .append($("<i>").addClass("bi bi-trash"));
-                                
-                            removeButton.click(function() {
-                                removeFromQueue(item.id);
-                            });
-                            
-                            actionsCell.append(removeButton);
-                        }
-                        row.append(actionsCell);
-                        
-                        tableBody.append(row);
-                    });
-                } else {
-                    tableBody.append(
-                        $("<tr>").append(
-                            $("<td>").attr("colspan", "6").addClass("text-center").text("Không có mục nào trong hàng đợi")
-                        )
-                    );
-                }
-            }
-
-            // Cập nhật hàm updateHistoryTable để sử dụng các hàm định dạng thay vì thuộc tính
-            function updateHistoryTable(historyItems) {
-                var tableBody = $("#historyTableBody");
-                tableBody.empty();
-                
-                if (historyItems && historyItems.length > 0) {
-                    // Sắp xếp theo thời gian hoàn thành hoặc thời gian tạo (giảm dần)
-                    historyItems.sort(function(a, b) {
-                        var timeA = a.completedAt || a.createdAt;
-                        var timeB = b.completedAt || b.createdAt;
-                        return new Date(timeB) - new Date(timeA);
-                    });
-                    
-                    historyItems.forEach(function(item, index) {
-                        var row = $("<tr>");
-                        
-                        // Số thứ tự
-                        row.append($("<td>").text(index + 1));
-                        
-                        // Tên app (với tooltip hiển thị AppID)
-                        var appCell = $("<td>");
-                        var appSpan = $("<span>").attr("title", "AppID: " + item.appId).text(item.appName);
-                        appCell.append(appSpan);
-                        row.append(appCell);
-                        
-                        // Thời gian thêm
-                        var createdTime = item.createdAt ? new Date(item.createdAt) : null;
-                        row.append($("<td>").text(createdTime ? formatDateTime(createdTime) : "N/A"));
-                        
-                        // Thời gian bắt đầu
-                        var startTime = item.startedAt ? new Date(item.startedAt) : null;
-                        row.append($("<td>").text(startTime ? formatDateTime(startTime) : "N/A"));
-                        
-                        // Thời gian hoàn thành
-                        var completeTime = item.completedAt ? new Date(item.completedAt) : null;
-                        row.append($("<td>").text(completeTime ? formatDateTime(completeTime) : "N/A"));
-                        
-                        // Trạng thái
-                        var statusCell = $("<td>");
-                        var statusClass = getStatusClass(item.status);
-                        var statusIcon = getStatusIcon(item.status);
-                        
-                        var statusBadge = $("<span>")
-                            .addClass("status-badge " + statusClass)
-                            .append($("<i>").addClass("bi " + statusIcon))
-                            .append(" " + item.status);
-                        
-                        statusCell.append(statusBadge);
-                        row.append(statusCell);
-                        
-                        tableBody.append(row);
-                    });
-                } else {
-                    tableBody.append(
-                        $("<tr>").append(
-                            $("<td>").attr("colspan", "6").addClass("text-center").text("Không có mục nào trong lịch sử")
-                        )
-                    );
-                }
-            }
-
-            // Hàm xóa khỏi hàng đợi
-            function removeFromQueue(id) {
-                if (confirm("Bạn có chắc chắn muốn xóa mục này khỏi hàng đợi?")) {
-                    var token = $('input[name="__RequestVerificationToken"]').val();
-                    
-                    $.ajax({
-                        url: "/QueueManager?handler=RemoveFromQueue",
-                        method: "POST",
-                        data: { id: id, __RequestVerificationToken: token },
-                        success: function(response) {
-                            if (response.success) {
-                                // Yêu cầu cập nhật lại hàng đợi
-                                connection.invoke("RequestQueueUpdate");
-                            } else {
-                                alert("Lỗi: " + response.message);
-                            }
-                        },
-                        error: function(xhr, status, error) {
-                            alert("Lỗi khi xóa khỏi hàng đợi: " + error);
-                        }
-                    });
-                }
-            }
-
-            // Tìm kiếm trong bảng hàng đợi
-            $("#queueSearch").on("keyup", function() {
-                var value = $(this).val().toLowerCase();
-                $("#queueTable tbody tr").filter(function() {
+            });
+            
+            // Connect button event handlers
+            $('#processQueueBtn').click(function() {
+                startProcessingQueue();
+            });
+            
+            $('#stopQueueBtn').click(function() {
+                stopProcessingQueue();
+            });
+            
+            $('#clearQueueBtn').click(function() {
+                clearQueue();
+            });
+            
+            // Connect search functionality
+            $('#queueSearch').on('keyup', function() {
+                const value = $(this).val().toLowerCase();
+                $('#queueTable tbody tr').filter(function() {
                     $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1);
                 });
             });
             
-            // Tìm kiếm cho bảng lịch sử
-            $("#historySearch").on("keyup", function() {
-                var value = $(this).val().toLowerCase();
-                $("#historyTable tbody tr").filter(function() {
+            $('#historySearch').on('keyup', function() {
+                const value = $(this).val().toLowerCase();
+                $('#historyTableBody tr').filter(function() {
                     $(this).toggle($(this).text().toLowerCase().indexOf(value) > -1);
                 });
             });
             
-            // Xử lý nút Kiểm tra cập nhật
-            $("#checkUpdatesBtn").click(function() {
-                $(this).prop("disabled", true).html('<i class="bi bi-hourglass-split me-1"></i> Đang kiểm tra...');
-
-                $.ajax({
-                    url: "/UpdateManagement?handler=CheckUpdates",
-                    method: "POST",
-                    headers: {
-                        "RequestVerificationToken": token
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            showToast(response.message, "success");
-                        } else {
-                            showToast("Lỗi: " + (response.message || "Không thể kiểm tra cập nhật"), "danger");
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        showToast("Lỗi khi kiểm tra cập nhật: " + error, "danger");
-                    },
-                    complete: function() {
-                        $("#checkUpdatesBtn").prop("disabled", false).html('<i class="bi bi-cloud-download"></i> Kiểm tra cập nhật');
-                    }
-                });
+            // Handle form submission to avoid refreshing entire page
+            $('#csrfForm').submit(function(e) {
+                e.preventDefault();
             });
-
-            // Xử lý nút Xử lý hàng đợi
-            $("#processQueueBtn").click(function() {
-                $(this).prop("disabled", true);
-                $("#stopQueueBtn").prop("disabled", false);
-
-                $.ajax({
-                    url: "/QueueManager?handler=StartProcessing",
-                    method: "POST",
-                    headers: {
-                        "RequestVerificationToken": token
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            showToast("Đã bắt đầu xử lý hàng đợi", "success");
-                        } else {
-                            showToast("Lỗi: " + (response.message || "Không thể bắt đầu xử lý hàng đợi"), "danger");
-                            $("#processQueueBtn").prop("disabled", false);
-                            $("#stopQueueBtn").prop("disabled", true);
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        showToast("Lỗi: " + error, "danger");
-                        $("#processQueueBtn").prop("disabled", false);
-                        $("#stopQueueBtn").prop("disabled", true);
-                    }
-                });
+            
+            // Connect the initial remove-queue-btn handlers
+            $(document).on('click', '.remove-queue-btn', function() {
+                removeFromQueue($(this).data('id'));
             });
-
-            // Xử lý nút Dừng xử lý
-            $("#stopQueueBtn").click(function() {
-                $(this).prop("disabled", true);
-
-                $.ajax({
-                    url: "/QueueManager?handler=StopProcessing",
-                    method: "POST",
-                    headers: {
-                        "RequestVerificationToken": token
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            showToast("Đã dừng xử lý hàng đợi", "success");
-                            $("#processQueueBtn").prop("disabled", false);
-                        } else {
-                            showToast("Lỗi: " + (response.message || "Không thể dừng xử lý hàng đợi"), "danger");
-                            $("#stopQueueBtn").prop("disabled", false);
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        showToast("Lỗi: " + error, "danger");
-                        $("#stopQueueBtn").prop("disabled", false);
-                    }
-                });
-            });
-
-            // Xử lý nút Xóa hàng đợi
-            $("#clearQueueBtn").click(function() {
-                if (confirm("Bạn có chắc chắn muốn xóa tất cả các mục đang chờ trong hàng đợi không?")) {
-                    $.ajax({
-                        url: "/QueueManager?handler=ClearQueue",
-                        method: "POST",
-                        headers: {
-                            "RequestVerificationToken": token
-                        },
-                        success: function(response) {
-                            if (response.success) {
-                                showToast("Đã xóa hàng đợi", "success");
-                            } else {
-                                showToast("Lỗi: " + (response.message || "Không thể xóa hàng đợi"), "danger");
-                            }
-                        },
-                        error: function(xhr, status, error) {
-                            showToast("Lỗi: " + error, "danger");
-                        }
-                    });
+            
+            // Toggle auto-scroll
+            $('#toggleAutoScrollBtn').click(function() {
+                isAutoScrollEnabled = !isAutoScrollEnabled;
+                $(this).toggleClass('active', isAutoScrollEnabled);
+                if (isAutoScrollEnabled) {
+                    scrollLogToBottom();
                 }
             });
-
-            // Xử lý nút Xóa khỏi hàng đợi
-            $(document).on("click", ".remove-queue-btn", function() {
-                var id = $(this).data("id");
-                
-                $.ajax({
-                    url: "/QueueManager?handler=RemoveFromQueue",
-                    method: "POST",
-                    data: { id: id },
-                    headers: {
-                        "RequestVerificationToken": token
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            showToast("Đã xóa khỏi hàng đợi", "success");
-                        } else {
-                            showToast("Lỗi: " + (response.message || "Không thể xóa khỏi hàng đợi"), "danger");
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        showToast("Lỗi: " + error, "danger");
-                    }
-                });
+            
+            // Clear console
+            $('#clearConsoleBtn').click(function() {
+                clearLogConsole();
             });
         });
+        
+        function startAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+            
+            // Immediately refresh on start
+            refreshQueueData();
+            
+            autoRefreshInterval = setInterval(function() {
+                refreshQueueData();
+            }, REFRESH_INTERVAL);
+        }
+        
+        function refreshQueueData() {
+            $.ajax({
+                url: '?handler=UpdateQueueStatus',
+                type: 'GET',
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        // Update the icon cache with returned paths
+                        response.currentQueue.forEach(item => {
+                            if (item.iconPath) {
+                                iconCache[item.appId] = item.iconPath;
+                            }
+                        });
+                        
+                        response.queueHistory.forEach(item => {
+                            if (item.iconPath) {
+                                iconCache[item.appId] = item.iconPath;
+                            }
+                        });
+                        
+                        updateQueueTable(response.currentQueue);
+                        updateHistoryTable(response.queueHistory);
+                        
+                        // Update recent logs
+                        if (response.recentLogs && response.recentLogs.length > 0) {
+                            updateLogEntries(response.recentLogs);
+                        }
+                        
+                        // Update button states based on queue status
+                        const isProcessing = response.isProcessing;
+                        $('#processQueueBtn').prop('disabled', isProcessing);
+                        $('#stopQueueBtn').prop('disabled', !isProcessing);
+                } else {
+                        console.error('Lỗi khi làm mới dữ liệu:', response.message);
+                        addLogEntry('Lỗi khi làm mới dữ liệu: ' + response.message, 'error');
+                    }
+                },
+                error: function(error) {
+                    console.error('Lỗi khi gọi API:', error);
+                    addLogEntry('Lỗi khi gọi API: ' + error.statusText, 'error');
+                }
+            });
+        }
+        
+        // Update logs from API response
+        function updateLogEntries(logs) {
+            // Do not completely replace logs to keep continuity
+            // Instead, append new ones that aren't already displayed
+            
+            const $logEntries = $('#update-log .log-entries');
+            const currentEntries = new Set();
+            
+            // Get current log entries to avoid duplicates
+            $logEntries.find('.log-entry').each(function() {
+                currentEntries.add($(this).text());
+            });
+            
+            // Parse and add new logs
+            logs.forEach(logEntry => {
+                if (!logEntry) return;
+                
+                // For each log entry, check if it's already displayed
+                if (!Array.from(currentEntries).some(entry => entry.includes(logEntry))) {
+                    let type = '';
+                    
+                    // Determine log type by content
+                    if (logEntry.includes('Lỗi') || logEntry.includes('lỗi') || logEntry.includes('thất bại')) {
+                        type = 'error';
+                    } else if (logEntry.includes('Cảnh báo') || logEntry.includes('Dừng')) {
+                        type = 'warning';
+                    } else if (logEntry.includes('thành công') || logEntry.includes('hoàn thành')) {
+                        type = 'success';
+                    } else if (logEntry.includes('Thông tin') || logEntry.includes('Đã bắt đầu')) {
+                        type = 'info';
+                    }
+                    
+                    addLogEntry(logEntry, type);
+                }
+            });
+        }
+        
+        function updateQueueTable(queue) {
+            const tableBody = $('#queueTable tbody');
+            
+            if (queue.length === 0) {
+                tableBody.html('<tr><td colspan="6" class="text-center">Không có mục nào trong hàng đợi.</td></tr>');
+                return;
+            }
+            
+            let html = '';
+            
+            queue.forEach((item, index) => {
+                const rowClass = getRowClass(item.status);
+                const statusClass = getStatusClass(item.status);
+                const statusIcon = getStatusIcon(item.status);
+                
+                html += `
+                <tr data-id="${item.id}" class="${rowClass}">
+                    <td>${item.order}</td>
+                    <td>
+                        <div class="game-info-container">
+                            ${getGameIconHtml(item.appId, item.appName)}
+                            <span title="AppID: ${item.appId}">${item.appName}</span>
+                        </div>
+                    </td>
+                    <td>${formatDate(item.createdAt)}</td>
+                    <td>${item.startedAt ? formatDate(item.startedAt) : '-'}</td>
+                    <td>
+                        <span class="status-badge ${statusClass}">
+                            <i class="bi ${statusIcon}"></i>
+                            ${item.status}
+                        </span>
+                    </td>
+                    <td>
+                        ${item.status === "Đang chờ" ? 
+                            `<button class="btn-icon delete remove-queue-btn" type="button" data-id="${item.id}" title="Xóa khỏi hàng đợi">
+                                <i class="bi bi-trash"></i>
+                            </button>` : ''}
+                    </td>
+                </tr>`;
+            });
+            
+            tableBody.html(html);
+            
+            // Reattach event handlers for new elements
+            $('.remove-queue-btn').click(function() {
+                removeFromQueue($(this).data('id'));
+            });
+        }
+        
+        function updateHistoryTable(history) {
+            const tableBody = $('#historyTableBody');
+            
+            if (history.length === 0) {
+                tableBody.html('<tr><td colspan="6" class="text-center">Không có lịch sử cập nhật.</td></tr>');
+                return;
+            }
+            
+            // Sort history by completion time (newest first)
+            const sortedHistory = [...history].sort((a, b) => {
+                const dateA = a.completedAt || a.createdAt;
+                const dateB = b.completedAt || b.createdAt;
+                return new Date(dateB) - new Date(dateA);
+            });
+            
+            let html = '';
+            
+            sortedHistory.forEach((item, index) => {
+                const statusClass = getStatusClass(item.status);
+                const statusIcon = getStatusIcon(item.status);
+                
+                html += `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>
+                        <div class="game-info-container">
+                            ${getGameIconHtml(item.appId, item.appName)}
+                            <span title="AppID: ${item.appId}">${item.appName}</span>
+                        </div>
+                    </td>
+                    <td>${formatDate(item.createdAt)}</td>
+                    <td>${item.startedAt ? formatDate(item.startedAt) : '-'}</td>
+                    <td>${item.completedAt ? formatDate(item.completedAt) : '-'}</td>
+                    <td>
+                        <span class="status-badge ${statusClass}">
+                            <i class="bi ${statusIcon}"></i>
+                            ${item.status}
+                        </span>
+                    </td>
+                </tr>`;
+            });
+            
+            tableBody.html(html);
+        }
+        
+        function getGameIconHtml(appId, appName) {
+            const iconPath = getIconPath(appId);
+            
+            if (iconPath) {
+                return `<img src="${iconPath}" alt="${appName}" class="game-icon" />`;
+                        } else {
+                return `
+                <div class="game-icon-placeholder">
+                    <i class="bi bi-controller"></i>
+                </div>`;
+            }
+        }
+        
+        function getIconPath(appId) {
+            // Check if we have the icon path in our cache
+            return iconCache[appId] || null;
+        }
+        
+        function formatDate(dateString) {
+            if (!dateString) return '-';
+            
+            const date = new Date(dateString);
+            return date.toLocaleString('vi-VN', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+        
+        function getRowClass(status) {
+            switch (status) {
+                case 'Đang xử lý':
+                    return 'table-primary';
+                case 'Hoàn thành':
+                    return 'table-success';
+                case 'Lỗi':
+                    return 'table-danger';
+                case 'Đã hủy':
+                    return 'table-warning';
+                default:
+                    return '';
+            }
+        }
+        
+        function getStatusClass(status) {
+            switch (status) {
+                case 'Đang chờ':
+                    return 'waiting';
+                case 'Đang xử lý':
+                    return 'processing';
+                case 'Hoàn thành':
+                    return 'success';
+                case 'Lỗi':
+                    return 'error';
+                case 'Đã hủy':
+                    return 'cancelled';
+                default:
+                    return '';
+            }
+        }
+        
+        function getStatusIcon(status) {
+            switch (status) {
+                case 'Đang chờ':
+                    return 'bi-hourglass-split';
+                case 'Đang xử lý':
+                    return 'bi-arrow-repeat';
+                case 'Hoàn thành':
+                    return 'bi-check-circle';
+                case 'Lỗi':
+                    return 'bi-exclamation-triangle';
+                case 'Đã hủy':
+                    return 'bi-x-circle';
+                default:
+                    return 'bi-question-circle';
+            }
+        }
+        
+        function removeFromQueue(id) {
+            if (!confirm('Bạn có chắc chắn muốn xóa mục này khỏi hàng đợi?')) {
+                return;
+            }
+
+                $.ajax({
+                url: '?handler=RemoveFromQueue',
+                type: 'POST',
+                data: { id: id },
+                    headers: {
+                    "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                        // Refresh the data immediately after successful removal
+                        refreshQueueData();
+                        addLogEntry('Đã xóa mục khỏi hàng đợi', 'success');
+                        } else {
+                        alert('Lỗi khi xóa mục khỏi hàng đợi: ' + response.message);
+                        addLogEntry('Lỗi khi xóa mục khỏi hàng đợi: ' + response.message, 'error');
+                    }
+                },
+                error: function(error) {
+                    alert('Lỗi khi gọi API: ' + error.statusText);
+                    addLogEntry('Lỗi khi gọi API: ' + error.statusText, 'error');
+                }
+            });
+        }
+        
+        function startProcessingQueue() {
+            $('#processQueueBtn').prop('disabled', true);
+            $('#stopQueueBtn').prop('disabled', false);
+
+                $.ajax({
+                url: '?handler=StartProcessing',
+                type: 'POST',
+                    headers: {
+                    "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                        // Refresh the data immediately
+                        refreshQueueData();
+                        addLogEntry('Đã bắt đầu xử lý hàng đợi', 'info');
+                        } else {
+                        alert('Lỗi khi bắt đầu xử lý hàng đợi: ' + (response.message || 'Không rõ lỗi'));
+                        $('#processQueueBtn').prop('disabled', false);
+                        $('#stopQueueBtn').prop('disabled', true);
+                        addLogEntry('Lỗi khi bắt đầu xử lý hàng đợi: ' + (response.message || 'Không rõ lỗi'), 'error');
+                    }
+                },
+                error: function(error) {
+                    alert('Lỗi khi gọi API: ' + error.statusText);
+                    $('#processQueueBtn').prop('disabled', false);
+                    $('#stopQueueBtn').prop('disabled', true);
+                    addLogEntry('Lỗi khi gọi API: ' + error.statusText, 'error');
+                }
+            });
+        }
+        
+        function stopProcessingQueue() {
+            $('#stopQueueBtn').prop('disabled', true);
+            
+                    $.ajax({
+                url: '?handler=StopProcessing',
+                type: 'POST',
+                        headers: {
+                    "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                        // Refresh the data immediately
+                        refreshQueueData();
+                        addLogEntry('Đã dừng xử lý hàng đợi', 'warning');
+                            } else {
+                        alert('Lỗi khi dừng xử lý hàng đợi: ' + (response.message || 'Không rõ lỗi'));
+                        $('#stopQueueBtn').prop('disabled', false);
+                        addLogEntry('Lỗi khi dừng xử lý hàng đợi: ' + (response.message || 'Không rõ lỗi'), 'error');
+                    }
+                },
+                error: function(error) {
+                    alert('Lỗi khi gọi API: ' + error.statusText);
+                    $('#stopQueueBtn').prop('disabled', false);
+                    addLogEntry('Lỗi khi gọi API: ' + error.statusText, 'error');
+                }
+            });
+        }
+        
+        function clearQueue() {
+            if (!confirm('Bạn có chắc chắn muốn xóa tất cả các mục đang chờ trong hàng đợi không?')) {
+                return;
+            }
+                
+                $.ajax({
+                url: '?handler=ClearQueue',
+                type: 'POST',
+                    headers: {
+                    "RequestVerificationToken": $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                        // Refresh the data immediately
+                        refreshQueueData();
+                        addLogEntry('Đã xóa hàng đợi', 'success');
+                        } else {
+                        alert('Lỗi khi xóa hàng đợi: ' + (response.message || 'Không rõ lỗi'));
+                        addLogEntry('Lỗi khi xóa hàng đợi: ' + (response.message || 'Không rõ lỗi'), 'error');
+                    }
+                },
+                error: function(error) {
+                    alert('Lỗi khi gọi API: ' + error.statusText);
+                    addLogEntry('Lỗi khi gọi API: ' + error.statusText, 'error');
+                }
+            });
+        }
+        
+        // Log functions
+        function addLogEntry(message, type = '') {
+            const timestamp = new Date().toTimeString().split(' ')[0];
+            const $logEntries = $('#update-log .log-entries');
+            
+            const $entry = $('<div class="log-entry"></div>');
+            $entry.append(`<span class="log-timestamp">${timestamp}</span>`);
+            
+            // Convert object to string if necessary
+            if (typeof message === 'object') {
+                message = JSON.stringify(message);
+            }
+            
+            const $content = $(`<span class="log-content ${type}">${message}</span>`);
+            $entry.append($content);
+            
+            $logEntries.append($entry);
+            
+            // Keep log size manageable by removing old entries if there are too many
+            const MAX_LOG_ENTRIES = 100;
+            const currentEntries = $logEntries.children();
+            if (currentEntries.length > MAX_LOG_ENTRIES) {
+                currentEntries.slice(0, currentEntries.length - MAX_LOG_ENTRIES).remove();
+            }
+            
+            if (isAutoScrollEnabled) {
+                scrollLogToBottom();
+            }
+        }
+        
+        function scrollLogToBottom() {
+            const $logContainer = $('#update-log');
+            $logContainer.scrollTop($logContainer[0].scrollHeight);
+        }
+        
+        function clearLogConsole() {
+            $('#update-log .log-entries').html('');
+            addLogEntry('Đã xóa log', 'info');
+        }
     </script>
 }

@@ -81,8 +81,22 @@
                             <tr>
                                 <td style="display:none;">@vm.ApiInfo.AppID</td>
                                 <td>
-                                    @vm.ApiInfo.Name<br />
-                                    <small class="text-muted">@vm.ApiInfo.AppID</small>
+                                    <div class="game-info-container">
+                                        @if (!string.IsNullOrEmpty(vm.ApiInfo.IconPath))
+                                        {
+                                            <img src="@vm.ApiInfo.IconPath" alt="@vm.ApiInfo.Name" class="game-icon" />
+                                        }
+                                        else
+                                        {
+                                            <div class="game-icon-placeholder">
+                                                <i class="bi bi-controller"></i>
+                                            </div>
+                                        }
+                                        <div class="game-info">
+                                            @vm.ApiInfo.Name<br />
+                                            <small class="text-muted">@vm.ApiInfo.AppID</small>
+                                        </div>
+                                    </div>
                                 </td>
                                 <td>
                                     @if (vm.IsRegisteredForUpdates)
@@ -221,6 +235,37 @@
         border: 0;
         font-size: 1.5rem;
         cursor: pointer;
+    }
+    
+    /* Kiểu cho icon game */
+    .game-info-container {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .game-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        object-fit: cover;
+    }
+    
+    .game-icon-placeholder {
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        background-color: #f0f0f0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #666;
+        font-size: 18px;
+    }
+    
+    .game-info {
+        display: flex;
+        flex-direction: column;
     }
 </style>
 

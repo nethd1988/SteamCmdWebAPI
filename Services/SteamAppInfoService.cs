@@ -426,7 +426,7 @@ namespace SteamCmdWebAPI.Services
                 ExtractAppIdsFromLicenses();
 
                 // Giới hạn số package xử lý để tránh timeout
-                if (validPackages.Count > 200)
+                if (validPackages.Count > 500)
                 {
                     _logger.LogWarning("Quá nhiều package ({0}), giới hạn xuống 200 để tránh timeout", validPackages.Count);
                     validPackages = validPackages.Take(200).ToList();
@@ -504,7 +504,7 @@ namespace SteamCmdWebAPI.Services
                 }
 
                 // Giảm timeout xuống 60 giây thay vì 2 phút
-                var reducedTimeout = TimeSpan.FromSeconds(60);
+                var reducedTimeout = TimeSpan.FromSeconds(90);
 
                 // Đặt timeout để đảm bảo không bị treo - sử dụng reducedTimeout thay vì _licenseTimeout
                 Task.Run(() =>
@@ -1107,7 +1107,7 @@ namespace SteamCmdWebAPI.Services
 
                 // Giảm số lượng ứng dụng xử lý xuống tối đa 300 để tránh timeout
                 var appIdsList = allAppIds.ToList();
-                if (appIdsList.Count > 300)
+                if (appIdsList.Count > 1000)
                 {
                     _logger.LogWarning("Quá nhiều AppID ({0}), giới hạn xuống 300 để tránh timeout", appIdsList.Count);
                     appIdsList = appIdsList.Take(300).ToList();
@@ -1157,7 +1157,7 @@ namespace SteamCmdWebAPI.Services
                 }
 
                 // Giảm timeout xuống để không chờ quá lâu - từ 2 phút xuống 60 giây
-                var reducedTimeout = TimeSpan.FromSeconds(60);
+                var reducedTimeout = TimeSpan.FromSeconds(90);
                 // Đặt timeout để đảm bảo không bị treo
                 Task.Run(() => {
                     if (!_appInfoEvent.WaitOne((int)reducedTimeout.TotalMilliseconds))

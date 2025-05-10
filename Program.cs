@@ -319,6 +319,36 @@ namespace SteamCmdWebAPI
             // Xây dựng ứng dụng
             var app = builder.Build();
 
+            // Tạo thư mục game-icons trong wwwroot nếu chưa tồn tại
+            var gameIconsDir = Path.Combine(baseDirectory, "wwwroot", "images", "game-icons");
+            if (!Directory.Exists(gameIconsDir))
+            {
+                try
+                {
+                    // Đảm bảo thư mục wwwroot tồn tại
+                    var wwwrootDir = Path.Combine(baseDirectory, "wwwroot");
+                    if (!Directory.Exists(wwwrootDir))
+                    {
+                        Directory.CreateDirectory(wwwrootDir);
+                    }
+                    
+                    // Đảm bảo thư mục images tồn tại
+                    var imagesDir = Path.Combine(wwwrootDir, "images");
+                    if (!Directory.Exists(imagesDir))
+                    {
+                        Directory.CreateDirectory(imagesDir);
+                    }
+                    
+                    // Tạo thư mục game-icons
+                    Directory.CreateDirectory(gameIconsDir);
+                    Console.WriteLine($"Đã tạo thư mục để lưu icon game: {gameIconsDir}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Lỗi khi tạo thư mục icon game: {ex.Message}");
+                }
+            }
+
             // Cấu hình middleware
             if (app.Environment.IsDevelopment())
             {

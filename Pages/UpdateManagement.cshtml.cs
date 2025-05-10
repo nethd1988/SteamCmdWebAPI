@@ -34,6 +34,8 @@ namespace SteamCmdWebAPI.Pages
         private readonly SteamCmdService _steamCmdService;
         private readonly UpdateCheckService _updateCheckService;
         private readonly EncryptionService _encryptionService;
+        private readonly SteamIconService _steamIconService;
+        private readonly IconCacheService _iconCacheService;
 
         [TempData]
         public string StatusMessage { get; set; }
@@ -55,7 +57,9 @@ namespace SteamCmdWebAPI.Pages
             ProfileService profileService,
             SteamCmdService steamCmdService,
             UpdateCheckService updateCheckService,
-            EncryptionService encryptionService)
+            EncryptionService encryptionService,
+            SteamIconService steamIconService,
+            IconCacheService iconCacheService)
         {
             _logger = logger;
             _steamApiService = steamApiService;
@@ -63,6 +67,8 @@ namespace SteamCmdWebAPI.Pages
             _steamCmdService = steamCmdService;
             _updateCheckService = updateCheckService;
             _encryptionService = encryptionService;
+            _steamIconService = steamIconService;
+            _iconCacheService = iconCacheService;
         }
 
         public async Task OnGetAsync()
@@ -116,7 +122,7 @@ namespace SteamCmdWebAPI.Pages
                     var apiInfo = await _steamApiService.GetAppUpdateInfo(profile.AppID);
                     if (apiInfo == null)
                     {
-                        UpdateInfos.Add(new AppUpdateViewModel
+                        var emptyInfo = new AppUpdateViewModel
                         {
                             ApiInfo = new AppUpdateInfo
                             {
@@ -130,7 +136,15 @@ namespace SteamCmdWebAPI.Pages
                             Username = username,
                             InstallPath = profile.InstallDirectory,
                             IsRegisteredForUpdates = isRegistered
-                        });
+                        };
+                        
+                        // Thử tải icon cho game nếu chưa có
+                        if (string.IsNullOrEmpty(emptyInfo.ApiInfo.IconPath))
+                        {
+                            emptyInfo.ApiInfo.IconPath = await _steamIconService.GetGameIconAsync(profile.AppID);
+                        }
+                        
+                        UpdateInfos.Add(emptyInfo);
                         continue;
                     }
 
@@ -145,6 +159,19 @@ namespace SteamCmdWebAPI.Pages
                         InstallPath = profile.InstallDirectory,
                         IsRegisteredForUpdates = isRegistered
                     };
+
+                    // Đảm bảo có icon cho game
+                    if (string.IsNullOrEmpty(viewModel.ApiInfo.IconPath))
+                    {
+                        viewModel.ApiInfo.IconPath = await _steamIconService.GetGameIconAsync(profile.AppID);
+                        
+                        // Lưu lại đường dẫn icon vào cache nếu tải được
+                        if (!string.IsNullOrEmpty(viewModel.ApiInfo.IconPath))
+                        {
+                            apiInfo.IconPath = viewModel.ApiInfo.IconPath;
+                            await _steamApiService.SaveCachedAppInfo();
+                        }
+                    }
 
                     try
                     {

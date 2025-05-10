@@ -17,11 +17,13 @@ namespace SteamCmdWebAPI.Services
         private readonly ILogger<SteamApiService> _logger;
         private readonly HttpClient _httpClient;
         private readonly string _cacheFilePath;
+        private readonly SteamIconService _steamIconService;
         private ConcurrentDictionary<string, AppUpdateInfo> _cachedAppInfo = new ConcurrentDictionary<string, AppUpdateInfo>();
 
-        public SteamApiService(ILogger<SteamApiService> logger)
+        public SteamApiService(ILogger<SteamApiService> logger, SteamIconService steamIconService)
         {
             _logger = logger;
+            _steamIconService = steamIconService;
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
             _httpClient.Timeout = TimeSpan.FromSeconds(30);
@@ -109,7 +111,8 @@ namespace SteamCmdWebAPI.Services
                         LastCheckedUpdateDateTime = cachedInfo.LastUpdateDateTime,
                         SizeOnDisk = cachedInfo.SizeOnDisk,
                         UpdateSize = cachedInfo.UpdateSize,
-                        LastChecked = cachedInfo.LastChecked
+                        LastChecked = cachedInfo.LastChecked,
+                        IconPath = cachedInfo.IconPath
                     };
                 }
                 else if ((DateTime.Now - cachedInfo.LastChecked).TotalMinutes < 10 && !forceRefresh)
@@ -147,6 +150,7 @@ namespace SteamCmdWebAPI.Services
                     {
                         appInfo.LastCheckedChangeNumber = forceRefresh ? cachedInfo.ChangeNumber : cachedInfo.LastCheckedChangeNumber;
                         appInfo.LastCheckedUpdateDateTime = forceRefresh ? cachedInfo.LastUpdateDateTime : cachedInfo.LastCheckedUpdateDateTime;
+                        appInfo.IconPath = cachedInfo.IconPath; // Giữ lại đường dẫn icon từ cache
                     }
                     else
                     {
@@ -159,6 +163,12 @@ namespace SteamCmdWebAPI.Services
                     appInfo.ChangeNumber = gameData._change_number?.ToObject<long>() ?? 0;
                     appInfo.Developer = gameData.extended?.developer?.ToString() ?? "Không có thông tin";
                     appInfo.Publisher = gameData.extended?.publisher?.ToString() ?? "Không có thông tin";
+
+                    // Thử tải icon nếu chưa có
+                    if (string.IsNullOrEmpty(appInfo.IconPath))
+                    {
+                        appInfo.IconPath = await _steamIconService.GetGameIconAsync(appId);
+                    }
 
                     // Lấy kích thước ứng dụng
                     try 
@@ -413,7 +423,15 @@ namespace SteamCmdWebAPI.Services
                     appInfo.LastChecked = DateTime.Now;
 
                     // Cập nhật cache
-                    _cachedAppInfo[appId] = appInfo;
+                    if (_cachedAppInfo.ContainsKey(appId))
+                    {
+                        _cachedAppInfo[appId] = appInfo;
+                    }
+                    else
+                    {
+                        _cachedAppInfo.TryAdd(appId, appInfo);
+                    }
+
                     await SaveCachedAppInfo();
 
                     return appInfo;
@@ -421,20 +439,20 @@ namespace SteamCmdWebAPI.Services
                 else
                 {
                     _logger.LogWarning($"Phản hồi API Steam thành công nhưng dữ liệu không hợp lệ hoặc không tìm thấy cho AppID {appId}.");
+                    if (isFromCache && cachedInfo != null)
+                    {
+                        return cachedInfo; // Trả về thông tin từ cache nếu có lỗi
+                    }
                     return null;
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Lỗi khi lấy thông tin Steam App {appId}: {ex.Message}");
-
-                // Trả về cache cũ nếu có lỗi và cache tồn tại
-                if (cachedInfo != null)
+                if (isFromCache && cachedInfo != null)
                 {
-                    _logger.LogWarning($"Sử dụng cache cũ cho AppID {appId} do lỗi");
-                    return cachedInfo;
+                    return cachedInfo; // Trả về thông tin từ cache nếu có lỗi
                 }
-
                 return null;
             }
         }

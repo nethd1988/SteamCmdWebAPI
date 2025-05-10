@@ -16,5 +16,6 @@ namespace SteamCmdWebAPI.Models
         public long SizeOnDisk { get; set; } // Kích thước tổng trên đĩa
         public long UpdateSize { get; set; } // Kích thước cần cập nhật
         public DateTime LastChecked { get; set; } = DateTime.Now; // When API was last successfully called for this AppID
+        public string IconPath { get; set; } // Đường dẫn đến icon của game
     }
 }
