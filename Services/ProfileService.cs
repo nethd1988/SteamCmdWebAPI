@@ -28,6 +28,9 @@ namespace SteamCmdWebAPI.Services
         private List<SteamCmdProfile> _profiles;
         private readonly IServiceProvider _serviceProvider;
 
+        // Thêm biến static để lưu chỉ số tài khoản cuối cùng đã dùng cho mỗi AppID
+        private static ConcurrentDictionary<string, int> _lastAccountIndexUsed = new ConcurrentDictionary<string, int>();
+
         public ProfileService(
             ILogger<ProfileService> logger,
             SettingsService settingsService,
@@ -368,8 +371,21 @@ namespace SteamCmdWebAPI.Services
                     return (null, null);
                 }
                 
-                // Chọn tài khoản đầu tiên trong danh sách khả dụng
-                var account = availableAccounts.First();
+                // Thực hiện chọn tài khoản theo cơ chế luân chuyển (round-robin)
+                // Lấy chỉ số tài khoản cuối cùng đã sử dụng cho AppID này
+                int lastIndex = _lastAccountIndexUsed.GetValueOrDefault(appId, -1);
+                
+                // Tính toán chỉ số tiếp theo
+                int nextIndex = (lastIndex + 1) % availableAccounts.Count;
+                
+                // Cập nhật lại chỉ số đã sử dụng
+                _lastAccountIndexUsed[appId] = nextIndex;
+                
+                // Lấy tài khoản theo chỉ số đã tính
+                var account = availableAccounts[nextIndex];
+                
+                _logger.LogInformation("GetSteamAccountForAppId: Đã chọn tài khoản {0} (index {1}/{2}) cho AppID {3}",
+                    account.Username, nextIndex + 1, availableAccounts.Count, appId);
                 
                 // Đảm bảo mật khẩu đã được giải mã
                 string password = account.Password;
@@ -382,8 +398,8 @@ namespace SteamCmdWebAPI.Services
                     _logger.LogError(ex, "Lỗi khi giải mã mật khẩu cho tài khoản {0}", account.Username);
                 }
                 
-                _logger.LogInformation("Đã chọn tài khoản {0} cho AppID {1} (loại bỏ {2} tài khoản thất bại)", 
-                    account.Username, appId, failedAccounts.Count);
+                _logger.LogInformation("Đã chọn tài khoản {0} (index {1}/{2}) cho AppID {3} (loại bỏ {4} tài khoản thất bại)", 
+                    account.Username, nextIndex + 1, availableAccounts.Count, appId, failedAccounts.Count);
                     
                 return (account.Username, password);
             }

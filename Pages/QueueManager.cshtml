@@ -11,24 +11,6 @@
 
 @{
     // Extension methods for QueueItem
-    string GetFormattedTotalSize(QueueService.QueueItem item)
-    {
-        if (item.TotalSize <= 0) return "-";
-        return FormatFileSize(item.TotalSize);
-    }
-
-    string GetFormattedDownloadedSize(QueueService.QueueItem item)
-    {
-        if (item.DownloadedSize <= 0) return "-";
-        return FormatFileSize(item.DownloadedSize);
-    }
-
-    int GetProgressPercentage(QueueService.QueueItem item)
-    {
-        if (item.TotalSize <= 0) return 0;
-        return Math.Min(100, (int)((double)item.DownloadedSize / item.TotalSize * 100));
-    }
-
     string GetFormattedCreatedAt(QueueService.QueueItem item)
     {
         return item.CreatedAt.ToString("dd/MM/yyyy HH:mm:ss");
@@ -43,40 +25,44 @@
     {
         return item.CompletedAt.HasValue ? item.CompletedAt.Value.ToString("dd/MM/yyyy HH:mm:ss") : "-";
     }
-
-    string FormatFileSize(long bytes)
-    {
-        if (bytes <= 0) return "-";
-        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
-        int order = 0;
-        double size = bytes;
-        while (size >= 1024 && order < sizes.Length - 1)
-        {
-            order++;
-            size /= 1024;
-        }
-        return $"{size:0.##} {sizes[order]}";
-    }
 }
 
 <style>
-    .progress-container {
-        width: 100%;
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.875rem;
     }
     
-    .progress-text {
-        font-size: 0.85rem;
-        margin-bottom: 2px;
+    .status-badge.waiting {
+        background-color: #f8f9fa;
+        color: #6c757d;
     }
     
-    .progress {
-        height: 5px !important;
-        background-color: #e9ecef;
-        border-radius: 2px;
+    .status-badge.processing {
+        background-color: #cfe2ff;
+        color: #084298;
     }
     
-    .progress-bar {
-        background-color: #28a745;
+    .status-badge.success {
+        background-color: #d1e7dd;
+        color: #0f5132;
+    }
+    
+    .status-badge.error {
+        background-color: #f8d7da;
+        color: #842029;
+    }
+    
+    .status-badge.cancelled {
+        background-color: #fff3cd;
+        color: #664d03;
+    }
+    
+    .status-badge i {
+        margin-right: 0.25rem;
     }
 </style>
 
@@ -133,8 +119,6 @@
                 <tr>
                     <th>STT</th>
                     <th>App</th>
-                    <th title="Dung lượng dữ liệu cần tải về từ SteamKit">DUNG LƯỢNG</th>
-                    <th>Tiến trình</th>
                     <th>Thời gian thêm</th>
                     <th>Bắt đầu</th>
                     <th>Trạng thái</th>
@@ -148,23 +132,6 @@
                         <td>@item.Order</td>
                         <td>
                             <span title="AppID: @item.AppId">@item.AppName</span>
-                        </td>
-                        <td title="Dung lượng dữ liệu cập nhật từ SteamKit">@GetFormattedTotalSize(item)</td>
-                        <td>
-                            @if(item.Status == "Đang xử lý" && item.DownloadedSize > 0 && item.TotalSize > 0)
-                            {
-                                <div class="progress-container">
-                                    <div class="progress-text">@GetProgressPercentage(item)%</div>
-                                    <div class="progress" style="height: 5px;">
-                                        <div class="progress-bar" role="progressbar" 
-                                             style="width: @GetProgressPercentage(item)%"></div>
-                                    </div>
-                                </div>
-                            }
-                            else
-                            {
-                                <span>-</span>
-                            }
                         </td>
                         <td>@GetFormattedCreatedAt(item)</td>
                         <td>@GetFormattedStartedAt(item)</td>
@@ -187,7 +154,7 @@
                 @if (!Model.CurrentQueue.Any())
                 {
                     <tr>
-                        <td colspan="8" class="text-center">Không có mục nào trong hàng đợi.</td>
+                        <td colspan="6" class="text-center">Không có mục nào trong hàng đợi.</td>
                     </tr>
                 }
             </tbody>
@@ -210,12 +177,11 @@
                 <thead>
                     <tr>
                         <th>STT</th>
-                        <th>APP</th>
-                        <th title="Dung lượng dữ liệu cần tải về từ SteamKit">DUNG LƯỢNG</th>
-                        <th>THỜI GIAN THÊM</th>
-                        <th>BẮT ĐẦU</th>
-                        <th>HOÀN THÀNH</th>
-                        <th>TRẠNG THÁI</th>
+                        <th>App</th>
+                        <th>Thời gian thêm</th>
+                        <th>Bắt đầu</th>
+                        <th>Hoàn thành</th>
+                        <th>Trạng thái</th>
                     </tr>
                 </thead>
                 <tbody id="historyTableBody">
@@ -224,7 +190,6 @@
                         <tr>
                             <td>@(Model.QueueHistory.IndexOf(item) + 1)</td>
                             <td><span title="AppID: @item.AppId">@item.AppName</span></td>
-                            <td title="Dung lượng dữ liệu cập nhật từ SteamKit">@GetFormattedTotalSize(item)</td>
                             <td>@GetFormattedCreatedAt(item)</td>
                             <td>@GetFormattedStartedAt(item)</td>
                             <td>@GetFormattedCompletedAt(item)</td>
@@ -239,7 +204,7 @@
                     @if (!Model.QueueHistory.Any())
                     {
                         <tr>
-                            <td colspan="7" class="text-center">Không có mục nào trong lịch sử</td>
+                            <td colspan="6" class="text-center">Không có mục nào trong lịch sử</td>
                         </tr>
                     }
                 </tbody>
@@ -334,22 +299,6 @@
                 });
             }, 10000);
 
-            // Hàm hỗ trợ định dạng kích thước file
-            function formatFileSize(bytes) {
-                if (bytes === 0 || bytes === null || bytes === undefined) return "-";
-                
-                const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-                let i = 0;
-                let formattedSize = bytes;
-                
-                while (formattedSize >= 1024 && i < sizes.length - 1) {
-                    formattedSize /= 1024;
-                    i++;
-                }
-                
-                return `${formattedSize.toFixed(2)} ${sizes[i]}`;
-            }
-            
             // Hàm hỗ trợ định dạng ngày giờ
             function formatDateTime(date) {
                 if (!(date instanceof Date) || isNaN(date)) return "N/A";
@@ -362,12 +311,6 @@
                 var seconds = date.getSeconds().toString().padStart(2, '0');
                 
                 return day + "/" + month + "/" + year + " " + hours + ":" + minutes + ":" + seconds;
-            }
-            
-            // Tính toán phần trăm tiến độ
-            function calculateProgress(downloaded, total) {
-                if (!total || total <= 0) return 0;
-                return Math.min(100, Math.round((downloaded * 100) / total));
             }
             
             // Hàm hỗ trợ lấy class cho trạng thái
@@ -425,29 +368,6 @@
                         appCell.append(appSpan);
                         row.append(appCell);
                         
-                        // Dung lượng cập nhật
-                        row.append($("<td>").text(formatFileSize(item.totalSize)));
-                        
-                        // Tiến trình - chỉ hiển thị khi đang xử lý
-                        var progressCell = $("<td>");
-                        if (item.status === "Đang xử lý" && item.downloadedSize > 0 && item.totalSize > 0) {
-                            var percentage = calculateProgress(item.downloadedSize, item.totalSize);
-                            
-                            var progressContainer = $("<div>").addClass("progress-container");
-                            var progressText = $("<div>").addClass("progress-text").text(percentage + "%");
-                            var progress = $("<div>").addClass("progress").css("height", "5px");
-                            var progressBar = $("<div>").addClass("progress-bar")
-                                .attr("role", "progressbar")
-                                .css("width", percentage + "%");
-                                
-                            progress.append(progressBar);
-                            progressContainer.append(progressText, progress);
-                            progressCell.append(progressContainer);
-                        } else {
-                            progressCell.text("-");
-                        }
-                        row.append(progressCell);
-                        
                         // Thời gian thêm
                         var createdTime = new Date(item.createdAt);
                         row.append($("<td>").text(formatDateTime(createdTime)));
@@ -491,7 +411,7 @@
                 } else {
                     tableBody.append(
                         $("<tr>").append(
-                            $("<td>").attr("colspan", "8").addClass("text-center").text("Không có mục nào trong hàng đợi")
+                            $("<td>").attr("colspan", "6").addClass("text-center").text("Không có mục nào trong hàng đợi")
                         )
                     );
                 }
@@ -521,9 +441,6 @@
                         var appSpan = $("<span>").attr("title", "AppID: " + item.appId).text(item.appName);
                         appCell.append(appSpan);
                         row.append(appCell);
-                        
-                        // Dung lượng cập nhật
-                        row.append($("<td>").text(formatFileSize(item.totalSize)));
                         
                         // Thời gian thêm
                         var createdTime = item.createdAt ? new Date(item.createdAt) : null;
@@ -555,7 +472,7 @@
                 } else {
                     tableBody.append(
                         $("<tr>").append(
-                            $("<td>").attr("colspan", "7").addClass("text-center").text("Không có mục nào trong lịch sử")
+                            $("<td>").attr("colspan", "6").addClass("text-center").text("Không có mục nào trong lịch sử")
                         )
                     );
                 }
