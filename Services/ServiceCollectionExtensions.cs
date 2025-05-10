@@ -15,20 +15,20 @@ namespace SteamCmdWebAPI.Services
             services.AddSingleton<LicenseService>();
             services.AddSingleton<EncryptionService>();
             services.AddSingleton<SettingsService>();
-            
+
             // Đăng ký SteamAppInfoService trước SteamAccountService với EncryptionService
             services.AddSingleton<SteamAppInfoService>(sp => new SteamAppInfoService(
                 sp.GetRequiredService<ILogger<SteamAppInfoService>>(),
                 sp.GetRequiredService<EncryptionService>()
             ));
-            
+
             // Đăng ký SteamAccountService trước ProfileService
             services.AddSingleton<SteamAccountService>(sp => new SteamAccountService(
                 sp.GetRequiredService<ILogger<SteamAccountService>>(),
                 sp.GetRequiredService<EncryptionService>(),
                 sp.GetRequiredService<SteamAppInfoService>()
             ));
-            
+
             // Đăng ký ProfileService với serviceProvider
             services.AddSingleton<ProfileService>(sp => new ProfileService(
                 sp.GetRequiredService<ILogger<ProfileService>>(),
@@ -37,7 +37,7 @@ namespace SteamCmdWebAPI.Services
                 sp.GetRequiredService<LicenseService>(),
                 sp // Truyền IServiceProvider
             ));
-            
+
             services.AddSingleton<ServerSettingsService>();
             services.AddSingleton<LogFileReader>();
             services.AddSingleton<SteamApiService>();
@@ -70,7 +70,7 @@ namespace SteamCmdWebAPI.Services
 
             services.AddSingleton<TcpClientService>();
             services.AddSingleton<UserService>();
-            
+
             // Xóa đăng ký ở đây vì đã đăng ký ở trên
             // services.AddSingleton<SteamAccountService>();
 

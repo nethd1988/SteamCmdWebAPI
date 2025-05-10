@@ -270,6 +270,16 @@ namespace SteamCmdWebAPI.Services
 
         public async Task<SteamAccount> AddAccountAsync(SteamAccount account)
         {
+            // Giải mã username và password nếu bị mã hóa
+            if (!string.IsNullOrEmpty(account.Username))
+            {
+                try { account.Username = _encryptionService.Decrypt(account.Username); } catch { }
+            }
+            if (!string.IsNullOrEmpty(account.Password))
+            {
+                try { account.Password = _encryptionService.Decrypt(account.Password); } catch { }
+            }
+
             var accounts = await GetAllAccountsAsync();
 
             // Nếu có AppId, tự động lấy thông tin tên game

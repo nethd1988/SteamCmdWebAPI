@@ -142,6 +142,9 @@ namespace SteamCmdWebAPI
             builder.Services.AddSingleton<SteamCmdService>();
             builder.Services.AddSingleton<TcpClientService>();
             builder.Services.AddSteamCmdServices();
+            
+            // Đăng ký dịch vụ quản lý tài khoản thất bại
+            builder.Services.AddSingleton<FailedAccountManager>();
 
             // Đăng ký các dịch vụ mới
             builder.Services.AddSingleton<UpdateCheckService>();

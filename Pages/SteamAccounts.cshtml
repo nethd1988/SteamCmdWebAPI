@@ -413,6 +413,23 @@
         
         // Khởi tạo khi trang đã tải xong
         $(document).ready(function() {
+            // Khôi phục trạng thái của các toggle từ localStorage
+            const replaceIdsToggleSetting = localStorage.getItem('replaceExistingAppIds');
+            if (replaceIdsToggleSetting !== null) {
+                const isChecked = replaceIdsToggleSetting === 'true';
+                $("#replaceExistingAppIds").prop('checked', isChecked);
+                $("#editReplaceExistingAppIds").prop('checked', isChecked);
+            }
+            
+            // Lưu trạng thái toggle khi thay đổi
+            $("#replaceExistingAppIds, #editReplaceExistingAppIds").on('change', function() {
+                const isChecked = $(this).prop('checked');
+                localStorage.setItem('replaceExistingAppIds', isChecked);
+                
+                // Đồng bộ hóa trạng thái giữa cả hai toggle (add và edit)
+                $("#replaceExistingAppIds, #editReplaceExistingAppIds").prop('checked', isChecked);
+            });
+            
             // Xử lý sự kiện chọn khoảng thời gian quét từ dropdown
             $(document).on('click', '.interval-option', function(event) {
                 event.preventDefault();
@@ -533,8 +550,16 @@
                     "positionClass": "toast-top-center"
                 });
                 
-                // Lấy giá trị của checkbox Thay thế ID cũ
-                const replaceExistingIds = $("#replaceExistingAppIds").is(":checked");
+                // Lấy giá trị của checkbox Thay thế ID cũ từ localStorage hoặc UI
+                let replaceExistingIds;
+                
+                // Nếu đang trong form edit và form edit đang hiển thị, sử dụng toggle trong form edit
+                if ($("#formEditAccount").is(":visible")) {
+                    replaceExistingIds = $("#editReplaceExistingAppIds").is(":checked");
+                } else {
+                    // Nếu không, sử dụng toggle từ form thêm mới hoặc localStorage
+                    replaceExistingIds = $("#replaceExistingAppIds").is(":checked");
+                }
                 
                 // Thực hiện quét
                 $.ajax({
@@ -781,6 +806,13 @@
                 
                 // Lưu vị trí scroll hiện tại
                 lastScrollPosition = $(window).scrollTop();
+                
+                // Áp dụng trạng thái toggle từ localStorage
+                const replaceIdsToggleSetting = localStorage.getItem('replaceExistingAppIds');
+                if (replaceIdsToggleSetting !== null) {
+                    $("#replaceExistingAppIds").prop('checked', replaceIdsToggleSetting === 'true');
+                }
+                
                 $("#formAddAccount").slideDown();
                 
                 // Scroll đến form
@@ -839,18 +871,24 @@
                         $("#editAppIds").val(account.appIds);
                         $("#editGameNames").val(account.gameNames);
                             
-                            // Lấy trạng thái hiện tại từ bảng thay vì từ dữ liệu API
-                            const currentAutoScanEnabled = $(`#autoScanToggle_${account.id}`).prop("checked");
-                            console.log(`Trạng thái hiện tại của AutoScanEnabled cho tài khoản ${account.id}: ${currentAutoScanEnabled}`);
+                        // Áp dụng trạng thái toggle từ localStorage
+                        const replaceIdsToggleSetting = localStorage.getItem('replaceExistingAppIds');
+                        if (replaceIdsToggleSetting !== null) {
+                            $("#editReplaceExistingAppIds").prop('checked', replaceIdsToggleSetting === 'true');
+                        }
                             
-                            // Sử dụng trạng thái từ UI để đảm bảo tính nhất quán
-                            $("#editAutoScanEnabled").val(currentAutoScanEnabled ? "true" : "false");
+                        // Lấy trạng thái hiện tại từ bảng thay vì từ dữ liệu API
+                        const currentAutoScanEnabled = $(`#autoScanToggle_${account.id}`).prop("checked");
+                        console.log(`Trạng thái hiện tại của AutoScanEnabled cho tài khoản ${account.id}: ${currentAutoScanEnabled}`);
                             
-                            // Lấy khoảng thời gian từ data-interval của nút cài đặt
-                            const currentInterval = $(`.btn-set-interval[data-account-id="${account.id}"]`).data("interval") || 6;
-                            $("#editScanIntervalHours").val(currentInterval);
+                        // Sử dụng trạng thái từ UI để đảm bảo tính nhất quán
+                        $("#editAutoScanEnabled").val(currentAutoScanEnabled ? "true" : "false");
                             
-                            console.log(`Đang chỉnh sửa tài khoản ${account.id} - AutoScanEnabled: ${currentAutoScanEnabled}, Interval: ${currentInterval}`);
+                        // Lấy khoảng thời gian từ data-interval của nút cài đặt
+                        const currentInterval = $(`.btn-set-interval[data-account-id="${account.id}"]`).data("interval") || 6;
+                        $("#editScanIntervalHours").val(currentInterval);
+                            
+                        console.log(`Đang chỉnh sửa tài khoản ${account.id} - AutoScanEnabled: ${currentAutoScanEnabled}, Interval: ${currentInterval}`);
                         
                         // Xóa kết quả scan cũ nếu có
                         $("#editAppIds-result, #editAppIds-account-result").remove();

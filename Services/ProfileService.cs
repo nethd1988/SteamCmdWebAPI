@@ -10,6 +10,7 @@ using SteamCmdWebAPI.Models;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Collections.Concurrent;
 
 namespace SteamCmdWebAPI.Services
 {
@@ -103,6 +104,7 @@ namespace SteamCmdWebAPI.Services
                     {
                         string json = await reader.ReadToEndAsync().ConfigureAwait(false);
                         var profiles = JsonSerializer.Deserialize<List<SteamCmdProfile>>(json) ?? new List<SteamCmdProfile>();
+                        // Đã loại bỏ giải mã username và password ở đây vì server đã giải mã
                         _logger.LogInformation("Đã đọc {0} profiles từ {1}", profiles.Count, _profilesPath);
                         return profiles;
                     }
@@ -324,90 +326,70 @@ namespace SteamCmdWebAPI.Services
                     return (null, null);
                 }
 
-                // Lấy dịch vụ tài khoản
-                SteamAccountService steamAccountService = null;
-                try
+                // Lấy danh sách tài khoản thất bại từ SteamCmdService
+                var failedAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (_serviceProvider.GetService(typeof(SteamCmdService)) is SteamCmdService steamCmdService)
                 {
-                    steamAccountService = _serviceProvider.GetRequiredService<SteamAccountService>();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "GetSteamAccountForAppId: Lỗi khi lấy SteamAccountService");
-                    return (null, null);
-                }
-
-                if (steamAccountService == null)
-                {
-                    _logger.LogError("GetSteamAccountForAppId: SteamAccountService không khả dụng");
-                    return (null, null);
-                }
-
-                // Lấy tài khoản phù hợp
-                var account = await steamAccountService.GetAccountByAppIdAsync(appId);
-
-                if (account == null)
-                {
-                    _logger.LogWarning("GetSteamAccountForAppId: Không tìm thấy tài khoản Steam nào cho AppID {AppId}", appId);
-                    return (null, null);
-                }
-
-                // Kiểm tra và giải mã mật khẩu
-                string decryptedPassword = null;
-                try
-                {
-                    // Thêm log để kiểm tra mật khẩu trước khi giải mã
-                    _logger.LogDebug("GetSteamAccountForAppId: Mật khẩu gốc có độ dài {Length} ký tự", 
-                        account.Password?.Length ?? 0);
-                    _logger.LogDebug("GetSteamAccountForAppId: Mật khẩu có dạng Base64: {IsBase64}", 
-                        !string.IsNullOrEmpty(account.Password) && 
-                        System.Text.RegularExpressions.Regex.IsMatch(account.Password, @"^[a-zA-Z0-9\+/]*={0,2}$"));
+                    // Sử dụng reflection để lấy danh sách tài khoản thất bại
+                    var field = typeof(SteamCmdService).GetField("_failedSteamAccounts", 
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
                         
-                    // Giải mã mật khẩu từ tài khoản
-                    decryptedPassword = _encryptionService.Decrypt(account.Password);
-                    _logger.LogInformation("GetSteamAccountForAppId: Đã giải mã mật khẩu thành công cho tài khoản {Username}",
-                        account.Username);
-
-                    // Kiểm tra mật khẩu sau khi giải mã
-                    _logger.LogDebug("GetSteamAccountForAppId: Mật khẩu sau khi giải mã có độ dài: {Length} ký tự", 
-                        decryptedPassword?.Length ?? 0);
-                    
-                    // Nếu mật khẩu vẫn có dạng Base64 sau khi giải mã, có thể vẫn bị mã hóa
-                    if (!string.IsNullOrEmpty(decryptedPassword) && decryptedPassword.Length > 20 &&
-                        System.Text.RegularExpressions.Regex.IsMatch(decryptedPassword, @"^[a-zA-Z0-9\+/]*={0,2}$"))
+                    if (field != null)
                     {
-                        _logger.LogWarning("GetSteamAccountForAppId: Mật khẩu có thể vẫn bị mã hóa sau khi giải mã!");
-                        
-                        try
+                        var failedAccountsDict = field.GetValue(steamCmdService) as 
+                            ConcurrentDictionary<string, HashSet<string>>;
+                            
+                        if (failedAccountsDict != null && failedAccountsDict.TryGetValue(appId, out var appFailedAccounts))
                         {
-                            // Thử giải mã thêm một lần nữa
-                            string doubleDecrypted = _encryptionService.Decrypt(decryptedPassword);
-                            if (!string.IsNullOrEmpty(doubleDecrypted))
-                            {
-                                _logger.LogInformation("GetSteamAccountForAppId: Đã giải mã thành công lần thứ hai cho tài khoản {Username}",
-                                    account.Username);
-                                decryptedPassword = doubleDecrypted;
-                            }
-                        }
-                        catch (Exception innerEx)
-                        {
-                            _logger.LogWarning("GetSteamAccountForAppId: Không thể giải mã lần thứ hai: {Error}", innerEx.Message);
+                            failedAccounts = appFailedAccounts;
+                            _logger.LogInformation("Đã tìm thấy {0} tài khoản thất bại cho AppID {1}", 
+                                failedAccounts.Count, appId);
                         }
                     }
                 }
+
+                // Lấy dịch vụ tài khoản
+                var steamAccountService = _serviceProvider.GetRequiredService<SteamAccountService>();
+
+                // Lấy tất cả tài khoản khả dụng
+                var allAccounts = await steamAccountService.GetAllAvailableAccounts();
+                
+                // Lọc tài khoản phù hợp với AppID và không nằm trong danh sách thất bại
+                var availableAccounts = allAccounts
+                    .Where(a => !string.IsNullOrEmpty(a.AppIds) && 
+                           a.AppIds.Split(',').Select(id => id.Trim()).Contains(appId) &&
+                           !failedAccounts.Contains(a.Username))
+                    .ToList();
+                    
+                if (availableAccounts.Count == 0)
+                {
+                    _logger.LogWarning("Không tìm thấy tài khoản khả dụng cho AppID {0} sau khi loại bỏ {1} tài khoản thất bại", 
+                        appId, failedAccounts.Count);
+                    return (null, null);
+                }
+                
+                // Chọn tài khoản đầu tiên trong danh sách khả dụng
+                var account = availableAccounts.First();
+                
+                // Đảm bảo mật khẩu đã được giải mã
+                string password = account.Password;
+                try 
+                {
+                    password = _encryptionService.Decrypt(account.Password);
+                }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "GetSteamAccountForAppId: Lỗi khi giải mã mật khẩu, sử dụng giá trị nguyên bản");
-                    decryptedPassword = account.Password; // Sử dụng giá trị nguyên bản nếu giải mã thất bại
+                    _logger.LogError(ex, "Lỗi khi giải mã mật khẩu cho tài khoản {0}", account.Username);
                 }
-
-                _logger.LogInformation("GetSteamAccountForAppId: Đã tìm thấy và giải mã tài khoản {Username} cho AppID {AppId}",
-                    account.Username, appId);
-
-                return (account.Username, decryptedPassword);
+                
+                _logger.LogInformation("Đã chọn tài khoản {0} cho AppID {1} (loại bỏ {2} tài khoản thất bại)", 
+                    account.Username, appId, failedAccounts.Count);
+                    
+                return (account.Username, password);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi tìm tài khoản Steam cho AppID {AppId}", appId);
+                _logger.LogError(ex, "Lỗi khi lấy tài khoản Steam cho AppID {0}", appId);
                 return (null, null);
             }
         }

@@ -20,7 +20,8 @@ namespace SteamCmdWebAPI.Services
         private readonly object _lockObject = new object();
         private readonly List<LogEntry> _logs = new List<LogEntry>();
         private const int MaxLogEntries = 5000;
-        private static ConcurrentDictionary<string, (int profileId, DateTime timeAdded, HashSet<string> failedAccounts)> _appsToRetryWithValidate;
+        private static ConcurrentDictionary<string, (int profileId, DateTime timeAdded, HashSet<string> failedAccounts)> _appsToRetryWithValidate 
+            = new ConcurrentDictionary<string, (int profileId, DateTime timeAdded, HashSet<string> failedAccounts)>();
         
         // Thêm dịch vụ cần thiết
         private readonly ProfileService _profileService;
@@ -437,7 +438,12 @@ namespace SteamCmdWebAPI.Services
                             failedAccount, appId);
                     }
                     
+                    // Cập nhật lại thời gian và giữ nguyên danh sách tài khoản thất bại
                     _appsToRetryWithValidate[appId] = (profileId, DateTime.Now, failedAccounts);
+                    
+                    // Ghi log chi tiết về các tài khoản đã thất bại
+                    _logger.LogInformation("Tài khoản thất bại cho App {AppId}: {Accounts}", 
+                        appId, string.Join(", ", failedAccounts));
                 }
                 else
                 {
@@ -445,6 +451,8 @@ namespace SteamCmdWebAPI.Services
                     if (!string.IsNullOrEmpty(failedAccount))
                     {
                         failedAccounts.Add(failedAccount);
+                        _logger.LogInformation("Khởi tạo danh sách tài khoản thất bại với {Account} cho App {AppId}", 
+                            failedAccount, appId);
                     }
                     
                     _appsToRetryWithValidate[appId] = (profileId, DateTime.Now, failedAccounts);

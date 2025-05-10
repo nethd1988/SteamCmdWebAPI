@@ -48,7 +48,7 @@ namespace SteamCmdWebAPI.Services
         private readonly TimeSpan _appInfoTimeout = TimeSpan.FromMinutes(2); // Tăng từ 30 giây lên 2 phút
         private readonly int _maxConnectionRetries = 3;
         private readonly int _maxLoginRetries = 2;
-        
+
         // Thêm các regex patterns để phát hiện game ẩn
         private static readonly Regex[] HiddenGamePatterns = new[]
         {
@@ -170,7 +170,7 @@ namespace SteamCmdWebAPI.Services
                         // Brief delay to allow Steam servers to process the logoff
                         await Task.Delay(500);
                     }
-                    
+
                     _logger.LogInformation("Ngắt kết nối Steam trong DisposeAsync");
                     _steamClient.Disconnect();
                     _isConnected = false;
@@ -200,7 +200,7 @@ namespace SteamCmdWebAPI.Services
                 // Giải mã thông tin đăng nhập trước khi sử dụng
                 string decryptedUsername;
                 string decryptedPassword;
-                
+
                 try
                 {
                     decryptedUsername = _encryptionService.Decrypt(_currentUsername);
@@ -212,7 +212,7 @@ namespace SteamCmdWebAPI.Services
                     // Nếu không giải mã được, giả sử đó là văn bản thuần
                     decryptedUsername = _currentUsername;
                 }
-                
+
                 try
                 {
                     decryptedPassword = _encryptionService.Decrypt(_currentPassword);
@@ -224,17 +224,17 @@ namespace SteamCmdWebAPI.Services
                     // Nếu không giải mã được, giả sử đó là văn bản thuần
                     decryptedPassword = _currentPassword;
                 }
-                
+
                 // Kiểm tra tính hợp lệ trước khi thử đăng nhập
                 if (string.IsNullOrEmpty(decryptedUsername) || string.IsNullOrEmpty(decryptedPassword))
                 {
                     _logger.LogError("OnConnected: Username hoặc password sau khi giải mã là rỗng, không thể đăng nhập");
                     return;
                 }
-                
-                _logger.LogInformation("OnConnected: Đang tự động đăng nhập với username: {UsernameHint}***", 
+
+                _logger.LogInformation("OnConnected: Đang tự động đăng nhập với username: {UsernameHint}***",
                     decryptedUsername.Length > 3 ? decryptedUsername.Substring(0, 3) : "***");
-                
+
                 Task.Run(() => PerformLogin(decryptedUsername, decryptedPassword, _authCode, _twoFactorCode));
             }
         }
@@ -321,7 +321,7 @@ namespace SteamCmdWebAPI.Services
 
                     // Xử lý ngay các license để lấy thông tin package
                     ProcessLicenses();
-                    
+
                     // Tìm kiếm license Family Sharing và Hidden Games
                     foreach (var license in _licenses)
                     {
@@ -334,7 +334,7 @@ namespace SteamCmdWebAPI.Services
                             {
                                 _logger.LogDebug("Phát hiện license có thể từ Family Sharing: PackageID={0}, LicenseType={1}, PaymentMethod={2}",
                                     license.PackageID, (int)license.LicenseType, (int)license.PaymentMethod);
-                                    
+
                                 // Thực hiện truy vấn PICS cho package này
                                 // Tạo PICSRequest cho SteamKit 3.1.0
                                 var packageRequest = new SteamApps.PICSRequest();
@@ -344,19 +344,20 @@ namespace SteamCmdWebAPI.Services
                                     apps: new List<SteamApps.PICSRequest>(),
                                     packages: packages
                                 );
-                                
+
                                 // Đánh dấu package này là từ Family Sharing (để xử lý trong OnPICSProductInfo)
                                 _familySharedAppIds.Add(license.PackageID);
                             }
                         }
-                        
+
                         // Tìm kiếm các game ẩn
-                        try {
+                        try
+                        {
                             // Kiểm tra flag license.Flags nếu có
                             bool isHidden = false;
                             var licenseType = license.GetType();
                             var flagsProperty = licenseType.GetProperty("Flags");
-                            
+
                             if (flagsProperty != null)
                             {
                                 var flags = flagsProperty.GetValue(license);
@@ -367,7 +368,7 @@ namespace SteamCmdWebAPI.Services
                                     _logger.LogDebug("Phát hiện license ẩn từ Flags: PackageID={0}", license.PackageID);
                                 }
                             }
-                            
+
                             // Nếu không tìm thấy từ Flags, bỏ qua vì sẽ được xử lý trong ProcessLicenses
                             if (!isHidden)
                             {
@@ -380,7 +381,7 @@ namespace SteamCmdWebAPI.Services
                             _logger.LogDebug("Lỗi khi tìm kiếm game ẩn: {0}", ex.Message);
                         }
                     }
-                    
+
                     _logger.LogInformation("Đã xử lý license list và yêu cầu thông tin game");
                 }
                 else
@@ -433,10 +434,10 @@ namespace SteamCmdWebAPI.Services
 
                 // Cache để theo dõi các package đã xử lý - có thể truy cập từ các hàm khác
                 var processedPackages = new HashSet<uint>();
-                
+
                 // Chia thành các batch nhỏ (tối đa 25 package mỗi lần thay vì 50)
                 int batchSize = 25;
-                
+
                 // Sử dụng vòng lặp for thay vì foreach với BatchItems
                 for (int i = 0; i < validPackages.Count; i += batchSize)
                 {
@@ -449,7 +450,7 @@ namespace SteamCmdWebAPI.Services
                     }
 
                     var batch = validPackages.Skip(i).Take(batchSize).ToList();
-                    
+
                     // Bỏ qua các package đã xử lý
                     var unprocessedBatch = new List<uint>();
                     foreach (var packageId in batch)
@@ -459,16 +460,16 @@ namespace SteamCmdWebAPI.Services
                             unprocessedBatch.Add(packageId);
                         }
                     }
-                    
+
                     if (unprocessedBatch.Count == 0)
                     {
                         _logger.LogDebug("Bỏ qua batch toàn package đã xử lý");
                         continue;
                     }
-                    
-                    _logger.LogInformation("Gửi yêu cầu cho batch {0}-{1}/{2} package...", 
+
+                    _logger.LogInformation("Gửi yêu cầu cho batch {0}-{1}/{2} package...",
                         i + 1, Math.Min(i + batchSize, validPackages.Count), validPackages.Count);
-                    
+
                     try
                     {
                         // Tạo danh sách PICSRequest cho SteamKit 3.1.0
@@ -483,7 +484,7 @@ namespace SteamCmdWebAPI.Services
                             apps: new List<SteamApps.PICSRequest>(),
                             packages: packageRequests
                         );
-                        
+
                         // Đánh dấu những package này là đã xử lý
                         foreach (var id in unprocessedBatch)
                         {
@@ -504,13 +505,13 @@ namespace SteamCmdWebAPI.Services
 
                 // Giảm timeout xuống 60 giây thay vì 2 phút
                 var reducedTimeout = TimeSpan.FromSeconds(60);
-                
+
                 // Đặt timeout để đảm bảo không bị treo - sử dụng reducedTimeout thay vì _licenseTimeout
                 Task.Run(() =>
                 {
                     if (!_licenseListEvent.WaitOne((int)reducedTimeout.TotalMilliseconds))
                     {
-                        _logger.LogWarning("Hết thời gian chờ xử lý package ({0} giây), tiếp tục với danh sách đã có", 
+                        _logger.LogWarning("Hết thời gian chờ xử lý package ({0} giây), tiếp tục với danh sách đã có",
                             reducedTimeout.TotalSeconds);
                         _isProcessingPackages = false;
 
@@ -535,7 +536,7 @@ namespace SteamCmdWebAPI.Services
                 _licenseListEvent.Set();
             }
         }
-        
+
         // Phương thức mới để trích xuất AppID trực tiếp từ đối tượng License
         private void ExtractAppIdsFromLicenses()
         {
@@ -543,10 +544,10 @@ namespace SteamCmdWebAPI.Services
             {
                 return;
             }
-            
+
             _logger.LogInformation("Phân tích trực tiếp {0} đối tượng License...", _licenses.Count);
             int extractedAppIds = 0;
-            
+
             foreach (var license in _licenses)
             {
                 try
@@ -557,30 +558,30 @@ namespace SteamCmdWebAPI.Services
                         _ownedAppIds.Add((uint)license.AccessToken);
                         extractedAppIds++;
                     }
-                    
+
                     // Một số license chứa AppID trong PackageID hoặc có quan hệ 1:1 với AppID
                     if (license.PackageID > 0 && license.PackageID < 5000000)
                     {
                         // Kiểm tra PaymentMethod thay vì sử dụng HasFlag với enum cụ thể
                         bool isSpecialLicense = false;
-                        
+
                         // Số đại diện cho FreeOnDemand thường là 10
                         if ((int)license.PaymentMethod == 10)
                         {
                             isSpecialLicense = true;
                         }
-                        
+
                         // Số đại diện cho HardwarePromo thường là 13
                         if ((int)license.PaymentMethod == 13)
                         {
                             isSpecialLicense = true;
                         }
-                        
+
                         if (!isSpecialLicense)
                         {
                             // Thử tìm AppID tương ứng với PackageID này
                             uint potentialAppId = license.PackageID;
-                            
+
                             // Một số package có AppID = PackageID, hoặc AppID = PackageID - offset
                             for (int offset = 0; offset <= 10; offset++)
                             {
@@ -591,7 +592,7 @@ namespace SteamCmdWebAPI.Services
                                     {
                                         _ownedAppIds.Add(appIdCandidate);
                                         extractedAppIds++;
-                                        
+
                                         // Nếu tìm được, không cần thử offset khác
                                         break;
                                     }
@@ -599,12 +600,12 @@ namespace SteamCmdWebAPI.Services
                             }
                         }
                     }
-                    
+
                     // Kiểm tra các trường khác của license (cho các phiên bản SteamKit mới hơn)
                     // Các trường này có thể thay đổi theo phiên bản của SteamKit
                     var licenseType = license.GetType();
                     var properties = licenseType.GetProperties();
-                    
+
                     foreach (var prop in properties)
                     {
                         try
@@ -617,7 +618,7 @@ namespace SteamCmdWebAPI.Services
                                 {
                                     foreach (var item in collection)
                                     {
-                                        if (item != null && uint.TryParse(item.ToString(), out uint appId) && 
+                                        if (item != null && uint.TryParse(item.ToString(), out uint appId) &&
                                             appId > 0 && appId < 5000000)
                                         {
                                             _ownedAppIds.Add(appId);
@@ -626,8 +627,8 @@ namespace SteamCmdWebAPI.Services
                                     }
                                 }
                                 // Nếu có thuộc tính AppID
-                                else if ((prop.Name.Contains("AppID") || prop.Name.Contains("AppId")) && 
-                                      uint.TryParse(value.ToString(), out uint appId) && 
+                                else if ((prop.Name.Contains("AppID") || prop.Name.Contains("AppId")) &&
+                                      uint.TryParse(value.ToString(), out uint appId) &&
                                       appId > 0 && appId < 5000000)
                                 {
                                     _ownedAppIds.Add(appId);
@@ -647,7 +648,7 @@ namespace SteamCmdWebAPI.Services
                     _logger.LogDebug("Lỗi khi phân tích đối tượng License: {0}", ex.Message);
                 }
             }
-            
+
             _logger.LogInformation("Đã trích xuất {0} AppID trực tiếp từ đối tượng License", extractedAppIds);
         }
 
@@ -658,7 +659,7 @@ namespace SteamCmdWebAPI.Services
             {
                 if (callback.Packages != null && callback.Packages.Count > 0)
                 {
-                    _logger.LogInformation("Nhận được thông tin của {0} package, tổng số AppId trong cache: {1}", 
+                    _logger.LogInformation("Nhận được thông tin của {0} package, tổng số AppId trong cache: {1}",
                         callback.Packages.Count, _ownedAppIds.Count + _familySharedAppIds.Count + _hiddenAppIds.Count);
 
                     foreach (var package in callback.Packages)
@@ -677,7 +678,7 @@ namespace SteamCmdWebAPI.Services
                             // Kiểm tra xem package này là từ Family Sharing hay không
                             bool isFromFamilySharing = IsPackageFromFamilySharing(packageId);
                             HashSet<uint> targetAppIdSet = isFromFamilySharing ? _familySharedAppIds : _ownedAppIds;
-                            
+
                             // Kiểm tra thuộc tính hidden của package
                             bool isPackageHidden = false;
                             try
@@ -725,8 +726,8 @@ namespace SteamCmdWebAPI.Services
                                     if (!string.IsNullOrEmpty(appNode.Name) && uint.TryParse(appNode.Name, out appId) && appId > 0)
                                     {
                                         targetAppIdSet.Add(appId);
-                                        
-                                                // Nếu package này là package ẩn, thêm appId vào _hiddenAppIds
+
+                                        // Nếu package này là package ẩn, thêm appId vào _hiddenAppIds
                                         if (isPackageHidden)
                                         {
                                             _hiddenAppIds.Add(appId);
@@ -734,7 +735,7 @@ namespace SteamCmdWebAPI.Services
                                         }
                                         else
                                         {
-                                            _logger.LogDebug("Đã tìm thấy AppID {0} từ Name node trong package {1}{2}", 
+                                            _logger.LogDebug("Đã tìm thấy AppID {0} từ Name node trong package {1}{2}",
                                                 appId, packageId, isFromFamilySharing ? " (Family Sharing)" : "");
                                         }
                                     }
@@ -742,7 +743,7 @@ namespace SteamCmdWebAPI.Services
                                     else if (appNode.Value != null && uint.TryParse(appNode.Value.ToString(), out appId) && appId > 0)
                                     {
                                         targetAppIdSet.Add(appId);
-                                        _logger.LogDebug("Đã tìm thấy AppID {0} từ Value node trong package {1}{2}", 
+                                        _logger.LogDebug("Đã tìm thấy AppID {0} từ Value node trong package {1}{2}",
                                             appId, packageId, isFromFamilySharing ? " (Family Sharing)" : "");
                                     }
                                 }
@@ -762,25 +763,25 @@ namespace SteamCmdWebAPI.Services
                     // Nếu không còn response nào nữa, chuyển sang lấy thông tin game
                     if (!callback.ResponsePending)
                     {
-                    _logger.LogInformation("Đã nhận đủ dữ liệu từ Steam");
-                    _licenseListEvent.Set();
-                    _isProcessingPackages = false;
+                        _logger.LogInformation("Đã nhận đủ dữ liệu từ Steam");
+                        _licenseListEvent.Set();
+                        _isProcessingPackages = false;
 
-                    if (_ownedAppIds.Count > 0)
-                    {
-                        ProcessAppIds();
+                        if (_ownedAppIds.Count > 0)
+                        {
+                            ProcessAppIds();
                         }
-                }
-                else
-                {
-                    _logger.LogInformation("Đang đợi thêm dữ liệu package từ Steam...");
-                }
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Đang đợi thêm dữ liệu package từ Steam...");
+                    }
                 }
 
                 // Xử lý thông tin app để lấy tên game
                 if (callback.Apps != null && callback.Apps.Count > 0)
                 {
-                    _logger.LogInformation("Nhận được thông tin của {0} app, tổng số apps trong cache hiện tại: {1}", 
+                    _logger.LogInformation("Nhận được thông tin của {0} app, tổng số apps trong cache hiện tại: {1}",
                         callback.Apps.Count, _appInfoCache.Count);
                     foreach (var app in callback.Apps)
                     {
@@ -819,7 +820,7 @@ namespace SteamCmdWebAPI.Services
                 // Đảm bảo các event được kích hoạt để không bị treo
                 if (callback.Packages != null && callback.Packages.Count > 0 && !callback.ResponsePending)
                 {
-                _licenseListEvent.Set();
+                    _licenseListEvent.Set();
                     _isProcessingPackages = false;
                 }
 
@@ -843,25 +844,25 @@ namespace SteamCmdWebAPI.Services
 
                 // Kiểm tra xem có phải là Series không, nếu là Series thì đánh dấu vào _hiddenAppIds
                 bool isSeries = false;
-                
+
                 // Kiểm tra node type
-                if (node.Name != null && node.Name.Equals("type", StringComparison.OrdinalIgnoreCase) && 
+                if (node.Name != null && node.Name.Equals("type", StringComparison.OrdinalIgnoreCase) &&
                     node.Value != null && node.Value.ToString().Equals("Series", StringComparison.OrdinalIgnoreCase))
                 {
                     isSeries = true;
                     _logger.LogDebug("Phát hiện Series từ node type trong package {0}", packageId);
                 }
-                
+
                 // Kiểm tra các node metadata liên quan đến Series
-                if (node.Name != null && 
-                    (node.Name.Equals("series", StringComparison.OrdinalIgnoreCase) || 
-                     node.Name.Equals("episodes", StringComparison.OrdinalIgnoreCase) || 
+                if (node.Name != null &&
+                    (node.Name.Equals("series", StringComparison.OrdinalIgnoreCase) ||
+                     node.Name.Equals("episodes", StringComparison.OrdinalIgnoreCase) ||
                      node.Name.Equals("seasons", StringComparison.OrdinalIgnoreCase)))
                 {
                     isSeries = true;
                     _logger.LogDebug("Phát hiện Series từ node metadata trong package {0}: node={1}", packageId, node.Name);
                 }
-                
+
                 // Nếu là Series, đánh dấu để bỏ qua sau này
                 if (isSeries && uint.TryParse(node.Name, out uint seriesAppId) && seriesAppId > 0)
                 {
@@ -920,7 +921,7 @@ namespace SteamCmdWebAPI.Services
                     // Kiểm tra nếu node này có node con tên là các thuộc tính liên quan đến game
                     bool isAppIdNode = false;
                     bool isSeriesNode = false;
-                    
+
                     if (node.Children != null)
                     {
                         // Kiểm tra xem đây có phải là node Series không
@@ -929,17 +930,17 @@ namespace SteamCmdWebAPI.Services
                             if (child != null && !string.IsNullOrEmpty(child.Name))
                             {
                                 // Kiểm tra các thuộc tính đặc trưng của Series
-                                if (child.Name.Equals("type", StringComparison.OrdinalIgnoreCase) && 
+                                if (child.Name.Equals("type", StringComparison.OrdinalIgnoreCase) &&
                                     child.Value != null && child.Value.ToString().Equals("Series", StringComparison.OrdinalIgnoreCase))
                                 {
                                     isSeriesNode = true;
                                     _logger.LogDebug("Phát hiện AppID {0} là Series từ node type", potentialAppId);
                                     break;
                                 }
-                                
+
                                 // Kiểm tra các thuộc tính metadata liên quan đến Series
-                                if (child.Name.Equals("series", StringComparison.OrdinalIgnoreCase) || 
-                                    child.Name.Equals("episodes", StringComparison.OrdinalIgnoreCase) || 
+                                if (child.Name.Equals("series", StringComparison.OrdinalIgnoreCase) ||
+                                    child.Name.Equals("episodes", StringComparison.OrdinalIgnoreCase) ||
                                     child.Name.Equals("seasons", StringComparison.OrdinalIgnoreCase))
                                 {
                                     isSeriesNode = true;
@@ -948,8 +949,8 @@ namespace SteamCmdWebAPI.Services
                                 }
                             }
                         }
-                        
-                        isAppIdNode = node.Children.Any(c => c != null && c.Name != null && 
+
+                        isAppIdNode = node.Children.Any(c => c != null && c.Name != null &&
                             (c.Name.Equals("gamedir", StringComparison.OrdinalIgnoreCase) ||
                              c.Name.Equals("name", StringComparison.OrdinalIgnoreCase) ||
                              c.Name.Equals("install_dir", StringComparison.OrdinalIgnoreCase) ||
@@ -958,14 +959,14 @@ namespace SteamCmdWebAPI.Services
                              c.Name.Equals("clienttga", StringComparison.OrdinalIgnoreCase) ||
                              c.Name.Equals("icon", StringComparison.OrdinalIgnoreCase)));
                     }
-                    
+
                     // Nếu phát hiện là Series, đánh dấu vào _hiddenAppIds
                     if (isSeriesNode)
                     {
                         _hiddenAppIds.Add(potentialAppId);
                         _logger.LogDebug("Đã đánh dấu AppID {0} là Series để bỏ qua", potentialAppId);
                     }
-                    
+
                     // SteamKit2.KeyValue không có thuộc tính Parent, nên cần tiếp cận khác
                     // Thay vì kiểm tra qua node cha, kiểm tra qua tên node
                     if (!isAppIdNode)
@@ -976,39 +977,39 @@ namespace SteamCmdWebAPI.Services
                         {
                             // Các node con có tên đặc trưng của game/app
                             var commonChildNames = new[] { "name", "type", "config", "dlc", "depots", "common" };
-                            isAppIdNode = node.Children.Any(c => c != null && c.Name != null && 
+                            isAppIdNode = node.Children.Any(c => c != null && c.Name != null &&
                                 commonChildNames.Contains(c.Name.ToLower()));
                         }
                     }
-                    
+
                     if (isAppIdNode && !isSeriesNode)
                     {
                         targetAppIdSet.Add(potentialAppId);
                         _logger.LogDebug("Đã tìm thấy AppID {0} là tên node trong package {1}{2}",
                             potentialAppId, packageId, sourceTag);
                     }
-                    
+
                     // Kiểm tra thêm dựa trên đặc điểm của node và node con
                     if (!isAppIdNode && !isSeriesNode && node.Children != null && node.Children.Count > 1)
                     {
                         // Kiểm tra số lượng node con có cấu trúc tương tự AppID
                         int similarChildrenCount = 0;
                         int totalChildrenCount = 0;
-                        
+
                         foreach (var child in node.Children)
                         {
                             if (child == null) continue;
                             totalChildrenCount++;
-                            
-                            if (uint.TryParse(child.Name, out uint siblingId) && 
+
+                            if (uint.TryParse(child.Name, out uint siblingId) &&
                                 siblingId > 0 && siblingId < 5000000)
                             {
                                 similarChildrenCount++;
                             }
                         }
-                        
+
                         // Nếu phần lớn các node con đều là số và nằm trong phạm vi AppID
-                        if (totalChildrenCount > 0 && similarChildrenCount > 0 && 
+                        if (totalChildrenCount > 0 && similarChildrenCount > 0 &&
                             ((double)similarChildrenCount / totalChildrenCount >= 0.5))
                         {
                             targetAppIdSet.Add(potentialAppId);
@@ -1017,9 +1018,9 @@ namespace SteamCmdWebAPI.Services
                         }
                     }
                 }
-                
+
                 // Trường hợp đặc biệt: kiểm tra các node có thể chứa appid
-                if (node.Name != null && node.Children != null && 
+                if (node.Name != null && node.Children != null &&
                     (node.Name.Equals("app", StringComparison.OrdinalIgnoreCase) ||
                      node.Name.Equals("dlc", StringComparison.OrdinalIgnoreCase) ||
                      node.Name.Equals("depots", StringComparison.OrdinalIgnoreCase) ||
@@ -1028,21 +1029,21 @@ namespace SteamCmdWebAPI.Services
                     foreach (var child in node.Children)
                     {
                         if (child == null || child.Children == null) continue;
-                        
+
                         // Kiểm tra node con có tên "appid"
                         KeyValue appidNode = null;
                         foreach (var subChild in child.Children)
                         {
-                            if (subChild != null && subChild.Name != null && 
+                            if (subChild != null && subChild.Name != null &&
                                 subChild.Name.Equals("appid", StringComparison.OrdinalIgnoreCase))
                             {
                                 appidNode = subChild;
                                 break;
                             }
                         }
-                        
+
                         if (appidNode != null && appidNode.Value != null &&
-                            uint.TryParse(appidNode.Value.ToString(), out uint appId) && 
+                            uint.TryParse(appidNode.Value.ToString(), out uint appId) &&
                             appId > 0 && appId < 5000000)
                         {
                             targetAppIdSet.Add(appId);
@@ -1089,9 +1090,9 @@ namespace SteamCmdWebAPI.Services
                 {
                     allAppIds.Add(appId);
                 }
-                
+
                 // Thêm thông tin tổng quan về số lượng game đã tìm thấy
-                _logger.LogInformation("Đã tìm thấy tổng cộng {0} AppID (sở hữu: {1}, Family Sharing: {2}, ẩn: {3}), đang lấy thông tin chi tiết...", 
+                _logger.LogInformation("Đã tìm thấy tổng cộng {0} AppID (sở hữu: {1}, Family Sharing: {2}, ẩn: {3}), đang lấy thông tin chi tiết...",
                 allAppIds.Count, _ownedAppIds.Count, _familySharedAppIds.Count, _hiddenAppIds.Count);
 
                 if (allAppIds.Count == 0)
@@ -1119,15 +1120,15 @@ namespace SteamCmdWebAPI.Services
                     // Kiểm tra nếu đã xử lý quá lâu thì dừng
                     if (DateTime.Now - processingStartTime > maxProcessingTime)
                     {
-                        _logger.LogWarning("Đã vượt quá thời gian xử lý tối đa ({0} phút), dừng quá trình và tiếp tục với dữ liệu đã có", 
+                        _logger.LogWarning("Đã vượt quá thời gian xử lý tối đa ({0} phút), dừng quá trình và tiếp tục với dữ liệu đã có",
                             maxProcessingTime.TotalMinutes);
                         break;
                     }
 
                     var batch = appIdsList.Skip(i).Take(batchSize).ToList();
-                    _logger.LogInformation("Gửi yêu cầu cho batch {0}-{1}/{2} ứng dụng...", 
+                    _logger.LogInformation("Gửi yêu cầu cho batch {0}-{1}/{2} ứng dụng...",
                         i + 1, Math.Min(i + batchSize, appIdsList.Count), appIdsList.Count);
-                    
+
                     try
                     {
                         // Tạo PICSRequest objects cho SteamKit 3.1.0
@@ -1148,7 +1149,7 @@ namespace SteamCmdWebAPI.Services
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Lỗi khi xử lý batch {0}-{1}: {2}", 
+                        _logger.LogError(ex, "Lỗi khi xử lý batch {0}-{1}: {2}",
                             i + 1, Math.Min(i + batchSize, appIdsList.Count), ex.Message);
                         // Đợi thêm thời gian nếu gặp lỗi
                         Thread.Sleep(1000);
@@ -1161,7 +1162,7 @@ namespace SteamCmdWebAPI.Services
                 Task.Run(() => {
                     if (!_appInfoEvent.WaitOne((int)reducedTimeout.TotalMilliseconds))
                     {
-                        _logger.LogWarning("Hết thời gian chờ xử lý app ({0} giây), tiếp tục với danh sách đã có", 
+                        _logger.LogWarning("Hết thời gian chờ xử lý app ({0} giây), tiếp tục với danh sách đã có",
                             reducedTimeout.TotalSeconds);
                         _logger.LogInformation("Đã nhận được thông tin cho {0} app", _appInfoCache.Count);
                         // Set event để giải phóng các luồng đang chờ
@@ -1193,7 +1194,7 @@ namespace SteamCmdWebAPI.Services
                     _steamClient.Disconnect();
                     await Task.Delay(500); // Brief delay to ensure disconnection is processed
                 }
-                
+
                 // Thêm retry logic cho kết nối
                 for (int retryCount = 0; retryCount <= _maxConnectionRetries; retryCount++)
                 {
@@ -1384,7 +1385,7 @@ namespace SteamCmdWebAPI.Services
 
             // Giảm thời gian chờ licenses xuống 90 giây thay vì 2 phút
             var reducedLicenseTimeout = TimeSpan.FromSeconds(90);
-            
+
             // Đợi xử lý license với timeout
             bool licensesProcessed = _licenseListEvent.WaitOne((int)reducedLicenseTimeout.TotalMilliseconds);
             if (!licensesProcessed)
@@ -1410,7 +1411,7 @@ namespace SteamCmdWebAPI.Services
 
             // Giảm thời gian chờ appInfo xuống 60 giây thay vì 2 phút
             var reducedAppInfoTimeout = TimeSpan.FromSeconds(60);
-            
+
             // Đợi xử lý thông tin app với timeout
             bool appsProcessed = _appInfoEvent.WaitOne((int)reducedAppInfoTimeout.TotalMilliseconds);
             if (!appsProcessed)
@@ -1428,7 +1429,7 @@ namespace SteamCmdWebAPI.Services
 
             // Tạo kết quả kết hợp cả 3 loại game
             var results = new List<(string AppId, string GameName)>();
-            
+
             // Xử lý các game sở hữu
             foreach (var appId in _ownedAppIds)
             {
@@ -1437,7 +1438,7 @@ namespace SteamCmdWebAPI.Services
                     continue;
                 }
             }
-            
+
             // Xử lý các game từ Family Sharing (thêm prefix "[FS]" vào tên game)
             foreach (var appId in _familySharedAppIds)
             {
@@ -1446,25 +1447,25 @@ namespace SteamCmdWebAPI.Services
                 {
                     continue;
                 }
-                
+
                 if (ProcessAppIdForResults(appId, results, true, false))
                 {
                     continue;
                 }
             }
-            
+
             // Lọc bỏ Series trước khi trả về kết quả
             var seriesAppIds = new HashSet<string>();
             var filteredResults = new List<(string AppId, string GameName)>();
-            
+
             foreach (var result in results)
             {
                 string appId = result.AppId;
                 string name = result.GameName;
-                
+
                 // Kiểm tra nếu tên game có dấu hiệu là Series
                 bool isSeries = false;
-                
+
                 // Kiểm tra tên game có chứa các từ khóa của Series
                 if (name.IndexOf("Series", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     name.IndexOf("Season", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -1475,7 +1476,7 @@ namespace SteamCmdWebAPI.Services
                     seriesAppIds.Add(appId);
                     _logger.LogDebug("Phát hiện Series từ tên game: AppID={0}, Name={1}", appId, name);
                 }
-                
+
                 // Kiểm tra nếu AppID thuộc danh sách _hiddenAppIds
                 if (uint.TryParse(appId, out uint numAppId) && _hiddenAppIds.Contains(numAppId))
                 {
@@ -1483,14 +1484,14 @@ namespace SteamCmdWebAPI.Services
                     seriesAppIds.Add(appId);
                     _logger.LogDebug("Phát hiện Series từ _hiddenAppIds: AppID={0}, Name={1}", appId, name);
                 }
-                
+
                 // Nếu không phải Series, thêm vào kết quả cuối cùng
                 if (!isSeries)
                 {
                     filteredResults.Add(result);
                 }
             }
-            
+
             _logger.LogInformation("Đã lọc bỏ {0} Series từ tổng số {1} game", seriesAppIds.Count, results.Count);
 
             // Kiểm tra tổng thể thông tin đã nhận được
@@ -1512,7 +1513,7 @@ namespace SteamCmdWebAPI.Services
 
             return filteredResults;
         }
-        
+
         // Phương thức hỗ trợ để xử lý AppID và thêm vào kết quả
         private bool ProcessAppIdForResults(uint appId, List<(string AppId, string GameName)> results, bool isFromFamilySharing, bool isHidden)
         {
@@ -1545,16 +1546,18 @@ namespace SteamCmdWebAPI.Services
                     {
                         name = nameNode.Value.ToString();
                     }
-                    
+
                     // Kiểm tra loại ứng dụng
                     var typeNode = common["type"];
                     if (typeNode != null && typeNode.Value != null)
                     {
                         string appType = typeNode.Value.ToString();
-                        
+
                         // Lọc bỏ ứng dụng có loại "Video", "Tool", "Media", "Legacy Media" và "Series"
                         if (appType.Equals("Video", StringComparison.OrdinalIgnoreCase) ||
                             appType.Equals("Tool", StringComparison.OrdinalIgnoreCase) ||
+                            appType.Equals("DLC", StringComparison.OrdinalIgnoreCase) ||
+                            appType.Equals("Application", StringComparison.OrdinalIgnoreCase) ||
                             appType.Equals("Media", StringComparison.OrdinalIgnoreCase) ||
                             appType.Equals("Demo", StringComparison.OrdinalIgnoreCase) ||
                             appType.Equals("Legacy Media", StringComparison.OrdinalIgnoreCase) ||
@@ -1584,14 +1587,14 @@ namespace SteamCmdWebAPI.Services
                 {
                     // Kiểm tra thêm các dấu hiệu của tool/video/series thông qua các thuộc tính khác
                     bool isTool = false;
-                    
+
                     // Kiểm tra categoryNodes trong KeyValues - đối với SteamKit 3.1.0
                     KeyValue categoryNodes = null;
-                    if (common == null) 
+                    if (common == null)
                     {
                         return false;
                     }
-                        
+
                     try
                     {
                         // Tìm kiếm node category hoặc categories
@@ -1618,17 +1621,17 @@ namespace SteamCmdWebAPI.Services
                             }
                         }
                     }
-                    
+
                     if (isTool)
                     {
                         skipReason = "Tool/Video/Series (from name/categories)";
                         shouldSkip = true;
                     }
                 }
-                
+
                 // Kiểm tra thêm cho Series
-                if (name.Contains(":") && 
-                   (name.Contains("Episode") || name.Contains("Season") || name.Contains("Chapter") || 
+                if (name.Contains(":") &&
+                   (name.Contains("Episode") || name.Contains("Season") || name.Contains("Chapter") ||
                     name.Contains("Part") || name.Contains("Series")))
                 {
                     skipReason = "Series (from name pattern)";
@@ -1700,7 +1703,7 @@ namespace SteamCmdWebAPI.Services
                         // Tìm trong cache
                         string name = "";
                         bool isSeries = false;
-                        
+
                         if (_appInfoCache.TryGetValue(id, out var appInfo) && appInfo?.KeyValues != null)
                         {
                             var common = appInfo.KeyValues?["common"];
@@ -1711,7 +1714,7 @@ namespace SteamCmdWebAPI.Services
                                 {
                                     name = nameNode.Value.ToString();
                                 }
-                                
+
                                 // Kiểm tra xem có phải là Series không
                                 var typeNode = common["type"];
                                 if (typeNode != null && typeNode.Value != null)
@@ -1743,7 +1746,7 @@ namespace SteamCmdWebAPI.Services
                         {
                             continue;
                         }
-                        
+
                         // Kiểm tra nếu tên game có dấu hiệu là Series
                         if (name.IndexOf("Series", StringComparison.OrdinalIgnoreCase) >= 0 ||
                             name.IndexOf("Season", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -1753,7 +1756,7 @@ namespace SteamCmdWebAPI.Services
                             _logger.LogDebug("Bỏ qua Series từ tên: AppID={0}, Name={1}", id, name);
                             continue;
                         }
-                        
+
                         // Kiểm tra nếu thuộc danh sách _hiddenAppIds
                         if (_hiddenAppIds.Contains(id))
                         {
@@ -1816,48 +1819,48 @@ namespace SteamCmdWebAPI.Services
             _authCode = null;
             _twoFactorCode = null;
             _isWaitingFor2FA = false;
-            
+
             // Xóa cache trước khi bắt đầu quét
             ClearCache();
-            
+
             // Đơn giản hóa - gọi thẳng đến hàm xử lý chính
             try
             {
-                string usernameHint = !string.IsNullOrEmpty(username) && username.Length > 3 ? 
+                string usernameHint = !string.IsNullOrEmpty(username) && username.Length > 3 ?
                     username.Substring(0, 3) + "***" : "***";
                 _logger.LogInformation("Đang quét danh sách game cho tài khoản {UsernameHint}...", usernameHint);
-                
+
                 // Kiểm tra xem username và password có được mã hóa không, nếu có thì giải mã
                 string decodedUsername = username;
                 string decodedPassword = password;
                 bool usernameDecrypted = false;
                 bool passwordDecrypted = false;
-                
+
                 // Log chi tiết về dữ liệu đầu vào để debug
-                _logger.LogDebug("ScanAccountGames: Độ dài username: {UsernameLength}, Độ dài password: {PasswordLength}", 
+                _logger.LogDebug("ScanAccountGames: Độ dài username: {UsernameLength}, Độ dài password: {PasswordLength}",
                     username?.Length ?? 0, password?.Length ?? 0);
-                
+
                 // Log giá trị hash của chuỗi đầu vào để debug (không log giá trị thực)
                 if (!string.IsNullOrEmpty(username))
                 {
-                    _logger.LogDebug("ScanAccountGames: Username hash: {Hash}", 
+                    _logger.LogDebug("ScanAccountGames: Username hash: {Hash}",
                         Convert.ToBase64String(System.Security.Cryptography.MD5.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes(username))));
                 }
-                
+
                 // Thử phát hiện chuỗi đã mã hóa dựa vào các đặc điểm như độ dài, ký tự đặc biệt, v.v.
-                bool isUsernameLikelyEncrypted = !string.IsNullOrEmpty(username) && 
-                    username.Length > 20 && 
-                    username.Contains("=") && 
+                bool isUsernameLikelyEncrypted = !string.IsNullOrEmpty(username) &&
+                    username.Length > 20 &&
+                    username.Contains("=") &&
                     !username.Contains(" ");
-                    
-                bool isPasswordLikelyEncrypted = !string.IsNullOrEmpty(password) && 
-                    password.Length > 20 && 
-                    password.Contains("=") && 
+
+                bool isPasswordLikelyEncrypted = !string.IsNullOrEmpty(password) &&
+                    password.Length > 20 &&
+                    password.Contains("=") &&
                     !password.Contains(" ");
-                
-                _logger.LogDebug("ScanAccountGames: Phát hiện sơ bộ - Username có vẻ đã mã hóa: {Encrypted}, Password có vẻ đã mã hóa: {Encrypted}", 
+
+                _logger.LogDebug("ScanAccountGames: Phát hiện sơ bộ - Username có vẻ đã mã hóa: {Encrypted}, Password có vẻ đã mã hóa: {Encrypted}",
                     isUsernameLikelyEncrypted, isPasswordLikelyEncrypted);
-                
+
                 // Thử giải mã username
                 if (!string.IsNullOrEmpty(username))
                 {
@@ -1866,11 +1869,11 @@ namespace SteamCmdWebAPI.Services
                         string originalUsername = username;
                         decodedUsername = _encryptionService.Decrypt(username);
                         usernameDecrypted = true;
-                        string decryptedHint = decodedUsername.Length > 3 ? 
+                        string decryptedHint = decodedUsername.Length > 3 ?
                             decodedUsername.Substring(0, 3) + "***" : "***";
-                            
-                        _logger.LogDebug("ScanAccountGames: Đã giải mã username thành công: hash={Original} -> hash={Decrypted}", 
-                            Convert.ToBase64String(System.Security.Cryptography.MD5.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes(originalUsername))), 
+
+                        _logger.LogDebug("ScanAccountGames: Đã giải mã username thành công: hash={Original} -> hash={Decrypted}",
+                            Convert.ToBase64String(System.Security.Cryptography.MD5.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes(originalUsername))),
                             Convert.ToBase64String(System.Security.Cryptography.MD5.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes(decodedUsername))));
                     }
                     catch (Exception ex)
@@ -1879,7 +1882,7 @@ namespace SteamCmdWebAPI.Services
                         // Giữ nguyên username gốc nếu không thể giải mã
                     }
                 }
-                
+
                 // Thử giải mã password
                 if (!string.IsNullOrEmpty(password))
                 {
@@ -1895,22 +1898,22 @@ namespace SteamCmdWebAPI.Services
                         // Giữ nguyên password gốc nếu không thể giải mã
                     }
                 }
-                
-                _logger.LogInformation("ScanAccountGames: Trạng thái giải mã - Username: {UsernameDecrypted}, Password: {PasswordDecrypted}, Có vẻ đã mã hóa: Username={UsernameEncrypted}, Password={PasswordEncrypted}", 
+
+                _logger.LogInformation("ScanAccountGames: Trạng thái giải mã - Username: {UsernameDecrypted}, Password: {PasswordDecrypted}, Có vẻ đã mã hóa: Username={UsernameEncrypted}, Password={PasswordEncrypted}",
                     usernameDecrypted, passwordDecrypted, isUsernameLikelyEncrypted, isPasswordLikelyEncrypted);
-                
+
                 // Kiểm tra tính hợp lệ trước khi thử đăng nhập
                 if (string.IsNullOrEmpty(decodedUsername) || string.IsNullOrEmpty(decodedPassword))
                 {
                     _logger.LogError("ScanAccountGames: Username hoặc password sau khi giải mã là rỗng, không thể đăng nhập");
                     throw new Exception("Thông tin đăng nhập không hợp lệ sau khi giải mã");
                 }
-                
-                string decodedUsernameHint = decodedUsername.Length > 3 ? 
+
+                string decodedUsernameHint = decodedUsername.Length > 3 ?
                     decodedUsername.Substring(0, 3) + "***" : "***";
-                _logger.LogInformation("ScanAccountGames: Đang gọi GetOwnedGamesAsync với username: {UsernameHint}", 
+                _logger.LogInformation("ScanAccountGames: Đang gọi GetOwnedGamesAsync với username: {UsernameHint}",
                     decodedUsernameHint);
-                
+
                 return await GetOwnedGamesAsync(decodedUsername, decodedPassword);
             }
             catch (Exception ex)
@@ -1932,11 +1935,11 @@ namespace SteamCmdWebAPI.Services
                     // 1. PaymentMethod có giá trị 0 hoặc 10 (FreeOnDemand)
                     // 2. LicenseType thường có giá trị 1 cho license được chia sẻ
                     // Sử dụng ép kiểu (int) khi so sánh với enum - cải thiện việc phát hiện các license từ Family Sharing
-                    if (((int)license.PaymentMethod == 0 || 
-                         (int)license.PaymentMethod == 10 || 
+                    if (((int)license.PaymentMethod == 0 ||
+                         (int)license.PaymentMethod == 10 ||
                          (int)license.PaymentMethod == 11) && // Thêm loại 11 (FamilySharing)
-                        ((int)license.LicenseType == 1 || 
-                         (int)license.LicenseType == 0 || 
+                        ((int)license.LicenseType == 1 ||
+                         (int)license.LicenseType == 0 ||
                          (int)license.LicenseType == 4)) // Thêm loại 4 (có thể là Family Sharing)
                     {
                         _logger.LogDebug("Phát hiện license Family Sharing: PaymentMethod={0}, LicenseType={1}, PackageID={2}",
@@ -1945,7 +1948,7 @@ namespace SteamCmdWebAPI.Services
                     }
                 }
             }
-            
+
             return false;
         }
     }

@@ -517,14 +517,50 @@ namespace SteamCmdWebAPI.Services
                                 profile.SteamUsername,
                                 !string.IsNullOrEmpty(profile.SteamPassword) ? "[HIDDEN]" : "null");
                             
+                            // Kiểm tra và giải mã username nếu cần
                             if (!string.IsNullOrEmpty(profile.SteamUsername) && profile.SteamUsername.Length > 20)
                             {
                                 _logger.LogInformation("Username có vẻ đã được mã hóa, độ dài: {Length}", profile.SteamUsername.Length);
+                                try
+                                {
+                                    string decryptedUsername = _encryptionService.Decrypt(profile.SteamUsername);
+                                    if (!string.IsNullOrEmpty(decryptedUsername))
+                                    {
+                                        _logger.LogInformation("Đã giải mã username thành công");
+                                        profile.SteamUsername = decryptedUsername;
+                                    }
+                                    else
+                                    {
+                                        _logger.LogWarning("Giải mã username trả về chuỗi rỗng");
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError(ex, "Lỗi khi giải mã username");
+                                }
                             }
                             
+                            // Kiểm tra và giải mã password nếu cần
                             if (!string.IsNullOrEmpty(profile.SteamPassword) && profile.SteamPassword.Length > 20)
                             {
                                 _logger.LogInformation("Password có vẻ đã được mã hóa, độ dài: {Length}", profile.SteamPassword.Length);
+                                try
+                                {
+                                    string decryptedPassword = _encryptionService.Decrypt(profile.SteamPassword);
+                                    if (!string.IsNullOrEmpty(decryptedPassword))
+                                    {
+                                        _logger.LogInformation("Đã giải mã password thành công");
+                                        profile.SteamPassword = decryptedPassword;
+                                    }
+                                    else
+                                    {
+                                        _logger.LogWarning("Giải mã password trả về chuỗi rỗng");
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError(ex, "Lỗi khi giải mã password");
+                                }
                             }
                             
                             return profile;
